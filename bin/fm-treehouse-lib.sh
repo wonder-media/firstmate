@@ -5,7 +5,9 @@
 # `treehouse status --json` is the authority for the managed spelling of a
 # pooled worktree path. Callers compare its path with a recorded or observed
 # path through physical resolution, then keep the managed spelling for every
-# Treehouse command and durable metadata record.
+# Treehouse command and durable metadata record. Path identity only locates the
+# slot; it never proves teardown ownership, which callers decide from current
+# occupancy, endpoint liveness, owner generation, and the shared operation lock.
 #
 # fm_treehouse_lookup_slot <path>
 #   Sets FM_TREEHOUSE_SLOT_PATH, FM_TREEHOUSE_SLOT_STATUS,
@@ -22,6 +24,13 @@
 # fm_treehouse_write_owner <worktree> <task-id> <spawn-generation>
 #   Atomically writes the ignored `.fm-treehouse-owner` slot binding used by
 #   teardown to distinguish a stale task record from a reissued live slot.
+#
+# fm_treehouse_operation_lock_path
+#   Prints the host-user-wide lifecycle lock shared by every Firstmate home.
+#   Spawn holds it from before `treehouse get` through owner/meta publication;
+#   teardown holds it from before slot identity inspection through every
+#   worktree mutation and return. This closes legacy interactive-slot rebinding
+#   races that have no Treehouse lease id available for conditional return.
 
 FM_TREEHOUSE_SLOT_PATH=
 FM_TREEHOUSE_SLOT_STATUS=
@@ -54,11 +63,19 @@ fm_treehouse_paths_match() {
 
 fm_treehouse_status_unavailable_rc() {
   local help
-  help=$(treehouse status --help 2>&1 || true)
+  help=$(treehouse status --help 2>&1) || return 3
+  [ -n "$help" ] || return 3
   if printf '%s\n' "$help" | grep -F -- '--json' >/dev/null 2>&1; then
     return 3
   fi
   return 2
+}
+
+fm_treehouse_operation_lock_path() {
+  local uid
+  uid=$(id -u 2>/dev/null) || return 1
+  case "$uid" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "${FM_TREEHOUSE_OPERATION_LOCK:-/tmp/firstmate-treehouse-$uid.lock}"
 }
 
 fm_treehouse_lookup_slot() {

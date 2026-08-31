@@ -58,8 +58,18 @@ SH
 #!/usr/bin/env bash
 if [ "${1:-}" = status ] && [ "${2:-}" = --json ] \
    && [ -n "${FM_FAKE_MANAGED_PATH:-}" ]; then
+  [ -z "${FM_FAKE_TREEHOUSE_LOCK_PROOF:-}" ] \
+    || { [ -d "${FM_TREEHOUSE_OPERATION_LOCK:?}" ] \
+      && printf '%s\n' lock-held > "$FM_FAKE_TREEHOUSE_LOCK_PROOF"; }
   printf '[{"path":"%s","status":"in-use","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]\n' \
     "$FM_FAKE_MANAGED_PATH"
+  exit 0
+fi
+if [ "${1:-} ${2:-}" = "status --json" ]; then
+  exit 1
+fi
+if [ "${1:-} ${2:-}" = "status --help" ]; then
+  printf '%s\n' 'Usage: treehouse status'
 fi
 exit 0
 SH
@@ -103,6 +113,7 @@ run_settle_spawn() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
+    FM_TREEHOUSE_OPERATION_LOCK="$HOME_DIR/treehouse-operation.lock" \
     FM_FAKE_PANE_PATH="$WT_DIR" FM_FAKE_PANE_STALE="$STALE_DIR" \
     FM_FAKE_PANE_STALE_READS="$STALE_READS" FM_FAKE_PANE_COUNTFILE="$COUNTFILE" \
     PATH="$FAKEBIN_DIR:$PATH" \
@@ -115,9 +126,11 @@ run_managed_settle_spawn() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" \
+    FM_TREEHOUSE_OPERATION_LOCK="$HOME_DIR/treehouse-operation.lock" \
     FM_FAKE_PANE_PATH="$WT_DIR" FM_FAKE_PANE_STALE="$STALE_DIR" \
     FM_FAKE_PANE_STALE_READS="$STALE_READS" FM_FAKE_PANE_COUNTFILE="$COUNTFILE" \
-    FM_FAKE_MANAGED_PATH="$managed" PATH="$FAKEBIN_DIR:$PATH" \
+    FM_FAKE_MANAGED_PATH="$managed" FM_FAKE_TREEHOUSE_LOCK_PROOF="$HOME_DIR/treehouse-lock-proof" \
+    PATH="$FAKEBIN_DIR:$PATH" \
     "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1
 }
 
@@ -180,6 +193,8 @@ test_physical_pane_path_records_managed_treehouse_path() {
     "meta retained the physical worktree path instead of the managed path"
   assert_grep "task_id=$id" "$managed/.fm-treehouse-owner" \
     "spawn did not bind the managed slot to the task identity"
+  assert_present "$HOME_DIR/treehouse-lock-proof" \
+    "spawn did not hold the shared Treehouse operation lock during managed-slot publication"
   pass "a physical pane cwd is recorded and owned through Treehouse's managed path"
 }
 

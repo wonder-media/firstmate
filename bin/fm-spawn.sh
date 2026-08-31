@@ -211,6 +211,9 @@
 # success line and state/<id>.meta omit them.
 # Every fresh spawn or relaunch records a new spawn_gen= incarnation token so durable
 # consumers can distinguish a replacement worker that reuses the same task id.
+# Every ordinary pooled spawn holds the host-user-wide Treehouse operation lock
+# from before allocation through owner-marker and task-metadata publication, so
+# teardown's identity-to-return critical section cannot race a slot reissue.
 # When the home session's frozen trace-context decision is enabled (see
 # docs/configuration.md and bin/fm-trace-context-lib.sh), the meta also records
 # one W3C traceparent= carrier, the same value injected into the pane as
@@ -696,6 +699,8 @@ SPAWN_META_LOCK_HELD=0
 SPAWN_META_PUBLISH_STARTED=0
 SPAWN_TASK_SET_LOCK=
 SPAWN_TASK_SET_LOCK_HELD=0
+SPAWN_TREEHOUSE_LOCK=
+SPAWN_TREEHOUSE_LOCK_HELD=0
 RELAUNCH_REPLACEMENT_PENDING=0
 RELAUNCH_REPLACEMENT_BUSY_GEN=
 RELAUNCH_REPLACEMENT_HARNESS=
@@ -804,6 +809,10 @@ spawn_abort_cleanup() {
   if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
     SPAWN_TASK_SET_LOCK_HELD=0
     fm_lock_release "$SPAWN_TASK_SET_LOCK" || true
+  fi
+  if [ "$SPAWN_TREEHOUSE_LOCK_HELD" = 1 ]; then
+    SPAWN_TREEHOUSE_LOCK_HELD=0
+    fm_lock_release "$SPAWN_TREEHOUSE_LOCK" || true
   fi
   if [ "$SPAWN_CONTROL_LOCK_HELD" = 1 ]; then
     SPAWN_CONTROL_LOCK_HELD=0
@@ -2384,6 +2393,12 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  SPAWN_TREEHOUSE_LOCK=$(fm_treehouse_operation_lock_path) || {
+    echo "error: could not resolve the shared Treehouse operation lock; refusing an uncoordinated pool allocation" >&2
+    exit 1
+  }
+  fm_lock_acquire_wait "$SPAWN_TREEHOUSE_LOCK"
+  SPAWN_TREEHOUSE_LOCK_HELD=1
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
@@ -2905,6 +2920,12 @@ if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   # publication.
   SPAWN_TASK_SET_LOCK_HELD=0
   fm_lock_release "$SPAWN_TASK_SET_LOCK"
+fi
+if [ "$SPAWN_TREEHOUSE_LOCK_HELD" = 1 ]; then
+  # The managed path, owner generation, and task record are now one published
+  # identity. A teardown may take the shared lock and act on that proof.
+  SPAWN_TREEHOUSE_LOCK_HELD=0
+  fm_lock_release "$SPAWN_TREEHOUSE_LOCK"
 fi
 [ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
