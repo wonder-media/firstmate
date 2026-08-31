@@ -1057,10 +1057,15 @@ test_complete_journal_failure_rolls_back_from_durable_phase() {
 }
 
 test_prepublication_abort_retires_replacement_wiring_and_busy_state() {
-  local dir out rc real_mv meta
+  local dir out rc real_mv meta prior_gen retry_gen
   dir=$(new_case prepublishcleanup rl28)
   add_ship_task "$dir" rl28 claude
   meta="$dir/home/state/rl28.meta"
+  prior_gen=s-prior
+  printf 'spawn_gen=%s\n' "$prior_gen" >> "$meta"
+  printf 'task_id=rl28\nspawn_gen=%s\n' "$prior_gen" > "$dir/wt/.fm-treehouse-owner"
+  make_treehouse_status_stub "$dir"
+  write_treehouse_status "$dir" rl28
   real_mv=$(command -v mv)
   make_mv_failure_stub "$dir"
   out=$(FM_REAL_MV="$real_mv" FM_FAKE_META_PUBLISH_MV_FAIL="$meta" \
@@ -1068,6 +1073,10 @@ test_prepublication_abort_retires_replacement_wiring_and_busy_state() {
   expect_code 1 "$rc" "a failed metadata publication should fail closed"$'\n'"$out"
   [ "$(meta_field "$dir" rl28 harness)" = claude ] \
     || fail "a failed publication should retain the prior durable record"
+  [ "$(meta_field "$dir" rl28 spawn_gen)" = "$prior_gen" ] \
+    || fail "a failed publication should retain the prior metadata generation"
+  [ "$(grep '^spawn_gen=' "$dir/wt/.fm-treehouse-owner" | cut -d= -f2-)" = "$prior_gen" ] \
+    || fail "an aborted relaunch should restore the prior Treehouse owner generation"
   [ ! -e "$dir/wt/.claude/settings.local.json" ] \
     || fail "an aborted replacement should remove its harness wiring"
   [ ! -e "$dir/home/state/rl28.busy-gen" ] \
@@ -1076,7 +1085,15 @@ test_prepublication_abort_retires_replacement_wiring_and_busy_state() {
     || fail "an aborted replacement should remove its seeded busy record"
   [ "$(journal_field "$dir" rl28 rollback)" = prior-record-kept ] \
     || fail "the journal should record the unpublished replacement rollback"
-  pass "fm-spawn relaunch: prepublication abort removes replacement state"
+  rm -f "$dir/fakebin/mv"
+  out=$(run_spawn "$dir" rl28 --relaunch --harness claude); rc=$?
+  expect_code 0 "$rc" "restored ownership should permit a direct relaunch retry"$'\n'"$out"
+  retry_gen=$(meta_field "$dir" rl28 spawn_gen)
+  [ -n "$retry_gen" ] && [ "$retry_gen" != "$prior_gen" ] \
+    || fail "the retry should publish a replacement metadata generation"
+  [ "$(grep '^spawn_gen=' "$dir/wt/.fm-treehouse-owner" | cut -d= -f2-)" = "$retry_gen" ] \
+    || fail "the retry should publish matching owner and metadata generations"
+  pass "fm-spawn relaunch: prepublication abort restores ownership and permits retry"
 }
 
 test_journal_records_the_checkpoint_it_proved() {
