@@ -211,9 +211,10 @@
 # success line and state/<id>.meta omit them.
 # Every fresh spawn or relaunch records a new spawn_gen= incarnation token so durable
 # consumers can distinguish a replacement worker that reuses the same task id.
-# Every ordinary pooled spawn holds the host-user-wide Treehouse operation lock
-# from before allocation through owner-marker and task-metadata publication, so
-# teardown's identity-to-return critical section cannot race a slot reissue.
+# Every ordinary pooled spawn or relaunch holds the host-user-wide Treehouse
+# operation lock from before allocation or slot adoption through owner-marker
+# and task-metadata publication, so teardown's identity-to-return critical
+# section cannot race a slot reissue.
 # When the home session's frozen trace-context decision is enabled (see
 # docs/configuration.md and bin/fm-trace-context-lib.sh), the meta also records
 # one W3C traceparent= carrier, the same value injected into the pane as
@@ -2375,6 +2376,15 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  SPAWN_TREEHOUSE_LOCK=$(fm_treehouse_operation_lock_path) || {
+    echo "error: could not resolve the shared Treehouse operation lock; refusing an uncoordinated pool operation" >&2
+    exit 1
+  }
+  fm_lock_acquire_wait "$SPAWN_TREEHOUSE_LOCK"
+  SPAWN_TREEHOUSE_LOCK_HELD=1
+fi
+
 if [ "$RELAUNCH" -eq 1 ]; then
   # No worktree is acquired: the recorded one is reused as-is. What must be
   # proven instead is that the adopted endpoint's shell is actually sitting in
@@ -2393,12 +2403,6 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  SPAWN_TREEHOUSE_LOCK=$(fm_treehouse_operation_lock_path) || {
-    echo "error: could not resolve the shared Treehouse operation lock; refusing an uncoordinated pool allocation" >&2
-    exit 1
-  }
-  fm_lock_acquire_wait "$SPAWN_TREEHOUSE_LOCK"
-  SPAWN_TREEHOUSE_LOCK_HELD=1
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
@@ -2469,6 +2473,36 @@ if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     # Compatibility for old Treehouse versions and minimal test doubles that
     # do not advertise JSON status. Current supported Treehouse versions always
     # take the managed-path branch above or fail closed above.
+  fi
+
+  if [ "$RELAUNCH" -eq 1 ]; then
+    if [ -n "$FM_TREEHOUSE_SLOT_LEASE_HOLDER" ] \
+       && [ "$FM_TREEHOUSE_SLOT_LEASE_HOLDER" != "$ID" ]; then
+      echo "error: Treehouse slot '$WT' is leased to different task $FM_TREEHOUSE_SLOT_LEASE_HOLDER; refusing to overwrite foreign ownership during relaunch" >&2
+      exit 1
+    fi
+    treehouse_owner_marker="$WT/.fm-treehouse-owner"
+    if [ -e "$treehouse_owner_marker" ] || [ -L "$treehouse_owner_marker" ]; then
+      if fm_treehouse_read_owner "$treehouse_owner_marker"; then
+        treehouse_owner_rc=0
+      else
+        treehouse_owner_rc=$?
+      fi
+      if [ "$treehouse_owner_rc" -ne 0 ]; then
+        echo "error: Treehouse slot owner marker '$treehouse_owner_marker' is unreadable or invalid; refusing to overwrite unverified ownership during relaunch" >&2
+        exit 1
+      fi
+      if [ "$FM_TREEHOUSE_OWNER_TASK_ID" != "$ID" ]; then
+        echo "error: Treehouse slot '$WT' is owned by different task $FM_TREEHOUSE_OWNER_TASK_ID; refusing to overwrite foreign ownership during relaunch" >&2
+        exit 1
+      fi
+      relaunch_prior_spawn_gen=$(fm_meta_get "$RELAUNCH_META" spawn_gen)
+      if [ -z "$relaunch_prior_spawn_gen" ] \
+         || [ "$FM_TREEHOUSE_OWNER_SPAWN_GEN" != "$relaunch_prior_spawn_gen" ]; then
+        echo "error: Treehouse slot '$WT' owner generation does not match task $ID metadata; refusing to overwrite unverified ownership during relaunch" >&2
+        exit 1
+      fi
+    fi
   fi
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then

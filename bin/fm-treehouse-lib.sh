@@ -24,6 +24,10 @@
 # fm_treehouse_write_owner <worktree> <task-id> <spawn-generation>
 #   Atomically writes the ignored `.fm-treehouse-owner` slot binding used by
 #   teardown to distinguish a stale task record from a reissued live slot.
+# fm_treehouse_read_owner <marker>
+#   Sets FM_TREEHOUSE_OWNER_TASK_ID and FM_TREEHOUSE_OWNER_SPAWN_GEN from one
+#   valid owner marker. Returns 1 when absent/not a regular file and 2 when the
+#   marker is malformed.
 #
 # fm_treehouse_operation_lock_path
 #   Prints the host-user-wide lifecycle lock shared by every Firstmate home.
@@ -36,6 +40,8 @@ FM_TREEHOUSE_SLOT_PATH=
 FM_TREEHOUSE_SLOT_STATUS=
 FM_TREEHOUSE_SLOT_LEASE_HOLDER=
 FM_TREEHOUSE_SLOT_LEASE_ID=
+FM_TREEHOUSE_OWNER_TASK_ID=
+FM_TREEHOUSE_OWNER_SPAWN_GEN=
 
 fm_treehouse_path_for_compare() {
   local path=$1 parent
@@ -124,4 +130,20 @@ fm_treehouse_write_owner() {
     printf 'spawn_gen=%s\n' "$spawn_gen"
   } > "$tmp" || return 1
   mv -f "$tmp" "$marker"
+}
+
+fm_treehouse_read_owner() {
+  local marker=$1 task_id spawn_gen task_count gen_count
+  FM_TREEHOUSE_OWNER_TASK_ID=
+  FM_TREEHOUSE_OWNER_SPAWN_GEN=
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  task_count=$(grep -c '^task_id=' "$marker" 2>/dev/null || true)
+  gen_count=$(grep -c '^spawn_gen=' "$marker" 2>/dev/null || true)
+  [ "$task_count" -eq 1 ] && [ "$gen_count" -eq 1 ] || return 2
+  task_id=$(sed -n 's/^task_id=//p' "$marker") || return 2
+  spawn_gen=$(sed -n 's/^spawn_gen=//p' "$marker") || return 2
+  case "$task_id" in ''|*[!A-Za-z0-9._-]*) return 2 ;; esac
+  case "$spawn_gen" in ''|*$'\r'*|*$'\t'*|*=*) return 2 ;; esac
+  FM_TREEHOUSE_OWNER_TASK_ID=$task_id
+  FM_TREEHOUSE_OWNER_SPAWN_GEN=$spawn_gen
 }

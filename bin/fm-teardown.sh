@@ -1296,23 +1296,12 @@ TREEHOUSE_OWNER_SPAWN_GEN=
 TREEHOUSE_CLAIMANT_ID=
 
 treehouse_read_owner_marker() {
-  local marker=$1 task_id spawn_gen task_count gen_count
+  local marker=$1
   TREEHOUSE_OWNER_TASK_ID=
   TREEHOUSE_OWNER_SPAWN_GEN=
-  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
-  task_count=$(grep -c '^task_id=' "$marker" 2>/dev/null || true)
-  gen_count=$(grep -c '^spawn_gen=' "$marker" 2>/dev/null || true)
-  [ "$task_count" -eq 1 ] && [ "$gen_count" -eq 1 ] || return 2
-  task_id=$(sed -n 's/^task_id=//p' "$marker") || return 2
-  spawn_gen=$(sed -n 's/^spawn_gen=//p' "$marker") || return 2
-  [ -n "$task_id" ] || return 2
-  [ -n "$spawn_gen" ] || return 2
-  [ "$(printf '%s\n' "$task_id" | wc -l | tr -d ' ')" -eq 1 ] || return 2
-  [ "$(printf '%s\n' "$spawn_gen" | wc -l | tr -d ' ')" -eq 1 ] || return 2
-  fm_task_id_path_safe "$task_id" || return 2
-  case "$spawn_gen" in *$'\r'*|*$'\t'*|*=*) return 2 ;; esac
-  TREEHOUSE_OWNER_TASK_ID=$task_id
-  TREEHOUSE_OWNER_SPAWN_GEN=$spawn_gen
+  fm_treehouse_read_owner "$marker" || return $?
+  TREEHOUSE_OWNER_TASK_ID=$FM_TREEHOUSE_OWNER_TASK_ID
+  TREEHOUSE_OWNER_SPAWN_GEN=$FM_TREEHOUSE_OWNER_SPAWN_GEN
 }
 
 treehouse_local_state_dirs() {

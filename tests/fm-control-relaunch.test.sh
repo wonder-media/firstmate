@@ -17,6 +17,8 @@
 #   6. fm-spawn --relaunch refuses on its own: a live agent, a contradicting
 #      flag, an extra positional, or a backend that cannot prove the previous
 #      agent exited.
+#   7. A pooled relaunch takes the shared Treehouse operation lock before slot
+#      adoption and never overwrites a foreign lease or owner marker.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -120,6 +122,14 @@ SH
 exit 0
 SH
   chmod +x "$fb/sleep"
+  cat > "$fb/treehouse" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--help) printf '%s\n' 'Usage: treehouse status' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$fb/treehouse"
 }
 
 # new_case <name> [id] -> echoes a case dir with a live claude ship task.
@@ -178,7 +188,31 @@ run_spawn() {  # <case-dir> <args...>
   local dir=$1; shift
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
+    FM_TREEHOUSE_OPERATION_LOCK="$dir/treehouse-operation.lock" \
+    FM_FAKE_TREEHOUSE_LOOKUP_REACHED="${FM_FAKE_TREEHOUSE_LOOKUP_REACHED:-}" \
     "$SPAWN" "$@" 2>&1
+}
+
+make_treehouse_status_stub() {  # <case-dir>
+  cat > "$1/fakebin/treehouse" <<'SH'
+#!/usr/bin/env bash
+case "${1:-}:${2:-}" in
+  status:--json)
+    [ -z "${FM_FAKE_TREEHOUSE_LOOKUP_REACHED:-}" ] || : > "$FM_FAKE_TREEHOUSE_LOOKUP_REACHED"
+    cat "$FM_FAKE_DIR/treehouse-status.json"
+    ;;
+  status:--help) printf '%s\n' 'Usage: treehouse status [--json]' ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$1/fakebin/treehouse"
+}
+
+write_treehouse_status() {  # <case-dir> <task-id-or-empty>
+  local dir=$1 holder=$2
+  jq -n --arg path "$dir/wt" --arg holder "$holder" \
+    '[{path: $path, status: "leased", lease_holder: $holder, lease_id: "lease-test"}]' \
+    > "$dir/fake/treehouse-status.json"
 }
 
 meta_field() {  # <case-dir> <id> <key>
@@ -1232,6 +1266,104 @@ test_direct_spawn_relaunch_participates_in_the_lifecycle_lock() {
   pass "fm-spawn relaunch: direct entry participates in lifecycle serialization"
 }
 
+test_pooled_relaunch_refuses_foreign_lease_and_owner() {
+  local dir out rc marker before
+
+  dir=$(new_case foreign-lease rl36)
+  add_ship_task "$dir" rl36 claude
+  printf 'zsh' > "$dir/fake/command"
+  make_treehouse_status_stub "$dir"
+  write_treehouse_status "$dir" other-live-task
+  marker="$dir/wt/.fm-treehouse-owner"
+  printf 'task_id=rl36\nspawn_gen=s-prior\n' > "$marker"
+  printf 'spawn_gen=s-prior\n' >> "$dir/home/state/rl36.meta"
+  before=$(cat "$marker")
+  out=$(run_spawn "$dir" rl36 --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "pooled relaunch must refuse a foreign authoritative lease"
+  assert_contains "$out" "leased to different task other-live-task" \
+    "foreign lease refusal should identify the current claimant"
+  [ "$(cat "$marker")" = "$before" ] || fail "foreign lease refusal overwrote the owner marker"
+  [ -z "$(cat "$dir/fake/literal")" ] || fail "foreign lease refusal delivered launch bytes"
+
+  dir=$(new_case foreign-owner rl37)
+  add_ship_task "$dir" rl37 claude
+  printf 'zsh' > "$dir/fake/command"
+  make_treehouse_status_stub "$dir"
+  write_treehouse_status "$dir" ""
+  marker="$dir/wt/.fm-treehouse-owner"
+  printf 'task_id=other-live-task\nspawn_gen=s-foreign\n' > "$marker"
+  printf 'spawn_gen=s-prior\n' >> "$dir/home/state/rl37.meta"
+  before=$(cat "$marker")
+  out=$(run_spawn "$dir" rl37 --relaunch --harness claude); rc=$?
+  expect_code 1 "$rc" "pooled relaunch must refuse a foreign owner marker"
+  assert_contains "$out" "owned by different task other-live-task" \
+    "foreign marker refusal should identify the current owner"
+  [ "$(cat "$marker")" = "$before" ] || fail "foreign owner refusal overwrote the marker"
+  [ -z "$(cat "$dir/fake/literal")" ] || fail "foreign owner refusal delivered launch bytes"
+  pass "fm-spawn relaunch: foreign Treehouse leases and owner markers are never overwritten"
+}
+
+# shellcheck disable=SC2031
+test_pooled_relaunch_waits_for_the_treehouse_operation_lock() {
+  local dir lock holder relaunch_pid i=0 rc prior_gen lookup
+  dir=$(new_case treehouse-lock rl38)
+  add_ship_task "$dir" rl38 claude
+  printf 'zsh' > "$dir/fake/command"
+  make_treehouse_status_stub "$dir"
+  write_treehouse_status "$dir" rl38
+  prior_gen=s-prior
+  printf 'spawn_gen=%s\n' "$prior_gen" >> "$dir/home/state/rl38.meta"
+  printf 'task_id=rl38\nspawn_gen=%s\n' "$prior_gen" > "$dir/wt/.fm-treehouse-owner"
+  lock="$dir/treehouse-operation.lock"
+  lookup="$dir/lookup-reached"
+  (
+    . "$ROOT/bin/fm-wake-lib.sh"
+    fm_lock_try_acquire "$lock" || exit 1
+    : > "$dir/lock-ready"
+    while [ ! -e "$dir/lock-release" ]; do /bin/sleep 0.01; done
+    fm_lock_release "$lock"
+  ) &
+  holder=$!
+  while [ ! -e "$dir/lock-ready" ] && [ "$i" -lt 200 ]; do
+    /bin/sleep 0.01
+    i=$((i + 1))
+  done
+  [ -e "$dir/lock-ready" ] || {
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    fail "could not stage the shared Treehouse operation lock"
+  }
+  FM_FAKE_TREEHOUSE_LOOKUP_REACHED="$lookup" \
+    run_spawn "$dir" rl38 --relaunch --harness claude > "$dir/relaunch.out" &
+  relaunch_pid=$!
+  /bin/sleep 0.2
+  if [ -e "$lookup" ]; then
+    : > "$dir/lock-release"
+    wait "$holder" 2>/dev/null || true
+    kill "$relaunch_pid" 2>/dev/null || true
+    wait "$relaunch_pid" 2>/dev/null || true
+    fail "pooled relaunch inspected Treehouse before acquiring the shared lock"
+  fi
+  [ "$(grep '^spawn_gen=' "$dir/wt/.fm-treehouse-owner" | cut -d= -f2-)" = "$prior_gen" ] || {
+    : > "$dir/lock-release"
+    wait "$holder" 2>/dev/null || true
+    kill "$relaunch_pid" 2>/dev/null || true
+    wait "$relaunch_pid" 2>/dev/null || true
+    fail "pooled relaunch republished ownership while another operation held the lock"
+  }
+  : > "$dir/lock-release"
+  wait "$holder"; rc=$?
+  expect_code 0 "$rc" "Treehouse lock holder should release cleanly"
+  wait "$relaunch_pid"; rc=$?
+  expect_code 0 "$rc" "pooled relaunch should continue after the shared lock releases"$'\n'"$(cat "$dir/relaunch.out")"
+  [ -e "$lookup" ] || fail "pooled relaunch never inspected Treehouse after the lock released"
+  [ "$(grep '^task_id=' "$dir/wt/.fm-treehouse-owner" | cut -d= -f2-)" = rl38 ] \
+    || fail "successful pooled relaunch lost its task owner"
+  [ "$(grep '^spawn_gen=' "$dir/wt/.fm-treehouse-owner" | cut -d= -f2-)" != "$prior_gen" ] \
+    || fail "successful pooled relaunch did not publish a replacement generation"
+  pass "fm-spawn relaunch: shared Treehouse lock covers slot inspection through owner publication"
+}
+
 # shellcheck disable=SC2031
 test_promotion_participates_in_the_lifecycle_lock_before_metadata_resolution() {
   local dir out rc lock holder i=0
@@ -1353,6 +1485,8 @@ test_secondmate_relaunch_refuses_an_unmarked_home
 test_secondmate_checkpoint_refuses_unreadable_child_state
 test_concurrent_relaunch_is_refused
 test_direct_spawn_relaunch_participates_in_the_lifecycle_lock
+test_pooled_relaunch_refuses_foreign_lease_and_owner
+test_pooled_relaunch_waits_for_the_treehouse_operation_lock
 test_promotion_participates_in_the_lifecycle_lock_before_metadata_resolution
 test_spawn_relaunch_refuses_a_live_agent
 test_spawn_relaunch_refuses_contradicting_flags
