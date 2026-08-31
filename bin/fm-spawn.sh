@@ -287,6 +287,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-trace-context-lib.sh
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-treehouse-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
@@ -2430,6 +2432,30 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
 
   validate_spawn_worktree "treehouse get" "$T"
 fi
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  if fm_treehouse_lookup_slot "$WT"; then
+    case "$FM_TREEHOUSE_SLOT_STATUS" in
+      in-use|leased) WT=$FM_TREEHOUSE_SLOT_PATH ;;
+      *)
+        echo "error: treehouse get entered '$WT', but its managed slot '$FM_TREEHOUSE_SLOT_PATH' is '$FM_TREEHOUSE_SLOT_STATUS'; refusing to record an unowned pool path" >&2
+        exit 1
+        ;;
+    esac
+  else
+    treehouse_lookup_rc=$?
+    if [ "$treehouse_lookup_rc" -eq 1 ]; then
+      echo "error: treehouse get entered '$WT', but no physically matching managed slot appears in treehouse status; refusing to record an unmanaged pool path" >&2
+      exit 1
+    fi
+    if [ "$treehouse_lookup_rc" -eq 3 ]; then
+      echo "error: Treehouse advertises JSON status but its authoritative slot read failed; refusing to record an unverified pool path" >&2
+      exit 1
+    fi
+    # Compatibility for old Treehouse versions and minimal test doubles that
+    # do not advertise JSON status. Current supported Treehouse versions always
+    # take the managed-path branch above or fail closed above.
+  fi
+fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
   freshen_spawn_worktree_base "$WT" || exit 1
 fi
@@ -2456,6 +2482,14 @@ exclude_path() {
   mkdir -p "$(dirname "$EXCL")"
   grep -qxF "$rel" "$EXCL" 2>/dev/null || echo "$rel" >> "$EXCL"
 }
+SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
+if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  exclude_path '.fm-treehouse-owner'
+  fm_treehouse_write_owner "$WT" "$ID" "$SPAWN_GEN" || {
+    echo "error: could not bind Treehouse slot '$WT' to task $ID; refusing to launch without rebind protection" >&2
+    exit 1
+  }
+fi
 if [ "$RELAUNCH" -eq 1 ]; then
   # Retire the previous incarnation's per-task harness wiring before arming the
   # new one. Without this, a harness switch would leave the old adapter's hook
@@ -2790,7 +2824,6 @@ fi
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
-SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_META_PATH="$STATE/$ID.meta"
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1

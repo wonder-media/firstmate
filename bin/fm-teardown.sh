@@ -22,6 +22,13 @@
 # A gh lookup error falls back to the content check; if that is also inconclusive,
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
+# Before any ordinary pooled-worktree access, teardown resolves the recorded
+# path against `treehouse status --json`. The status entry supplies the managed
+# path spelling used for return. An available or no-longer-managed slot counts
+# as already returned only after the ordinary landed-work and cleanliness gates
+# pass. An in-use slot whose owner marker or another task record identifies a
+# different task is a rebound slot: teardown never reads, cleans, returns, or
+# kills through that worktree and retires only the stale task's state records.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -168,6 +175,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-treehouse-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -758,6 +767,24 @@ remove_pr_poll_artifacts() {
   fi
 }
 
+retire_task_runtime_records() {
+  remove_grok_turnend_auth "$STATE" "$ID" || return 1
+  remove_kimi_turnend_auth "$STATE" "$ID" || return 1
+  fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
+  if [ "$TREEHOUSE_SLOT_STATE" != rebound ] && [ -n "$TASK_TMP" ]; then
+    rm -rf "$TASK_TMP"
+  fi
+  remove_pr_poll_artifacts "$STATE" "$ID" || return 1
+  retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || return 1
+  status_retire_presentation_task "$STATE" "$ID" || return 1
+  rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
+    "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
+    "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
+    "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
+    "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
+    "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note"
+}
+
 # Resolve the PR number for a worktree branch via gh-axi. Echoes the number on a
 # single match and returns 0; returns non-zero on no match or any lookup failure,
 # so the caller treats it as "no PR found" (fail-safe).
@@ -1198,6 +1225,180 @@ validate_worktree_teardown_safety() {
       return 1
     fi
   fi
+}
+
+TREEHOUSE_SLOT_STATE=not-applicable
+TREEHOUSE_RETURN_COMPLETED=0
+
+treehouse_owner_marker_task_id() {
+  local marker=$1 task_id
+  [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  task_id=$(sed -n 's/^task_id=//p' "$marker") || return 2
+  [ -n "$task_id" ] || return 2
+  [ "$(printf '%s\n' "$task_id" | wc -l | tr -d ' ')" -eq 1 ] || return 2
+  fm_task_id_path_safe "$task_id" || return 2
+  printf '%s\n' "$task_id"
+}
+
+treehouse_state_dir_slot_claimant() {
+  local state_dir=$1 candidate other_id other_wt
+  [ -d "$state_dir" ] && [ ! -L "$state_dir" ] || return 1
+  for candidate in "$state_dir"/*.meta; do
+    [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+    [ "$candidate" != "$META" ] || continue
+    other_id=$(basename "$candidate" .meta)
+    fm_task_id_path_safe "$other_id" || continue
+    [ "$(fm_meta_get "$candidate" endpoint_task_id)" = "$other_id" ] || continue
+    other_wt=$(fm_meta_get "$candidate" worktree)
+    [ -n "$other_wt" ] || continue
+    if fm_treehouse_paths_match "$WT" "$other_wt"; then
+      printf '%s\n' "$other_id"
+      return 0
+    fi
+  done
+  return 1
+}
+
+treehouse_other_task_claims_slot() {
+  local claimant registry line home parent_home
+  if claimant=$(treehouse_state_dir_slot_claimant "$STATE"); then
+    printf '%s\n' "$claimant"
+    return 0
+  fi
+
+  # A local secondmate shares the host's Treehouse pools with its parent and
+  # sibling homes. Search the current home's local routes and, when this is a
+  # child home, the durable parent route plus that parent's local routes. Remote
+  # secondmates cannot own a slot on this host and are deliberately excluded.
+  parent_home=${PARENT_ROUTE_HOME:-}
+  if [ -n "$parent_home" ] \
+     && claimant=$(treehouse_state_dir_slot_claimant "$parent_home/state"); then
+    printf '%s\n' "$claimant"
+    return 0
+  fi
+  for registry in "$DATA/secondmates.md" "${parent_home:+$parent_home/data/secondmates.md}"; do
+    [ -n "$registry" ] && [ -f "$registry" ] && [ ! -L "$registry" ] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in '- '*) ;; *) continue ;; esac
+      secondmate_registry_parse_line "$line" || continue
+      [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || continue
+      home=$SECONDMATE_REGISTRY_HOME
+      if claimant=$(treehouse_state_dir_slot_claimant "$home/state"); then
+        printf '%s\n' "$claimant"
+        return 0
+      fi
+    done < "$registry"
+  done
+  return 1
+}
+
+prepare_treehouse_task_slot() {
+  local lookup_rc owner_marker owner_id owner_rc other_id
+  [ "$KIND" != secondmate ] || return 0
+  [ "$BACKEND" != orca ] || return 0
+
+  if fm_treehouse_lookup_slot "$WT"; then
+    WT=$FM_TREEHOUSE_SLOT_PATH
+    case "$FM_TREEHOUSE_SLOT_STATUS" in
+      available)
+        TREEHOUSE_SLOT_STATE=already-returned
+        return 0
+        ;;
+      in-use|leased)
+        ;;
+      *)
+        echo "error: Treehouse reports slot $WT in unknown state '$FM_TREEHOUSE_SLOT_STATUS'; refusing to touch the recorded pool path" >&2
+        return 1
+        ;;
+    esac
+
+    if [ -n "$FM_TREEHOUSE_SLOT_LEASE_HOLDER" ] \
+       && [ "$FM_TREEHOUSE_SLOT_LEASE_HOLDER" != "$ID" ]; then
+      TREEHOUSE_SLOT_STATE=rebound
+      echo "teardown: slot $WT is leased to different task $FM_TREEHOUSE_SLOT_LEASE_HOLDER; retiring only stale records for $ID" >&2
+      return 0
+    fi
+
+    owner_marker="$WT/.fm-treehouse-owner"
+    if [ -e "$owner_marker" ] || [ -L "$owner_marker" ]; then
+      if owner_id=$(treehouse_owner_marker_task_id "$owner_marker"); then
+        owner_rc=0
+      else
+        owner_rc=$?
+      fi
+      if [ "$owner_rc" -ne 0 ]; then
+        echo "error: Treehouse slot owner marker $owner_marker is unreadable or invalid; refusing to touch the recorded pool path" >&2
+        return 1
+      fi
+      if [ "$owner_id" != "$ID" ]; then
+        TREEHOUSE_SLOT_STATE=rebound
+        echo "teardown: slot $WT is owned by different task $owner_id; retiring only stale records for $ID" >&2
+        return 0
+      fi
+      TREEHOUSE_SLOT_STATE=owned
+      return 0
+    fi
+
+    if other_id=$(treehouse_other_task_claims_slot); then
+      TREEHOUSE_SLOT_STATE=rebound
+      echo "teardown: slot $WT is claimed by different task $other_id; retiring only stale records for $ID" >&2
+      return 0
+    fi
+
+    TREEHOUSE_SLOT_STATE=owned-legacy
+    return 0
+  else
+    lookup_rc=$?
+  fi
+  if [ "$lookup_rc" -eq 1 ]; then
+    TREEHOUSE_SLOT_STATE=not-managed
+    return 0
+  fi
+
+  if [ "$lookup_rc" -eq 3 ]; then
+    echo "error: Treehouse advertises JSON status but its authoritative slot read failed; refusing to touch the recorded pool path" >&2
+    return 1
+  fi
+
+  # Compatibility for old Treehouse versions and minimal test doubles that do
+  # not advertise JSON status. Supported production versions take one of the
+  # status-authoritative branches above or fail closed above.
+  TREEHOUSE_SLOT_STATE='status-unavailable'
+}
+
+confirm_completed_treehouse_return_is_safe() {
+  local dirty_raw dirty
+  case "$TREEHOUSE_SLOT_STATE" in
+    already-returned|not-managed) ;;
+    *) return 0 ;;
+  esac
+  if [ -e "$WT" ] || [ -L "$WT" ]; then
+    [ -d "$WT" ] || {
+      echo "REFUSED: recorded Treehouse path $WT exists but is not an inspectable directory." >&2
+      return 1
+    }
+    dirty_raw=$(git -C "$WT" status --porcelain 2>/dev/null) || {
+      echo "REFUSED: cannot verify that already-returned Treehouse path $WT is clean." >&2
+      return 1
+    }
+    dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$|\.fm-treehouse-owner$)' | head -1 || true)
+    if [ -n "$dirty" ]; then
+      echo "REFUSED: already-returned Treehouse path $WT is not clean." >&2
+      return 1
+    fi
+  fi
+  TREEHOUSE_RETURN_COMPLETED=1
+  echo "teardown: Treehouse slot $WT is already returned; landed-work and cleanliness checks passed" >&2
+}
+
+complete_rebound_teardown_if_needed() {
+  [ "$TREEHOUSE_SLOT_STATE" = rebound ] || return 0
+  retire_task_runtime_records || return 1
+  fm_lock_release "$META_LOCK"
+  META_LOCK_HELD=0
+  echo "teardown $ID complete (stale records retired; rebound worktree $WT untouched)"
+  backlog_refresh_reminder
+  exit 0
 }
 
 # Fix 1 (see script header): does the active-or-most-recent no-mistakes run in
@@ -2064,6 +2265,10 @@ FMEOF
 
 teardown_herdr_require_prerequisites() {  # <task-id>
   local task_id=$1 prerequisite
+  if [ ! -f "$FM_BACKEND_LIB_DIR/backends/herdr.sh" ]; then
+    echo "error: herdr teardown prerequisites are unavailable for $task_id; nothing was changed - restore the adapter and rerun teardown" >&2
+    return 1
+  fi
   if ! fm_backend_source herdr; then
     echo "error: herdr teardown prerequisites are unavailable for $task_id; nothing was changed - restore the adapter and rerun teardown" >&2
     return 1
@@ -2278,6 +2483,7 @@ remove_secondmate_registry_entry() {
   return "$rc"
 }
 
+prepare_treehouse_task_slot || exit 1
 validate_pr_poll_cleanup "$STATE" "$ID" || exit 1
 
 if [ "$KIND" = secondmate ]; then
@@ -2351,6 +2557,8 @@ if [ "$FORCE" != "--force" ] \
   fi
 fi
 
+complete_rebound_teardown_if_needed || exit 1
+
 if [ "$BACKEND" = orca ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$FORCE" != "--force" ]; then
   if ! inspectable_git_worktree "$WT"; then
     echo "REFUSED: Orca ship task $ID has no inspectable git worktree at ${WT:-<missing>}." >&2
@@ -2374,6 +2582,13 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
     fi
   fi
 fi
+# Treehouse slots can be returned and rebound between the initial identity
+# check and the landed-work inspection. Freeze the destructive decision with a
+# fresh authoritative read immediately before process reap, hook removal,
+# branch detachment, or return.
+prepare_treehouse_task_slot || exit 1
+complete_rebound_teardown_if_needed || exit 1
+confirm_completed_treehouse_return_is_safe || exit 1
 
 # Every landed/discard-work refusal above has now passed (or --force skipped
 # them). Fix 1 and Fix 2 (see script header) run here, unconditionally on
@@ -2382,7 +2597,7 @@ fi
 # kind=secondmate: a secondmate home's own runtime lifecycle is owned by the
 # dedicated process-event and firstmate-home removal machinery further below,
 # not by task-worktree cleanup.
-if [ "$KIND" != secondmate ]; then
+if [ "$KIND" != secondmate ] && [ "$TREEHOUSE_RETURN_COMPLETED" != 1 ]; then
   conclude_task_no_mistakes_run "$WT"
   reap_task_worktree_processes worktree "$WT" "$TASK_TMP"
 fi
@@ -2426,7 +2641,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   fi
   [ -z "$T_ORCA" ] || fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
   fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID"
-elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
+elif [ "$TREEHOUSE_RETURN_COMPLETED" != 1 ] && [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
   if [ "$branch" != "HEAD" ]; then
     if git -C "$WT" checkout --detach -q 2>/dev/null; then
@@ -2529,21 +2744,7 @@ if [ "$KIND" = secondmate ]; then
   remove_firstmate_home "$HOME_PATH" "secondmate home" "$ID" || exit $?
   remove_secondmate_registry_entry "$ID"
 fi
-remove_grok_turnend_auth "$STATE" "$ID" || exit 1
-remove_kimi_turnend_auth "$STATE" "$ID" || exit 1
-fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
-# Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
-# Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
-[ -n "$TASK_TMP" ] && rm -rf "$TASK_TMP"
-remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
-retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
-status_retire_presentation_task "$STATE" "$ID" || exit 1
-rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
-  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
-  "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
-  "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
-  "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
-  "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note"
+retire_task_runtime_records || exit 1
 fm_lock_release "$META_LOCK"
 META_LOCK_HELD=0
 if [ "$KIND" != scout ] && [ "$KIND" != secondmate ] && [ "$MODE" != local-only ]; then

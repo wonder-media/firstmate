@@ -1437,7 +1437,7 @@ test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes() {
   thlog="$case_dir/treehouse.log"; : > "$thlog"
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$thlog"
+[ "\${1:-}" != return ] || printf '%s\n' "\$*" >> "$thlog"
 exit 0
 SH
   chmod +x "$case_dir/fakebin/treehouse"
@@ -1533,7 +1533,7 @@ assert_herdr_teardown_preflight_refuses_before_changes() {
   thlog="$case_dir/treehouse.log"; : > "$thlog"
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$thlog"
+[ "\${1:-}" != return ] || printf '%s\n' "\$*" >> "$thlog"
 exit 0
 SH
   chmod +x "$case_dir/fakebin/treehouse"
@@ -1647,7 +1647,7 @@ test_forced_secondmate_herdr_child_preflight_refuses_before_changes() {
   : > "$log"; : > "$thlog"
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$thlog"
+[ "\${1:-}" != return ] || printf '%s\n' "\$*" >> "$thlog"
 exit 0
 SH
   chmod +x "$case_dir/fakebin/treehouse"
@@ -1701,7 +1701,7 @@ exit 0
 SH
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
+[ "\${1:-}" != return ] || printf '%s\n' "\$*" >> "$case_dir/treehouse.log"
 exit 0
 SH
   chmod +x "$case_dir/fakebin/tmux" "$case_dir/fakebin/treehouse"
@@ -2137,7 +2137,7 @@ test_parked_own_run_refuses_when_abort_is_unconfirmed() {
 
   cat > "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
-printf 'return\n' >> "$case_dir/treehouse.log"
+[ "\${1:-}" != return ] || printf 'return\n' >> "$case_dir/treehouse.log"
 EOF
   chmod +x "$case_dir/fakebin/treehouse"
 
@@ -2307,7 +2307,7 @@ exit 1
 SH
   cat > "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
-printf 'return\n' >> "$case_dir/treehouse.log"
+[ "\${1:-}" != return ] || printf 'return\n' >> "$case_dir/treehouse.log"
 EOF
   chmod +x "$case_dir/fakebin/lsof" "$case_dir/fakebin/treehouse"
 
@@ -2533,7 +2533,7 @@ exec "$REAL_PS_FOR_TEST" "$@"
 SH
   cat > "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
-printf 'returned\n' > "$case_dir/treehouse.log"
+[ "\${1:-}" != return ] || printf 'returned\n' > "$case_dir/treehouse.log"
 EOF
   chmod +x "$case_dir/fakebin/lsof" "$case_dir/fakebin/ps" "$case_dir/fakebin/treehouse"
 
@@ -2569,8 +2569,10 @@ test_run_abort_precedes_process_reap_precedes_worktree_removal() {
   # real observed state, not a source-text or line-number correlation.
   cat > "$case_dir/fakebin/treehouse" <<EOF
 #!/usr/bin/env bash
-if [ -s "$abort_log" ]; then echo "abort-already-happened" >> "$case_dir/order.log"; fi
-if ! kill -0 $pid 2>/dev/null; then echo "reap-already-happened" >> "$case_dir/order.log"; fi
+if [ "\${1:-}" = return ]; then
+  if [ -s "$abort_log" ]; then echo "abort-already-happened" >> "$case_dir/order.log"; fi
+  if ! kill -0 $pid 2>/dev/null; then echo "reap-already-happened" >> "$case_dir/order.log"; fi
+fi
 exit 0
 EOF
   chmod +x "$case_dir/fakebin/treehouse"
@@ -2589,6 +2591,129 @@ EOF
   assert_grep "reap-already-happened" "$case_dir/order.log" \
     "abort-then-reap-then-remove-order: the leaked process was not yet reaped when the worktree return ran"
   pass "the run abort and the leaked-process reap both complete before the destructive worktree return"
+}
+
+add_treehouse_slot_state() {
+  local case_dir=$1 managed=$2 status=$3 return_mode=${4:-success}
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+if [ "\${1:-}" = status ] && [ "\${2:-}" = --json ]; then
+  printf '[{"path":"%s","status":"%s","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]\\n' '$managed' '$status'
+  exit 0
+fi
+if [ "\${1:-}" = return ]; then
+  printf '%s\\n' "\$*" >> '$case_dir/treehouse-return.log'
+  case '$return_mode' in
+    managed-only)
+      [ "\${3:-}" = '$managed' ] && exit 0
+      echo 'error: worktree not managed by treehouse' >&2
+      exit 1
+      ;;
+    refuse)
+      echo 'error: worktree not managed by treehouse' >&2
+      exit 1
+      ;;
+  esac
+fi
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+}
+
+make_managed_slot_link() {
+  local case_dir=$1 managed
+  managed="$case_dir/managed-treehouse/1/wt"
+  mkdir -p "$(dirname "$managed")"
+  ln -s "$case_dir/wt" "$managed"
+  printf '%s\n' "$managed"
+}
+
+test_physical_record_returns_managed_slot_path() {
+  local case_dir managed rc
+  case_dir=$(make_case physical-record-managed-return)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  managed=$(make_managed_slot_link "$case_dir")
+  add_treehouse_slot_state "$case_dir" "$managed" in-use managed-only
+
+  rc=0
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "physical-path metadata should return the matching managed Treehouse slot"
+  assert_grep "return --force $managed" "$case_dir/treehouse-return.log" \
+    "teardown did not pass Treehouse's managed path to return"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "successful managed-path return did not retire task metadata"
+  pass "physical metadata paths resolve to the managed Treehouse path before return"
+}
+
+test_already_returned_clean_slot_retires_records() {
+  local case_dir managed rc
+  case_dir=$(make_case already-returned-clean)
+  write_meta "$case_dir" no-mistakes ship
+  land_shippable_commit "$case_dir"
+  managed=$(make_managed_slot_link "$case_dir")
+  add_treehouse_slot_state "$case_dir" "$managed" available refuse
+
+  rc=0
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "an already-returned clean landed slot should retire stale records"
+  assert_absent "$case_dir/treehouse-return.log" \
+    "already-returned slot unexpectedly invoked treehouse return"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "already-returned clean slot left task metadata behind"
+  pass "an already-returned clean landed slot completes record retirement"
+}
+
+test_already_returned_unlanded_slot_still_refuses() {
+  local case_dir managed rc
+  case_dir=$(make_case already-returned-unlanded)
+  write_meta "$case_dir" no-mistakes ship
+  wt_commit_file "$case_dir" unpushed.txt unlanded "unpushed work"
+  managed=$(make_managed_slot_link "$case_dir")
+  add_treehouse_slot_state "$case_dir" "$managed" available refuse
+
+  rc=0
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "an already-returned slot with unlanded work must still refuse"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "unlanded refusal retired task metadata"
+  assert_absent "$case_dir/treehouse-return.log" \
+    "unlanded already-returned slot unexpectedly invoked treehouse return"
+  assert_grep "work not on any remote and not landed" "$case_dir/stderr" \
+    "unlanded already-returned slot did not preserve the landed-work refusal"
+  pass "an already-returned slot still refuses genuine unlanded work"
+}
+
+test_rebound_slot_retires_only_stale_task_records() {
+  local case_dir managed rc branch
+  case_dir=$(make_case rebound-different-live-task)
+  write_meta "$case_dir" no-mistakes ship
+  managed=$(make_managed_slot_link "$case_dir")
+  fm_write_meta "$case_dir/state/new-live-task.meta" \
+    "window=firstmate:fm-new-live-task" \
+    "endpoint_task_id=new-live-task" \
+    "worktree=$managed" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes"
+  printf 'new worker hook\n' > "$managed/.fm-grok-turnend"
+  add_treehouse_slot_state "$case_dir" "$managed" in-use refuse
+
+  rc=0
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "a slot rebound to a different live task should retire only stale records"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "rebound-slot teardown left stale task metadata behind"
+  assert_absent "$case_dir/treehouse-return.log" \
+    "rebound-slot teardown invoked treehouse return"
+  assert_present "$case_dir/state/new-live-task.meta" \
+    "rebound-slot teardown removed the live task's metadata"
+  assert_present "$managed/.fm-grok-turnend" \
+    "rebound-slot teardown removed a live task's worktree hook"
+  branch=$(git -C "$managed" symbolic-ref --short HEAD)
+  [ "$branch" = fm/task-x1 ] \
+    || fail "rebound-slot teardown modified the live worktree branch: $branch"
+  pass "a rebound slot retires only stale task records and never modifies the live worktree"
 }
 
 test_local_only_fork_remote_allows
@@ -2649,3 +2774,7 @@ test_process_spawned_during_grace_is_reaped_on_later_pass
 test_persistent_scan_refuses_after_bounded_retries
 test_process_exit_during_identity_lookup_does_not_refuse
 test_run_abort_precedes_process_reap_precedes_worktree_removal
+test_physical_record_returns_managed_slot_path
+test_already_returned_clean_slot_retires_records
+test_already_returned_unlanded_slot_still_refuses
+test_rebound_slot_retires_only_stale_task_records
