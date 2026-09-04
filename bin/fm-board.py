@@ -926,7 +926,9 @@ class Board:
         return payload
 
     def ingest_loop(self):
-        last_reconcile = 0
+        # monotonic() counts from an arbitrary epoch (boot on Linux), so a fresh
+        # host can sit below the 900 s interval; startup reconciles explicitly.
+        last_reconcile = None
         last_wake = time.monotonic()
         refresh_seen = None
         while not self.stop.is_set():
@@ -935,7 +937,7 @@ class Board:
             now = time.monotonic()
             refresh = self.state / 'board-refresh'
             current = refresh.stat().st_mtime_ns if refresh.exists() else None
-            reconcile = now-last_reconcile >= 900 or now-last_wake > 30 or current != refresh_seen
+            reconcile = last_reconcile is None or now-last_reconcile >= 900 or now-last_wake > 30 or current != refresh_seen
             try:
                 self.ingest(reconcile=reconcile)
             except Exception as e:

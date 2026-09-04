@@ -337,11 +337,19 @@ assert len(calls)==1 and not b.armed_now(),calls
 for _ in range(15):
  b.arm_next=0;b.maintain_arm()
 assert len(calls)==16 and b.arm_delay==60,(calls,b.arm_delay)
+# A freshly booted host (CI VM) has a monotonic clock far below the 900 s
+# reconcile interval; the first pass must still be a full reconcile.
+m.time.monotonic=lambda:120.0
+seen=[]
+def ingest(only=None,reconcile=False):seen.append(reconcile);b.stop.set()
+b.ingest=ingest
+b.dirty.set();b.ingest_loop()
+assert seen==[True],seen
 '''
     check=subprocess.run([sys.executable,'-c',guard],env=dict(env,FM_BOARD_CHECK_MODULE=str(fixture/'bin/fm-board.py')),
                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
     assert check.returncode==0,check.stderr.decode()
-    passed('re-arming backs off and reports a live external owner as armed')
+    passed('re-arming backs off, reports a live external owner as armed, and a fresh boot still reconciles at startup')
     for _ in range(8):backup=json.loads(command('backup').stdout)['backup']
     assert len(list((home/'state/backups').glob('board-*.sqlite')))==7
     expected=rev()
