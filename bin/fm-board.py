@@ -38,9 +38,28 @@
 # queued and before its deadline. {action:"correction",answer_id,note} queues
 # a correction request for a consumed answer without reopening its decision.
 # Legacy choice values: custom (note required; the note IS the answer text sent
-# to the worker or hold, never 'custom (note: ...)'), request-options.
+# to the worker or hold, never 'custom (note: ...)'), request-options. A card
+# without registered options lists request-options first, then custom.
+# Every decision carries question (an ELI5 headline: DECIDE prefix dropped,
+# cut at a natural break past 90 chars) and description (a plain consequence;
+# hold cards derive it from the hold reason, worker cards from the status
+# summary). A failed answer also carries delivery_class: 'review' when the
+# error is a REVIEW_ERRORS message (unkeyed, correction, changed, no live
+# worker, uncertain, unknown), 'delivery-failed' when it starts with fm-send.sh:,
+# fm-decision-hold.sh:, or fm-crew-state.sh:; any other error is logged and
+# classified by whether routing had started. Only delivery-failed means the
+# answer did not reach its target.
+#
+# CLI decision <home> <task> <key> --project TAG --title ELI5 --option 'A: ...'
+# (2..4, each 'L: wording' with a distinct one-character label L)
+# [--description|--consequence TEXT]
+# [--rec VALUE] [--why TEXT] registers options; --rec must match an option and
+# is shown inline as Recommended, never preselected. An omitted description
+# keeps the prior revision's or falls back to DEFAULT_CONSEQUENCE.
 #
 # SQLite: WAL, busy_timeout=5000, user_version=2 plus schema_version table.
+# v1 -> v2 adds decisions.description and rewrites registered questions to the
+# ELI5 headline once; a legacy open row is patched in place, not re-revisioned.
 # Every visible committing transaction bumps meta.rev ONCE; bookkeeping-only
 # timestamps/fingerprints do not. All readers use per-call connections.
 # Private runtime: state/board.sqlite, board-inbox/answers.jsonl and cursor,
@@ -48,7 +67,10 @@
 # logs/board*.log. Backup via VACUUM INTO nightly; keep seven. Events retained
 # 30 days. stdout/stderr log files rotate at 5 MiB when owned by the daemon.
 #
-# Ingest: one worker; tick every 5 s coalesces into a dirty event. Explicit
+# Ingest: one worker; tick every 5 s coalesces into a dirty event. tasks-axi
+# list truncation markers are never content: a truncated title is refetched
+# with show --full for that id only, and any marker remnant is stripped from
+# titles and hold reasons. Explicit
 # file fingerprints only (meta/status/backlog/report), per-id reads <=10 s;
 # full snapshot only startup/15 min/manual refresh/wake, <=90 s. Last-good
 # rows survive failure; vanished tasks become unknown on partial passes and
