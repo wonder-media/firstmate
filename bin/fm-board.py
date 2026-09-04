@@ -40,7 +40,7 @@
 # Legacy choice values: custom (note required; the note IS the answer text sent
 # to the worker or hold, never 'custom (note: ...)'), request-options.
 #
-# SQLite: WAL, busy_timeout=5000, user_version=1 plus schema_version table.
+# SQLite: WAL, busy_timeout=5000, user_version=2 plus schema_version table.
 # Every visible committing transaction bumps meta.rev ONCE; bookkeeping-only
 # timestamps/fingerprints do not. All readers use per-call connections.
 # Private runtime: state/board.sqlite, board-inbox/answers.jsonl and cursor,
@@ -108,6 +108,17 @@ import uuid
 ROOT = Path(__file__).resolve().parent.parent
 TAGS = ('WOK', 'CES', 'MF', 'CSLS-OG', 'JVP', 'WM', 'FM', 'Charlier')
 SLUG = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,119}\Z')
+TASKS_TRUNCATION = re.compile(
+    r'(?:\\n|\n)?\.\.\. \(truncated, \d+ chars total - use show [A-Za-z0-9_-]+ --full to see complete text\)')
+REVIEW_ERRORS = (
+    'correction requested; firstmate must review',
+    'decision changed before routing',
+    'no confirmed live worker for this answer',
+    'previous route outcome uncertain; inspect before retry',
+    'unkeyed decision; firstmate must review',
+    'unknown answer',
+)
+DELIVERY_FAILURE_ERRORS = ('fm-send.sh:', 'fm-decision-hold.sh:')
 
 
 class Invalid(ValueError):
@@ -130,6 +141,30 @@ def text(value, name, limit=2000, empty=False):
     if any(ord(c) < 32 and c not in '\n\t' for c in value):
         raise Invalid(f'invalid control character in {name}')
     return value
+
+
+def clean_tasks_text(value):
+    """Remove list-display truncation notices that are never task content."""
+    return TASKS_TRUNCATION.sub('', value or '').strip()
+
+
+def eli5_title(value):
+    value = clean_tasks_text(value)
+    value = re.sub(r'^DECIDE(?:\s+[A-Za-z0-9.-]+)?:\s*', '', value, flags=re.I)
+    if len(value) > 90:
+        stops = [value.find(mark) for mark in (' - ', ' so ', ' with ', '; ', '. ') if 20 <= value.find(mark) <= 90]
+        value = value[:min(stops)] if stops else value[:91].rsplit(' ', 1)[0]
+    return value or 'Decision needed'
+
+
+def delivery_class(error):
+    if not error:
+        return None
+    if any(error.startswith(reason) for reason in DELIVERY_FAILURE_ERRORS):
+        return 'delivery-failed'
+    if any(error.startswith(reason) for reason in REVIEW_ERRORS):
+        return 'review'
+    return 'review'
 
 
 def slug(value, name):
@@ -290,7 +325,7 @@ class Board:
     def migrate(self):
         with self.connect() as c:
             version = c.execute('PRAGMA user_version').fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise Invalid('database schema is newer than this daemon')
             c.execute('PRAGMA journal_mode=WAL')
             c.executescript('''
@@ -306,7 +341,7 @@ class Board:
                     updated_at TEXT,deleted_at TEXT,meta_present INTEGER,
                     PRIMARY KEY(home_id,task_id));
                 CREATE TABLE IF NOT EXISTS decisions(home_id TEXT,task_id TEXT,decision_key TEXT,
-                    revision INTEGER,question TEXT,options TEXT,recommendation TEXT,why TEXT,
+                    revision INTEGER,question TEXT,description TEXT,options TEXT,recommendation TEXT,why TEXT,
                     source TEXT,state TEXT,asked_at TEXT,closed_at TEXT,project TEXT,
                     origin_id TEXT,registered INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(home_id,task_id,decision_key,revision));
@@ -326,8 +361,12 @@ class Board:
                     PRIMARY KEY(home_id,path));
                 CREATE TABLE IF NOT EXISTS backlog(home_id TEXT,task_id TEXT,payload TEXT,
                     PRIMARY KEY(home_id,task_id));
-                PRAGMA user_version=1;
             ''')
+            decision_columns = {row['name'] for row in c.execute('PRAGMA table_info(decisions)')}
+            if 'description' not in decision_columns:
+                c.execute("ALTER TABLE decisions ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+            c.execute('UPDATE schema_version SET version=2')
+            c.execute('PRAGMA user_version=2')
             c.commit()
         os.chmod(self.db, 0o600)
 
@@ -365,10 +404,11 @@ class Board:
         d['options'] = json.loads(d['options'])
         return d
 
-    def upsert_decision(self, c, changed, hid, task, key, question, options, rec, why,
+    def upsert_decision(self, c, changed, hid, task, key, question, description, options, rec, why,
                         source, project, origin='', registered=False):
         prior = self.latest(c, hid, task, key)
-        fields = dict(question=question, options=json.dumps(options), recommendation=rec,
+        fields = dict(question=eli5_title(question), description=clean_tasks_text(description),
+                      options=json.dumps(options), recommendation=rec,
                       why=why, source=source, project=project, origin_id=origin, registered=int(registered))
         if prior and all(prior[k] == v for k, v in fields.items()) and prior['state'] != 'closed':
             return prior['revision']
@@ -378,8 +418,11 @@ class Board:
         if prior:
             c.execute('UPDATE decisions SET state=\'closed\',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?',
                       (stamp(), hid, task, key, prior['revision']))
-        c.execute('INSERT INTO decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-                  (hid, task, key, rev, question, fields['options'], rec, why, source, 'open', stamp(), None, project, origin, int(registered)))
+        c.execute('''INSERT INTO decisions(home_id,task_id,decision_key,revision,question,description,
+                      options,recommendation,why,source,state,asked_at,closed_at,project,origin_id,registered)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                  (hid, task, key, rev, fields['question'], fields['description'], fields['options'],
+                   rec, why, source, 'open', stamp(), None, project, origin, int(registered)))
         changed[0] = True
         return rev
 
@@ -396,14 +439,16 @@ class Board:
             if any(o['value'] == label for o in options):
                 raise Invalid('duplicate option value')
             options.append({'value': label, 'label': wording})
-        if not 1 <= len(options) <= 9 or (args.rec and args.rec not in [o['value'] for o in options]):
-            raise Invalid('need 1..9 options and a matching recommendation')
-        text(args.title, 'title', 1000); text(args.why, 'why', empty=True)
+        if not 2 <= len(options) <= 4 or (args.rec and args.rec not in [o['value'] for o in options]):
+            raise Invalid('need 2..4 options and a matching recommendation')
+        text(args.title, 'title', 1000); text(args.description, 'description', 2000, empty=True)
+        text(args.why, 'why', empty=True)
         with self.write() as (c, changed):
             prior = self.latest(c, hid, args.task, args.key)
             source = prior['source'] if prior else 'firstmate'
             origin = prior['origin_id'] if prior else ''
-            rev = self.upsert_decision(c, changed, hid, args.task, args.key, args.title, options,
+            description = args.description or (prior['description'] if prior else '') or 'Your choice decides what happens next for this task.'
+            rev = self.upsert_decision(c, changed, hid, args.task, args.key, args.title, description, options,
                                        args.rec, args.why, source, args.project, origin, True)
         self.reload()
         return {'revision': rev}
@@ -437,21 +482,36 @@ class Board:
 
     def backlog_rows(self, home):
         rows = {}
+        full_rows = {}
         for state in ('held', 'in_flight'):
             output = run(['tasks-axi', 'list', '--state', state, '--fields',
-                          'hold_kind,hold_reason,blocked,blocked_by', '--limit', '10000'], home)
+                          'hold_kind,hold_reason,blocked,blocked_by,body', '--limit', '10000'], home)
             if not re.search(r'^[A-Za-z_ -]+(?:\[\d+\]|:)', output, re.M):
                 raise Invalid('tasks-axi list: invalid response')
             for line in output.splitlines():
                 if not line.startswith('  ') or ',' not in line:
                     continue
                 values = next(csv.reader(io.StringIO(line.strip())))
-                if len(values) < 9:
+                if len(values) < 10:
                     raise Invalid('tasks-axi list: unexpected row shape')
-                tid, actual, kind, repo, title, hold_kind, reason, blocked, blockers = values[:9]
+                tid, actual, kind, repo, title, hold_kind, reason, blocked, blockers, body = values[:10]
                 slug(tid, 'backlog task')
-                row = dict(id=tid, state=actual, kind=kind, repo=repo, title=title,
-                           hold_kind=hold_kind, reason=reason.replace('\\n', ' '),
+                listed = {'title': title, 'hold_reason': reason, 'body': body}
+                if any(TASKS_TRUNCATION.search(value) for value in listed.values()):
+                    if tid not in full_rows:
+                        full = run(['tasks-axi', 'show', tid, '--full'], home)
+                        full_rows[tid] = {}
+                        for name in listed:
+                            match = re.search(rf'^  {name}: (.*)$', full, re.M)
+                            if match:
+                                try:
+                                    full_rows[tid][name] = json.loads(match.group(1))
+                                except json.JSONDecodeError:
+                                    full_rows[tid][name] = match.group(1)
+                    listed.update(full_rows[tid])
+                row = dict(id=tid, state=actual, kind=kind, repo=repo,
+                           title=clean_tasks_text(listed['title']), body=clean_tasks_text(listed['body']),
+                           hold_kind=hold_kind, reason=clean_tasks_text(listed['hold_reason']).replace('\\n', ' '),
                            blocked=blocked, blockers=blockers)
                 # held listing overlaps canonical state listings.
                 rows[tid] = row
@@ -589,7 +649,8 @@ class Board:
                         changed[0] = True
                     if prior and (prior['registered'] or prior['state'] in ('queued', 'sent', 'consumed', 'failed')):
                         continue
-                    self.upsert_decision(c, changed, hid, tid, key, summary, [], '', '', 'worker', row['project'])
+                    self.upsert_decision(c, changed, hid, tid, key, row['title'], summary, [], '', '',
+                                         'worker', row['project'])
                 for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND task_id=? AND source='worker' AND state='open'", (hid, tid)).fetchall():
                     if prior['decision_key'] not in open_keys:
                         c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
@@ -608,7 +669,7 @@ class Board:
                     prior = self.latest(c, hid, tid, key)
                     if prior and prior['registered']:
                         continue
-                    self.upsert_decision(c, changed, hid, tid, key, b['title'] + ': ' + b['reason'], [], '', '',
+                    self.upsert_decision(c, changed, hid, tid, key, b['title'], b['reason'], [], '', '',
                                          'hold', self.project(b['repo']), origin, bool(sep))
             if not error:
                 for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND source='hold' AND state='open'", (hid,)).fetchall():
@@ -670,6 +731,8 @@ class Board:
                 answer = c.execute('SELECT * FROM answers WHERE home_id=? AND task_id=? AND decision_key=? AND revision=? AND cancelled_at IS NULL ORDER BY received_at DESC LIMIT 1',
                                    (d['home_id'], d['task_id'], d['decision_key'], d['revision'])).fetchone()
                 d['answer'] = dict(answer) if answer else None
+                if d['answer']:
+                    d['answer']['delivery_class'] = delivery_class(d['answer']['error'])
             events = [dict(r) for r in c.execute('SELECT * FROM events ORDER BY created_at DESC LIMIT 500')]
             runs = {r['home_id']: dict(r) for r in c.execute('SELECT * FROM ingest_runs')}
         homes = []
@@ -1206,6 +1269,7 @@ def parser():
                 cmd.add_argument(arg)
             cmd.add_argument('--project',choices=TAGS,required=True)
             cmd.add_argument('--title',required=True)
+            cmd.add_argument('--description','--consequence',default='')
             cmd.add_argument('--option',action='append',required=True)
             cmd.add_argument('--rec',default='')
             cmd.add_argument('--why',default='')
