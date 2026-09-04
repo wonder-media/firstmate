@@ -300,6 +300,32 @@ Malformed JSON, an empty or malformed rule/default array, an unverified harness,
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
+## Council (config/council.json)
+
+The captain-invocable [`council` skill](../.agents/skills/council/SKILL.md) owns the plan-review procedure, finding states, stop checklist, and captain boundaries.
+The live roster is captain-private `config/council.json`; [`bin/council/council.example.json`](../bin/council/council.example.json) is its copyable schema example.
+Firstmate prepares the live file and corresponding seat rules before routine use; phase 1 reads and fills these records manually without a Council runner.
+This section owns the roster schema; the example supplies the concrete default values.
+
+| Field | Meaning |
+|---|---|
+| `seats` | Object mapping counted seat names (`architect`, `empiricist`, `economist`, `ux`) to the matching `when` rule names in `config/crew-dispatch.json` |
+| `default_roster` | Array of distinct counted seat names used when the invocation omits `--seats` |
+| `ux_on_captain_surface` | Whether the default roster adds UX when the plan changes a captain-facing surface |
+| `advisory.command_template` | Pinned direct CLI print command; `{prompt}` is one literal argument containing the self-contained prompt, never executable shell interpolation |
+| `advisory.rounds` | Default rounds including the extra advisory seat; later rounds require the captain's request under the skill |
+| `advisory.word_cap` | Advisory response limit, bounded by the common review cap |
+| `caps.max_rounds` | Default round cap; `--max-rounds` may lower it within the skill's hard bound |
+| `caps.minimum_counted_reports` | Required valid counted coverage under the skill's stop checklist |
+| `caps.review_words`, `caps.economist_words` | Common and economist report limits |
+| `caps.seat_deadline_minutes`, `caps.no_status_check_minutes` | Per-attempt deadline and the early quiet-seat check |
+| `caps.replacements_per_seat_per_round` | Shared replacement allowance across all invalidity causes |
+
+The cap fields make the skill's limits explicit in the roster, not permission to relax them; reject configuration that conflicts with the skill.
+Invoke the advisory command using literal argument passing or proper shell quoting for the entire prompt; do not `eval` substituted prompt text.
+The seat mappings name rules, not models: harness, model, effort, and quota selection remain owned by [Crew dispatch profiles](#crew-dispatch-profiles-configcrew-dispatchjson).
+The example does not create live configuration or install those rules, and it does not verify the advisory CLI as a fleet harness.
+
 ## Toolchain
 
 On session start the first mate detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.

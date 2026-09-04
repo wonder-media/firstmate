@@ -129,6 +129,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/council/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/decision-hold-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -203,6 +207,38 @@
     {
       "path": "VISION.md",
       "audience": "public-product"
+    },
+    {
+      "path": "bin/council/findings.template.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/log.template.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/advisory.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/architect.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/economist.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/empiricist.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/ux.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/rubric.md",
+      "audience": "agent-runtime"
     },
     {
       "path": "docs/agent-control.md",
