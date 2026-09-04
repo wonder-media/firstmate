@@ -662,8 +662,7 @@ The shared staleness proof lives in `bin/fm-lock-lib.sh`, which both `fm-teardow
 Bridge, the local captain dashboard, is served by `bin/fm-board.sh serve`; the [`bin/fm-board.py`](../bin/fm-board.py) header owns configuration, HTTP routes, authentication, and runtime storage.
 Set `FM_BOARD_BROWSER_TEST=1` when running `tests/fm-board.test.sh` to add rendered Chrome assertions; the test prints an explicit skip when the flag or a Chrome binary is absent, while API, SSE, and answer-lifecycle checks always run.
 Copy [`board.example.json`](../bin/board/board.example.json) to the owning home's private `config/board.json`, replace its placeholder paths and secret, and restrict the file to mode `0600`.
-The optional `stale_after_s` value, default 120 seconds, is the age of a home's last successful ingest beyond which the page and `/healthz` report that home stale.
-The default sits above the 90 second snapshot budget plus one tick, so health flips only on real failure.
+The optional `stale_after_s` value sets how old a home's last successful ingest may be before the page and `/healthz` report that home stale; the header owns its default and accepted range.
 The [`launchd example`](../bin/board/com.wondermedia.firstmate-board.plist.example) requires absolute paths to Python 3.14 and the home, with `state/logs/` created before loading it.
 The bookmark carries `?k=<secret>` once; the page stores it locally and immediately removes it from the URL.
 Plain HTTP is supported only on the trusted private LAN.
