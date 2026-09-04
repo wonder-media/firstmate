@@ -94,6 +94,8 @@ def route(config):
                     wording = ' '.join(next((o['label'] for o in options if o['value'] == a['choice']),a['choice']).split())
                     note = ' '.join(a['note'].split())
                     answer_text = f'{wording} (note: {note})' if note else wording
+                    if a['choice'] == 'custom':
+                        answer_text = note
                     if a['choice'] == 'request-options':
                         answer_text = (f'Captain requested structured options for decision {a["decision_key"]}: '
                             f'register 2-4 distinct alternatives with `bin/fm-board.sh decision {a["home_id"]} '

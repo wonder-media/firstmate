@@ -196,7 +196,8 @@ try:
     (home/'delay').unlink();command('ingest','--once');passed('single-flight and bounded subprocess failure keep last-good rows')
     start();assert calls(home,'fm-fleet-snapshot.sh')
     status,health,_=request('/healthz');assert status==200 and health['answers_armed']
-    assert set(('ok','ingest_age_s','last_snapshot_ms','sse_clients','db_ok','outbox_backlog','answers_armed'))<=health.keys()
+    assert set(('ok','ingest_age_s','last_snapshot_ms','sse_clients','db_ok','outbox_backlog','answers_armed','answers_error'))<=health.keys()
+    assert health['answers_error'] is None
     _,payload,h=request();assert request(extra={'If-None-Match':h['ETag']})[0]==304
     _,_,ph=request('/api/state?project=CES');assert ph['ETag']!=h['ETag']
     assert request('/api/state?project=CES',extra={'If-None-Match':h['ETag']})[0]==200
@@ -256,7 +257,7 @@ try:
     oid=r[1]['answers'][0]['answer_id'];accelerate([oid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(oid,))[0]['consumed_at'])
     deliveries=list(map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()))
-    assert deliveries[-2][-1]=='custom (note: Keep the current copy)'
+    assert deliveries[-2]==['keyed-legacy','--resolve-key','reason','Keep the current copy'],deliveries[-2]
     assert deliveries[-1]==['options-please',"Captain requested structured options for decision alternatives: register 2-4 distinct alternatives with `bin/fm-board.sh decision Main options-please alternatives --option '...'` and stop."]
     passed('keyed legacy note routes directly; concrete-options request is one exact fixed steer')
     # Three legacy answers are exceptions: one atomic JSONL burst, one source fire.
@@ -285,7 +286,7 @@ try:
     assert r[0]==200,r
     hid=r[1]['answers'][0]['answer_id'];accelerate([hid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(hid,))[0]['consumed_at'])
-    assert (home/'hold-input').read_text().startswith('budget\tcustom (note: Use the small budget)\t')
+    assert (home/'hold-input').read_text().startswith('budget\tUse the small budget\t')
     passed('backlog hold routes through fm-decision-hold answers')
     # An answer without a note delivers the option wording alone.
     decision('nonote')
@@ -349,8 +350,23 @@ assert len(calls)==16 and b.arm_delay==60,(calls,b.arm_delay)
     # The replaced private source used a plain integer cursor and records with
     # no UUID. Preserve those records as exceptions while exporting new rows.
     cursor=home/'state/board-inbox/answers.cursor'
+    # A broken cursor is a source failure: no captured result, no wake, only an
+    # honest /healthz reason until the cursor is repaired; then the source re-arms.
+    good=cursor.read_text();results=len(list((home/'state/procevent-inbox').glob('*.result')))
+    start()
+    cursor.write_text(str(len(log.read_bytes())+10))
+    wait(lambda:request('/healthz')[1]['answers_armed'] is False and 'cursor' in (request('/healthz')[1]['answers_error'] or ''))
+    time.sleep(3)
+    assert len(list((home/'state/procevent-inbox').glob('*.result')))==results
+    assert 'answers source: legacy cursor' in (home/'state/logs/board.log').read_text()
+    cursor.write_text(good)
+    wait(lambda:request('/healthz')[1]['answers_armed'] and request('/healthz')[1]['answers_error'] is None,45)
+    assert len(list((home/'state/procevent-inbox').glob('*.result')))==results
+    stop()
+    passed('source failure surfaces through /healthz and the log, never a captured result')
     cursor.write_text(str(json.loads(cursor.read_text())['offset']))
     with log.open('a') as f:f.write(json.dumps({'ts':'legacy','home':'Main','task':'old','choice':'custom','note':'Older answer'})+'\n')
+    ino=log.stat().st_ino
     start()
     wait(lambda:len(list((home/'state/procevent-inbox').glob('*.result')))==2)
     wait(lambda:isinstance(json.loads(cursor.read_text()),dict))
@@ -358,7 +374,7 @@ assert len(calls)==16 and b.arm_delay==60,(calls,b.arm_delay)
     assert r[0]==200,r
     cid=sql("select answer_id from answers where action='correction'")[0]['answer_id'];accelerate([cid])
     wait(lambda:sql('select exported_at from answers where answer_id=?',(cid,))[0]['exported_at'])
-    assert len(log.read_text().splitlines())==5
+    assert len(log.read_text().splitlines())==5 and log.stat().st_ino==ino
     passed('legacy integer cursor and id-less lines migrate without losing or blocking answers')
 except Exception:
     for log in (root/'daemon.log',home/'state/logs/board.log',home/'state/logs/board-answers.log'):

@@ -17,7 +17,9 @@
 # homes (last_ok, ingest_error, age_s, stale), tasks, decisions, events,
 # connection {transport, github}, counts. GET /healthz -> ok, db_ok,
 # ingest_age_s (by home), last_snapshot_ms (by home), sse_clients,
-# outbox_backlog, answers_armed, ingest_error (by home).
+# outbox_backlog, answers_armed, answers_error, ingest_error (by home).
+# answers_armed is false with answers_error set while the exception source's last
+# run failed (board-inbox/answers.error); such failures never wake firstmate.
 # GET /events -> SSE event: changed, id: rev, data: {rev,generated_at}; also
 # event: heartbeat every 15 s also carries homes (last_ok/error/age/stale), so
 # timestamp-only freshness updates require no JSON polling. Initial changed sent.
@@ -31,7 +33,8 @@
 # consumed by POST. /answer also accepts {action:"undo",answer_id}; only while
 # queued and before its deadline. {action:"correction",answer_id,note} queues
 # a correction request for a consumed answer without reopening its decision.
-# Legacy choice values: custom (note required), request-options.
+# Legacy choice values: custom (note required; the note IS the answer text sent
+# to the worker or hold, never 'custom (note: ...)'), request-options.
 #
 # SQLite: WAL, busy_timeout=5000, user_version=1 plus schema_version table.
 # Every visible committing transaction bumps meta.rev ONCE; bookkeeping-only
@@ -53,8 +56,9 @@
 # notifies SSE after decision/live CLI writes. /api/state uses rev as its ETag,
 # qualified by project so a filtered representation never reuses an unfiltered one.
 # Outbox: flock serializes exception export and routing across instances.
-# Atomic replace publishes one complete jsonl burst; answer_id scans recover
-# crash after publication but before exported_at. The non-destructive source
+# One O_APPEND write under export.lock publishes each complete jsonl burst, so a
+# coexisting legacy appender is never overwritten by a replace; answer_id scans
+# recover crash after publication but before exported_at. The non-destructive source
 # reads from its acknowledged cursor; handler advances it only after capture.
 # Legacy integer cursors are accepted without rebasing; old lines without ids
 # remain human-review exceptions and never block new UUID exports.
@@ -155,6 +159,18 @@ def atomic(path, data):
             os.unlink(tmp)
 
 
+def append(path, data):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        view = memoryview(data)
+        while view:
+            view = view[os.write(fd, view):]
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
 @contextlib.contextmanager
 def file_lock(path, blocking=True):
     with open(path, 'a') as f:
@@ -248,6 +264,7 @@ class Board:
         self.armed_elsewhere = False
         self.arm_delay = 0
         self.arm_next = 0.0
+        self.arm_error = None
         self.source_id = 'board-answers-' + hashlib.sha256(str(self.home).encode()).hexdigest()[:16]
         self.migrate()
 
@@ -749,7 +766,7 @@ class Board:
                         burst.append(json.dumps(dict(ts=a['received_at'],home=a['home_id'],task=a['task_id'],
                             choice=a['choice'],note=a['note'],key=a['decision_key'],answer_id=a['answer_id'])) + '\n')
                 if burst:
-                    atomic(path, data + ''.join(burst).encode())
+                    append(path, ''.join(burst).encode())
                 for a in rows:
                     c.execute('UPDATE answers SET exported_at=? WHERE answer_id=?', (stamp(),a['answer_id']))
                     changed[0] = True
@@ -833,7 +850,17 @@ class Board:
                 return fields[2]
         return 'unregistered'
 
+    def source_error(self):
+        try:
+            return str(json.loads((self.state / 'board-inbox/answers.error').read_text()).get('error') or '')[:500] or None
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, AttributeError):
+            return 'answers.error is unreadable'
+
     def armed_now(self):
+        if self.source_error():
+            return False
         if self.runner is not None and self.runner.poll() is None:
             return True
         return self.armed and self.armed_elsewhere
@@ -843,8 +870,13 @@ class Board:
         # never against a source another live owner already runs.
         if self.runner is not None and self.runner.poll() is None:
             self.armed, self.armed_elsewhere = True, False
-            self.arm_delay, self.arm_next = 0, 0.0
+            if not self.source_error():
+                self.arm_delay, self.arm_next = 0, 0.0
             return
+        error = self.source_error()
+        if error != self.arm_error:
+            self.arm_error = error
+            self.log(f'answers source: {error}' if error else 'answers source: recovered')
         if time.monotonic() < self.arm_next:
             return
         self.arm_delay = min(self.arm_delay * 2 or 1, 60)
@@ -866,7 +898,7 @@ class Board:
         return dict(ok=db_ok and all(v is not None and v < 60 for v in ages.values()) and not any(errors.values()) and armed,
                     db_ok=db_ok, ingest_age_s=ages, ingest_error=errors,
                     last_snapshot_ms={hid:runs.get(hid,{}).get('last_snapshot_ms') for hid in self.homes},
-                    sse_clients=len(self.clients),outbox_backlog=outbox,answers_armed=armed)
+                    sse_clients=len(self.clients),outbox_backlog=outbox,answers_armed=armed,answers_error=self.source_error())
 
     def version(self):
         with self.connect() as c:
