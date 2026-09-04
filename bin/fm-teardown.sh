@@ -23,16 +23,18 @@
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
 # Before any ordinary pooled-worktree access, teardown resolves the recorded
-# path against `treehouse status --json`. The status entry supplies the managed
-# path spelling used for return. An available or no-longer-managed slot counts
-# as already returned only after the ordinary landed-work and cleanliness gates
-# pass, including a retained task-branch proof when the worktree is gone. A
-# different task counts as the live rebound owner only when its current endpoint
-# and owner generation agree; stale claims are ignored and ambiguous claims
-# refuse. The host-user-wide Treehouse operation lock spans identity inspection
-# through every worktree mutation and return, while spawn holds the same lock
-# across allocation and owner/meta publication, so a verified slot cannot rebind
-# inside teardown's destructive interval.
+# path against `treehouse status --json`, read from the recorded project= clone
+# because Treehouse reports only the pool of its working directory. A missing
+# project clone refuses before any pool read unless --force is given. The
+# status entry supplies the managed path spelling used for return. An available
+# or no-longer-managed slot counts as already returned only after the ordinary
+# landed-work and cleanliness gates pass, including a retained task-branch proof
+# when the worktree is gone. A different task counts as the live rebound owner
+# only when its current endpoint and owner generation agree; stale claims are
+# ignored and ambiguous claims refuse. The host-user-wide Treehouse operation
+# lock spans identity inspection through every worktree mutation and return,
+# while spawn holds the same lock across allocation and owner/meta publication,
+# so a verified slot cannot rebind inside teardown's destructive interval.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -67,7 +69,8 @@
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
-#   checks, and discards secondmate child work for kind=secondmate. Only use it
+#   checks, proceeds without a pool read when the recorded project clone is
+#   missing, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
 #
 # Transient / stale worktree git lock recovery (teardown-lock-race): a crew process
