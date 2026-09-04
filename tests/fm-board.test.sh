@@ -43,9 +43,9 @@ if(window.__bridgeTest){
   const observe=setInterval(()=>{
    if(!node.querySelector('.decision-state').textContent.startsWith('Queued')){if(++polls>100){clearInterval(observe);finish({error:'queued state did not render'})}return}
    clearInterval(observe);
-   const style=getComputedStyle(failed),saved=JSON.parse(localStorage.getItem(key));
+   const style=getComputedStyle(failed),saved=localStorage.getItem(key);
    finish({selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
-    savedChoice:saved.choice,savedNote:saved.note,health:document.querySelector('#answer-health').textContent,
+    savedDraft:saved,health:document.querySelector('#answer-health').textContent,
     healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
     failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor});
   },100);
@@ -382,11 +382,28 @@ def ingest(only=None,reconcile=False):seen.append(reconcile);b.stop.set()
 b.ingest=ingest
 b.dirty.set();b.ingest_loop()
 assert seen==[True],seen
+assert b.stale_after==120
+b.age=lambda value:100
+assert not any(h['stale'] for h in b.version()['homes']) and all(v==100 for v in b.health()['ingest_age_s'].values())
+b.stale_after=90
+assert all(h['stale'] for h in b.version()['homes']) and not b.health()['ok']
+import json,pathlib,tempfile
+for bad in (0,86401,'120',12.5):
+    with tempfile.NamedTemporaryFile('w',suffix='.json',dir=pathlib.Path(os.environ['FM_BOARD_CONFIG']).parent,delete=False) as f:
+        json.dump(dict(json.loads(pathlib.Path(os.environ['FM_BOARD_CONFIG']).read_text()),stale_after_s=bad),f)
+    try:
+        m.Board(f.name)
+    except m.Invalid as e:
+        assert 'stale_after_s' in str(e),e
+    else:
+        raise AssertionError(bad)
+    finally:
+        os.unlink(f.name)
 '''
     check=subprocess.run([sys.executable,'-c',guard],env=dict(env,FM_BOARD_CHECK_MODULE=str(fixture/'bin/fm-board.py')),
                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
     assert check.returncode==0,check.stderr.decode()
-    passed('re-arming backs off, reports a live external owner as armed, and a fresh boot still reconciles at startup')
+    passed('re-arming backs off, a live external owner is armed, fresh boot reconciles, stale_after_s is validated and honored')
     for _ in range(8):backup=json.loads(command('backup').stdout)['backup']
     assert len(list((home/'state/backups').glob('board-*.sqlite')))==7
     expected=rev()
@@ -428,13 +445,13 @@ assert seen==[True],seen
         observed=json.loads(html.unescape(match.group(1).decode()))
         assert observed.get('error') is None,observed
         assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
-        assert observed['savedChoice']=='A' and observed['savedNote']=='Unsaved local draft',observed
+        assert observed['savedDraft'] is None,observed
         assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
         assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
         assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
         browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
         assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
-        passed('rendered failed styling, source health, authoritative answer, and local draft preservation')
+        passed('rendered failed styling, source health, authoritative answer, and submitted draft clearing')
     elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1':
         print('skip: no chrome',flush=True)
     else:

@@ -4,8 +4,10 @@
 # Config owner: config/board.json (or --config /absolute/file, FM_BOARD_CONFIG).
 # Required: homes=[{"id":"Main","path":"/absolute/home"}, ...], lan_host
 # (one DNS name or IP, no scheme/port), port (1..65535), secret (>=24 characters),
-# repo_tags={"repository-name":"WOK", ...}. Optional: github_boards={} (reserved,
-# never queried in phase 1). FM_HOME is the absolute owning home; source homes
+# repo_tags={"repository-name":"WOK", ...}. Optional: stale_after_s (integer
+# seconds 1..86400, default 120, above the 90 s snapshot budget plus one tick):
+# a home whose last successful ingest is older is reported stale and turns
+# /healthz ok false; github_boards={} (reserved, never queried in phase 1). FM_HOME is the absolute owning home; source homes
 # are read-only. Paths are canonicalized; ids are unique path-safe slugs.
 # Tags: WOK,CES,MF,CSLS-OG,JVP,WM,FM,Charlier. Unknown repos display as FM.
 # Config is private: chmod 600. HTTP is plaintext on the trusted private LAN.
@@ -232,6 +234,9 @@ class Board:
         self.port = c.get('port')
         if type(self.port) is not int or not 1 <= self.port <= 65535:
             raise Invalid('port must be between 1 and 65535')
+        self.stale_after = c.get('stale_after_s', 120)
+        if type(self.stale_after) is not int or not 1 <= self.stale_after <= 86400:
+            raise Invalid('stale_after_s must be an integer between 1 and 86400 seconds')
         authority = f'[{self.host}]' if ':' in self.host else self.host
         self.authority = f'{authority}:{self.port}'
         self.origins = {f'http://{self.authority}'}
@@ -671,7 +676,7 @@ class Board:
         for hid in self.homes:
             r = runs.get(hid, {})
             age = self.age(r.get('last_ok'))
-            homes.append(dict(id=hid, last_ok=r.get('last_ok'), age_s=age, stale=age is None or age > 60,
+            homes.append(dict(id=hid, last_ok=r.get('last_ok'), age_s=age, stale=age is None or age > self.stale_after,
                               ingest_error=r.get('last_error')))
         counts = {tag: sum(1 for d in decisions if d['project'] == tag and d['state'] != 'consumed') for tag in TAGS}
         counts['All'] = sum(counts.values())
@@ -901,7 +906,7 @@ class Board:
         ages = {hid:self.age(runs.get(hid,{}).get('last_ok')) for hid in self.homes}
         errors = {hid:runs.get(hid,{}).get('last_error') for hid in self.homes}
         armed = self.armed_now()
-        return dict(ok=db_ok and all(v is not None and v < 60 for v in ages.values()) and not any(errors.values()) and armed,
+        return dict(ok=db_ok and all(v is not None and v <= self.stale_after for v in ages.values()) and not any(errors.values()) and armed,
                     db_ok=db_ok, ingest_age_s=ages, ingest_error=errors,
                     last_snapshot_ms={hid:runs.get(hid,{}).get('last_snapshot_ms') for hid in self.homes},
                     sse_clients=len(self.clients),outbox_backlog=outbox,answers_armed=armed,answers_error=self.source_error())
@@ -914,7 +919,7 @@ class Board:
         for hid in self.homes:
             row = runs.get(hid,{})
             age = self.age(row.get('last_ok'))
-            homes.append(dict(id=hid,last_ok=row.get('last_ok'),age_s=age,stale=age is None or age>60,ingest_error=row.get('last_error')))
+            homes.append(dict(id=hid,last_ok=row.get('last_ok'),age_s=age,stale=age is None or age>self.stale_after,ingest_error=row.get('last_error')))
         armed = self.armed_now()
         return dict(rev=int(m['rev']),generated_at=m['generated_at'],homes=homes,
                     answers_armed=armed,answers_error=self.source_error())
