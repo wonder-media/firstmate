@@ -9,10 +9,11 @@
 # slot; it never proves teardown ownership, which callers decide from current
 # occupancy, endpoint liveness, owner generation, and the shared operation lock.
 #
-# fm_treehouse_lookup_slot <path>
+# fm_treehouse_lookup_slot <path> <project-dir>
 #   Sets FM_TREEHOUSE_SLOT_PATH, FM_TREEHOUSE_SLOT_STATUS,
 #   FM_TREEHOUSE_SLOT_LEASE_HOLDER, and FM_TREEHOUSE_SLOT_LEASE_ID for the
-#   status entry whose physical path matches <path>.
+#   status entry whose physical path matches <path>. Reads the pool from
+#   <project-dir> in a subshell, preserving the caller's working directory.
 #   Returns 0 for a match, 1 for a valid status document with no match, 2 when
 #   the installed Treehouse has no JSON status surface, and 3 when Treehouse
 #   advertises JSON status but that authoritative read failed or was invalid.
@@ -68,8 +69,8 @@ fm_treehouse_paths_match() {
 }
 
 fm_treehouse_status_unavailable_rc() {
-  local help
-  help=$(treehouse status --help 2>&1) || return 3
+  local project=$1 help
+  help=$(cd "$project" && treehouse status --help 2>&1) || return 3
   [ -n "$help" ] || return 3
   if printf '%s\n' "$help" | grep -F -- '--json' >/dev/null 2>&1; then
     return 3
@@ -85,18 +86,18 @@ fm_treehouse_operation_lock_path() {
 }
 
 fm_treehouse_lookup_slot() {
-  local requested=$1 json rows row managed
+  local requested=$1 project=$2 json rows row managed
   FM_TREEHOUSE_SLOT_PATH=
   FM_TREEHOUSE_SLOT_STATUS=
   FM_TREEHOUSE_SLOT_LEASE_HOLDER=
   FM_TREEHOUSE_SLOT_LEASE_ID=
 
-  json=$(treehouse status --json 2>/dev/null) || {
-    fm_treehouse_status_unavailable_rc
+  json=$(cd "$project" && treehouse status --json 2>/dev/null) || {
+    fm_treehouse_status_unavailable_rc "$project"
     return $?
   }
   [ -n "$json" ] || {
-    fm_treehouse_status_unavailable_rc
+    fm_treehouse_status_unavailable_rc "$project"
     return $?
   }
   command -v jq >/dev/null 2>&1 || return 3

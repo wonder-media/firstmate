@@ -2625,6 +2625,10 @@ add_treehouse_slot_state() {
   local case_dir=$1 managed=$2 status=$3 return_mode=${4:-success}
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
+if [ "\$(pwd -P)" != "\$(cd '$case_dir/project' && pwd -P)" ]; then
+  echo 'error: Treehouse queried outside the project clone' >&2
+  exit 1
+fi
 if [ "\${1:-}" = status ] && [ "\${2:-}" = --json ]; then
   printf '[{"path":"%s","status":"%s","lease_id":"","lease_holder":"","leased_at":null,"processes":[]}]\\n' '$managed' '$status'
   exit 0

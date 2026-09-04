@@ -1408,7 +1408,7 @@ prepare_treehouse_task_slot() {
   [ "$KIND" != secondmate ] || return 0
   [ "$BACKEND" != orca ] || return 0
 
-  if fm_treehouse_lookup_slot "$WT"; then
+  if fm_treehouse_lookup_slot "$WT" "$PROJ"; then
     WT=$FM_TREEHOUSE_SLOT_PATH
     case "$FM_TREEHOUSE_SLOT_STATUS" in
       available)

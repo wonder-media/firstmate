@@ -76,12 +76,93 @@ EOF
 run_spawn() {
   local id=$1
   shift
-  FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
-    FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
-    FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
-    FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" FM_FAKE_PANE_PATH="$POOL_DIR" \
-    PATH="$FAKEBIN_DIR:$PATH" \
-    "$SPAWN" "$id" "$PROJECT_DIR" "$@" 2>&1
+  (
+    cd "$HOME_DIR" || exit 1
+    FM_ROOT_OVERRIDE='' FM_HOME="$HOME_DIR" \
+      FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
+      FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
+      FM_SPAWN_NO_GUARD=1 TMUX="fake,1,0" FM_FAKE_PANE_PATH="$POOL_DIR" \
+      PATH="$FAKEBIN_DIR:$PATH" \
+      "$SPAWN" "$id" "$PROJECT_DIR" "$@" 2>&1
+  )
+}
+
+make_project_scoped_treehouse() {
+  cat > "$FAKEBIN_DIR/treehouse" <<'SH'
+#!/usr/bin/env bash
+if [ "$(pwd -P)" != "$(cd "$FM_FAKE_PROJECT" && pwd -P)" ]; then
+  printf '[]\n'
+  exit 0
+fi
+case "$*" in
+  'status --json')
+    case "${FM_FAKE_SLOT_MODE:-match}" in
+      missing) printf '[]\n' ;;
+      failed) exit 1 ;;
+      *) printf '[{"path":"%s","status":"in-use"}]\n' "$FM_FAKE_PANE_PATH" ;;
+    esac
+    ;;
+  'status --help') printf 'status --json\n' ;;
+esac
+SH
+  chmod +x "$FAKEBIN_DIR/treehouse"
+}
+
+test_project_scoped_lookup_and_spawn() {
+  local rec id out status lookup_cwd
+  id='pool-foreign-cwd-r6'
+  rec=$(make_case foreign-cwd "$id")
+  read_case_record "$rec"
+  make_project_scoped_treehouse
+
+  # Treehouse 2.1.1 selects the cwd repository's pool: the same slot was
+  # absent from the scratch home's status and present from its project clone.
+  for lookup_cwd in "$HOME_DIR" "$PROJECT_DIR"; do
+    out=$(
+      cd "$lookup_cwd" || exit 1
+      export PATH="$FAKEBIN_DIR:$PATH" FM_FAKE_PROJECT="$PROJECT_DIR" FM_FAKE_PANE_PATH="$POOL_DIR"
+      . "$ROOT/bin/fm-treehouse-lib.sh"
+      before=$PWD
+      fm_treehouse_lookup_slot "$POOL_DIR" "$PROJECT_DIR" || exit 1
+      [ "$PWD" = "$before" ] || exit 1
+      printf '%s\n' "$FM_TREEHOUSE_SLOT_PATH"
+    )
+    expect_code 0 "$?" "lookup should find the project slot and preserve caller cwd"
+    [ "$out" = "$POOL_DIR" ] || fail "lookup returned the wrong pool path"
+  done
+  out=$(FM_FAKE_PROJECT="$PROJECT_DIR" run_spawn "$id" --scout)
+  status=$?
+  expect_code 0 "$status" "scout spawn from the foreign home should find the project pool"
+  assert_contains "$out" "spawned $id" "foreign-cwd spawn did not succeed"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$(git -C "$POOL_DIR" rev-parse origin/main)" ] \
+    || fail "foreign-cwd spawn did not refresh its base"
+  pass "lookup preserves both caller cwds and a scout spawns from its foreign home"
+}
+
+test_slot_refusal_precedes_base_refresh() {
+  local rec id out status slot_mode
+  for slot_mode in missing failed; do
+    id="pool-slot-$slot_mode-r7"
+    rec=$(make_case "slot-$slot_mode" "$id")
+    read_case_record "$rec"
+    make_project_scoped_treehouse
+
+    out=$(FM_FAKE_PROJECT="$PROJECT_DIR" FM_FAKE_SLOT_MODE="$slot_mode" run_spawn "$id" --scout)
+    status=$?
+    [ "$status" -ne 0 ] || fail "spawn accepted a $slot_mode slot read"
+    if [ "$slot_mode" = missing ]; then
+      assert_contains "$out" 'no physically matching managed slot' "missing slot was not refused"
+    else
+      assert_contains "$out" 'authoritative slot read failed' "failed status read was not refused"
+    fi
+    [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$INITIAL_SHA" ] \
+      || fail "refused spawn refreshed the pool base"
+    [ -z "$(git -C "$POOL_DIR" status --porcelain)" ] \
+      || fail "refused spawn left a partially refreshed or dirty pool slot"
+    assert_absent "$POOL_DIR/advanced-main.txt" "refused spawn copied the new base into the slot"
+    assert_absent "$HOME_DIR/state/$id.meta" "refused spawn published task metadata"
+  done
+  pass "missing and failed slot reads refuse before base refresh and leave the pool clean"
 }
 
 test_stale_pool_base_refreshes_before_branching() {
@@ -227,6 +308,8 @@ test_unresolved_remote_default_refuses_pool() {
   pass "an unresolved remote default branch refuses the pooled worktree"
 }
 
+test_project_scoped_lookup_and_spawn
+test_slot_refusal_precedes_base_refresh
 test_stale_pool_base_refreshes_before_branching
 test_non_main_default_branch_refreshes_before_branching
 test_direct_pr_and_scout_refresh_before_launch
