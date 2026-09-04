@@ -2,6 +2,8 @@
 # Executable-interface regression for the dashboard daemon, SQLite queue,
 # incremental ingest, and the real process-event capture runner. Routing fixtures
 # pin argv boundaries without starting a harness or contacting a live home.
+# Set FM_BOARD_BROWSER_TEST=1 to add rendered Chrome assertions; without it the
+# always-on API, SSE, answer lifecycle, and authoritative answer checks still run.
 set -eu
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -9,7 +11,7 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 export FM_BOARD_TEST_ROOT="$TMP_ROOT" FM_BOARD_TEST_CODE="$ROOT"
 PYTHON="${FM_BOARD_PYTHON:-python3}"
 "$PYTHON" - <<'PY'
-import contextlib,csv,io,json,os,pathlib,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error
+import contextlib,csv,io,json,os,pathlib,re,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error
 root=pathlib.Path(os.environ['FM_BOARD_TEST_ROOT']).resolve()
 code=pathlib.Path(os.environ['FM_BOARD_TEST_CODE']).resolve()
 fixture=root/'code'; (fixture/'bin').mkdir(parents=True)
@@ -19,9 +21,38 @@ for path in (code/'bin').iterdir():
 for name in ('fm-board.py','fm-board.sh','fm-procevent-board-answers.sh'):
     shutil.copy2(code/'bin'/name,fixture/'bin'/name)
 shutil.copytree(code/'bin/board',fixture/'bin/board',ignore=shutil.ignore_patterns('__pycache__'))
-page=(code/'bin/board/dashboard.html').read_text()
-# Confirmed failures light the red failed border, the same class decisions use.
-assert ".card.failed{border-top:3px solid var(--red)}" in page and "node.classList.toggle('failed',t.current_state==='failed')" in page
+page_path=fixture/'bin/board/dashboard.html'
+page=page_path.read_text().replace('<script>',"<script>window.__bridgeTest=new URLSearchParams(location.search).has('browser-test')</script><script>",1)
+page=page.replace('refresh(true);connect();flush();','refresh(true);if(!window.__bridgeTest)connect();flush();')
+page=page.replace('</body>',r'''<script>
+if(window.__bridgeTest){
+ const finish=result=>{const out=document.createElement('pre');out.id='bridge-test-result';out.textContent=JSON.stringify(result);document.body.append(out);window.stop();for(let id=1;id<1000;id++){clearInterval(id);clearTimeout(id)}};
+ let attempts=0;
+ const begin=setInterval(async()=>{
+  const node=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.querySelector('h3')?.textContent==='Choose for instant');
+  const failed=[...document.querySelectorAll('#task-cards .card')].find(n=>n.data?.task_id==='external');
+  if(!node||!failed){if(++attempts>100){clearInterval(begin);finish({error:'cards did not render'})}return}
+  clearInterval(begin);
+  const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=radios[0].name;
+  radios[0].click();note.value='Unsaved local draft';note.dispatchEvent(new Event('input',{bubbles:true}));
+  const secret=JSON.parse(localStorage.getItem('board-secret'));
+  const response=await fetch('/answer',{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({home:node.data.home_id,task:node.data.task_id,key:node.data.decision_key,revision:node.data.revision,choice:'B',note:'Other device chose wait',device:'other-device'})});
+  if(!response.ok){finish({error:'answer post '+response.status});return}
+  await refresh(true);
+  let polls=0;
+  const observe=setInterval(()=>{
+   if(!node.querySelector('.decision-state').textContent.startsWith('Queued')){if(++polls>100){clearInterval(observe);finish({error:'queued state did not render'})}return}
+   clearInterval(observe);
+   const style=getComputedStyle(failed),saved=JSON.parse(localStorage.getItem(key));
+   finish({selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
+    savedChoice:saved.choice,savedNote:saved.note,health:document.querySelector('#answer-health').textContent,
+    healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
+    failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor});
+  },100);
+ },100);
+}
+</script></body>''')
+page_path.write_text(page)
 (fakebin:=root/'fakebin').mkdir()
 home=root/'main'; second=root/'second'
 # Deliberately poison the launching session with a different, contained home.
@@ -239,6 +270,8 @@ try:
     # Queue is durable before handler starts; restart does not lose or duplicate.
     code_,posted,_=request('/answer',answer('alpha',revision=row['revision']));assert code_==200,posted
     aid=posted['answers'][0]['answer_id'];assert request('/answer',answer('alpha',revision=row['revision']))[1]['answers'][0]['answer_id']==aid
+    queued=next(d for d in request()[1]['decisions'] if d['task_id']=='alpha' and d['revision']==row['revision'])
+    assert queued['state']=='queued' and queued['answer']['choice']=='A' and queued['answer']['note']=='a note',queued
     assert sql('select state from decisions where task_id=? and revision=?',('alpha',row['revision']))[0]['state']=='queued'
     assert request('/answer',{'action':'undo','answer_id':aid})[0]==200
     aid=request('/answer',answer('alpha',revision=row['revision']))[1]['answers'][0]['answer_id']
@@ -247,7 +280,7 @@ try:
     delivered=list(map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()))
     assert len(delivered)==1 and delivered[0][:3]==['alpha','--resolve-key','choose'] and '(note: a note)' in delivered[0][-1]
     assert not (home/'state/board-inbox/answers.jsonl').exists()
-    command('answered',aid);passed('undo, dedupe, crash-before-handler replay, note routing, consumption without JSONL')
+    command('answered',aid);passed('authoritative queued payload, undo, dedupe, crash replay, routing, and consumption')
     # A known keyed legacy answer goes to its worker, including its note.
     meta(home,'keyed-legacy','needs-decision [key=reason]: Explain your choice')
     wait(lambda:any(d['task_id']=='keyed-legacy' for d in request()[1]['decisions']))
@@ -315,8 +348,12 @@ try:
     passed('empty notes add no suffix and hold answers stay one field-safe line')
     assert not sql("select * from events where kind='live'")
     command('live','Main','alpha','--url','javascript:bad','--env','production',ok=False)
+    command('live','Main','alpha','--url','https://example.com','--env','production',ok=False)
+    command('live','Main','alpha','--url','https://example.com','--env','production','--evidence','',ok=False)
+    assert not sql("select * from events where kind='live'")
     command('live','Main','alpha','--url','https://example.com','--env','production','--evidence','Verified response')
-    assert sql("select * from events where kind='live'")[0]['verified_at']
+    live=sql("select * from events where kind='live'")
+    assert len(live)==1 and live[0]['verified_at'] and live[0]['evidence']=='Verified response'
     passed('daemon and runner subprocess environments reject inherited path overrides')
     stop()
     # A dead runner must not re-arm every tick, and a live external owner is armed.
@@ -365,8 +402,43 @@ assert seen==[True],seen
     # honest /healthz reason until the cursor is repaired; then the source re-arms.
     good=cursor.read_text();results=len(list((home/'state/procevent-inbox').glob('*.result')))
     start()
+    req=urllib.request.Request(f'http://localhost:{port}/events',headers={'Authorization':'Bearer '+secret})
+    source_stream=urllib.request.urlopen(req,timeout=15)
+    initial=b''
+    while b'\n\n' not in initial:initial+=source_stream.readline()
     cursor.write_text(str(len(log.read_bytes())+10))
     wait(lambda:request('/healthz')[1]['answers_armed'] is False and 'cursor' in (request('/healthz')[1]['answers_error'] or ''))
+    _,broken,_=request()
+    assert broken['answers_armed'] is False and 'cursor' in broken['answers_error']
+    pushed=b''
+    while b'\n\n' not in pushed:pushed+=source_stream.readline()
+    pulse=json.loads(next(line[6:] for line in pushed.splitlines() if line.startswith(b'data: ')))
+    assert pulse['answers_armed'] is False and 'cursor' in pulse['answers_error']
+    source_stream.close()
+    mutate("update tasks set current_state='failed' where task_id='external'")
+    chrome=next((p for p in (shutil.which('google-chrome'),shutil.which('google-chrome-stable'),shutil.which('chromium'),shutil.which('chromium-browser'),'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') if p and pathlib.Path(p).is_file()),None)
+    if os.environ.get('FM_BOARD_BROWSER_TEST')=='1' and chrome:
+        rendered=subprocess.run([chrome,'--headless=new','--disable-gpu','--no-sandbox','--timeout=8000','--virtual-time-budget=4000',
+            '--user-data-dir='+str(root/'chrome-profile'),'--dump-dom',f'http://localhost:{port}/?k={secret}&browser-test=1'],
+            stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
+        assert rendered.returncode==0,rendered.stderr.decode()[-1000:]
+        import html
+        match=re.search(rb'<pre id="bridge-test-result">(.*?)</pre>',rendered.stdout,re.S)
+        assert match,rendered.stdout[-2000:]
+        observed=json.loads(html.unescape(match.group(1).decode()))
+        assert observed.get('error') is None,observed
+        assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
+        assert observed['savedChoice']=='A' and observed['savedNote']=='Unsaved local draft',observed
+        assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
+        assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
+        assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
+        browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
+        assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
+        passed('rendered failed styling, source health, authoritative answer, and local draft preservation')
+    elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1':
+        print('skip: no chrome',flush=True)
+    else:
+        print('skip: browser check disabled; set FM_BOARD_BROWSER_TEST=1',flush=True)
     time.sleep(3)
     assert len(list((home/'state/procevent-inbox').glob('*.result')))==results
     assert 'answers source: legacy cursor' in (home/'state/logs/board.log').read_text()
@@ -374,7 +446,7 @@ assert seen==[True],seen
     wait(lambda:request('/healthz')[1]['answers_armed'] and request('/healthz')[1]['answers_error'] is None,45)
     assert len(list((home/'state/procevent-inbox').glob('*.result')))==results
     stop()
-    passed('source failure surfaces through /healthz and the log, never a captured result')
+    passed('source failure reaches API state and SSE without a captured result')
     cursor.write_text(str(json.loads(cursor.read_text())['offset']))
     with log.open('a') as f:f.write(json.dumps({'ts':'legacy','home':'Main','task':'old','choice':'custom','note':'Older answer'})+'\n')
     ino=log.stat().st_ino

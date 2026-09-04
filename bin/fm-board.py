@@ -15,14 +15,16 @@
 # Explicit HTTP routes (no filesystem browsing):
 # GET / -> dashboard.html; GET /api/state[?project=TAG] -> rev, generated_at,
 # homes (last_ok, ingest_error, age_s, stale), tasks, decisions, events,
-# connection {transport, github}, counts. GET /healthz -> ok, db_ok,
+# answers_armed, answers_error, connection {transport, github}, counts.
+# GET /healthz -> ok, db_ok,
 # ingest_age_s (by home), last_snapshot_ms (by home), sse_clients,
 # outbox_backlog, answers_armed, answers_error, ingest_error (by home).
 # answers_armed is false with answers_error set while the exception source's last
 # run failed (board-inbox/answers.error); such failures never wake firstmate.
 # GET /events -> SSE event: changed, id: rev, data: {rev,generated_at}; also
-# event: heartbeat every 15 s also carries homes (last_ok/error/age/stale), so
-# timestamp-only freshness updates require no JSON polling. Initial changed sent.
+# event: heartbeat every 15 s also carries homes (last_ok/error/age/stale) and
+# answers_armed/error; source-health transitions push an immediate heartbeat, so
+# timestamp-only freshness and answer-source health require no JSON polling.
 # Each client has one coalescing notification slot, 20 s socket timeout,
 # at most 32 clients. No SQLite transaction is held while streaming.
 # POST /answer -> {home,task,key,revision,choice,note?,device?}; /answers ->
@@ -677,8 +679,10 @@ class Board:
             tasks = [r for r in tasks if r['project'] == project]
             decisions = [r for r in decisions if r['project'] == project]
             events = [r for r in events if r['project'] == project]
+        armed = self.armed_now()
         return dict(rev=int(meta['rev']), generated_at=meta['generated_at'], homes=homes, tasks=tasks,
-                    decisions=decisions, events=events, counts=counts,
+                    decisions=decisions, events=events, counts=counts, answers_armed=armed,
+                    answers_error=self.source_error(),
                     connection={'transport':'sse', 'github':'Not connected yet'})
 
     @staticmethod
@@ -805,7 +809,7 @@ class Board:
 
     def live(self, args):
         hid = self.hid(args.home); slug(args.task, 'task'); url(args.url)
-        text(args.env, 'environment', 100); text(args.evidence, 'evidence', empty=True)
+        text(args.env, 'environment', 100); text(args.evidence, 'evidence')
         with self.write() as (c, changed):
             row = c.execute('SELECT project FROM tasks WHERE home_id=? AND task_id=?', (hid,args.task)).fetchone()
             if not row:
@@ -911,7 +915,9 @@ class Board:
             row = runs.get(hid,{})
             age = self.age(row.get('last_ok'))
             homes.append(dict(id=hid,last_ok=row.get('last_ok'),age_s=age,stale=age is None or age>60,ingest_error=row.get('last_error')))
-        return dict(rev=int(m['rev']),generated_at=m['generated_at'],homes=homes)
+        armed = self.armed_now()
+        return dict(rev=int(m['rev']),generated_at=m['generated_at'],homes=homes,
+                    answers_armed=armed,answers_error=self.source_error())
 
     def notify(self):
         payload = self.version()
@@ -964,6 +970,7 @@ class Board:
 
     def service_loop(self):
         last_rev = -1
+        last_source = None
         last_day = None
         last_tick = 0
         while not self.stop.wait(0.5):
@@ -975,8 +982,9 @@ class Board:
                 self.maintain_arm()
                 with self.connect() as c:
                     rev = int(c.execute("SELECT value FROM meta WHERE key='rev'").fetchone()[0])
-                if rev != last_rev:
-                    self.notify(); last_rev = rev
+                source = (self.armed_now(), self.source_error())
+                if rev != last_rev or source != last_source:
+                    self.notify(); last_rev = rev; last_source = source
                 today = datetime.date.today()
                 if today != last_day:
                     self.backup()
@@ -1199,7 +1207,7 @@ def parser():
         elif name == 'live':
             cmd.add_argument('home'); cmd.add_argument('task')
             cmd.add_argument('--url',required=True); cmd.add_argument('--env',required=True)
-            cmd.add_argument('--evidence',default='')
+            cmd.add_argument('--evidence',required=True)
         elif name == 'answered':
             cmd.add_argument('answer_id')
     return p
