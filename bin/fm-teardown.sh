@@ -1408,6 +1408,16 @@ prepare_treehouse_task_slot() {
   [ "$KIND" != secondmate ] || return 0
   [ "$BACKEND" != orca ] || return 0
 
+  if ! fm_treehouse_project_dir_ok "$PROJ"; then
+    if [ "$FORCE" = "--force" ]; then
+      TREEHOUSE_SLOT_STATE=project-missing
+      return 0
+    fi
+    echo "REFUSED: recorded project directory ${PROJ:-<unset>} is missing; cannot read its Treehouse pool for task $ID." >&2
+    echo "Restore the project clone, or get the captain's explicit OK to discard, then --force." >&2
+    return 1
+  fi
+
   if fm_treehouse_lookup_slot "$WT" "$PROJ"; then
     WT=$FM_TREEHOUSE_SLOT_PATH
     case "$FM_TREEHOUSE_SLOT_STATUS" in

@@ -120,7 +120,7 @@ SH
   cat > "$fake/state/$id.meta" <<META
 window=fakeses:fm-$id
 worktree=$TMP_ROOT/nonexistent-worktree-$id
-project=$fake/project
+project=$TMP_ROOT/nonexistent-project-$id
 harness=claude
 kind=ship
 mode=no-mistakes
@@ -216,7 +216,7 @@ SH
   cat > "$fake/state/$id.meta" <<META
 window=fakeses:fm-$id
 worktree=$TMP_ROOT/nonexistent-wt-$id
-project=$fake/project
+project=$TMP_ROOT/nonexistent-project-$id
 harness=claude
 kind=ship
 mode=no-mistakes

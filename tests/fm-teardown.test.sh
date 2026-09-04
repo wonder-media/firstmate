@@ -2829,6 +2829,61 @@ SH
   pass "a missing worktree must still prove its retained task branch landed"
 }
 
+write_missing_project_meta() {
+  local case_dir=$1
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=firstmate:fm-task-x1" \
+    "endpoint_task_id=task-x1" \
+    "worktree=$case_dir/nonexistent-worktree" \
+    "project=$case_dir/nonexistent-project" \
+    "kind=ship" \
+    "mode=no-mistakes"
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+printf '%s\\n' "\$(pwd -P) \$*" >> '$case_dir/treehouse-calls.log'
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+}
+
+test_missing_project_refuses_with_distinct_diagnostic() {
+  local case_dir rc
+  case_dir=$(make_case missing-project-refuse)
+  write_missing_project_meta "$case_dir"
+  [ ! -e "$case_dir/nonexistent-project" ] || fail "missing-project fixture unexpectedly exists"
+
+  rc=0
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 1 "$rc" "a missing project clone must refuse without --force"
+  assert_grep "recorded project directory $case_dir/nonexistent-project is missing" "$case_dir/stderr" \
+    "missing-project refusal did not name the missing project directory"
+  ! grep -q "authoritative slot read failed" "$case_dir/stderr" \
+    || fail "missing-project refusal reported a Treehouse read failure that never ran"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "missing-project refusal retired task metadata"
+  [ ! -e "$case_dir/treehouse-calls.log" ] \
+    || fail "missing-project refusal queried Treehouse from the caller's directory: $(cat "$case_dir/treehouse-calls.log")"
+  pass "a missing project clone refuses with a distinct diagnostic and never queries the pool"
+}
+
+test_missing_project_force_tears_down_without_pool_lookup() {
+  local case_dir rc
+  case_dir=$(make_case missing-project-force)
+  write_missing_project_meta "$case_dir"
+  [ ! -e "$case_dir/nonexistent-project" ] || fail "missing-project fixture unexpectedly exists"
+
+  rc=0
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  expect_code 0 "$rc" "--force must still tear down a task whose project clone is gone: $(cat "$case_dir/stderr")"
+  ! grep -q REFUSED "$case_dir/stderr" || fail "missing-project --force printed REFUSED"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "missing-project --force teardown left task metadata behind"
+  if [ -e "$case_dir/treehouse-calls.log" ] && grep -q 'status' "$case_dir/treehouse-calls.log"; then
+    fail "missing-project --force queried the Treehouse pool from the caller's directory: $(cat "$case_dir/treehouse-calls.log")"
+  fi
+  pass "--force tears down a task whose project clone is gone without a caller-cwd pool lookup"
+}
+
 test_failed_treehouse_status_help_refuses_before_mutation() {
   local case_dir rc branch
   case_dir=$(make_case failed-status-help)
@@ -2995,5 +3050,7 @@ test_already_returned_unlanded_slot_still_refuses
 test_rebound_slot_retires_only_stale_task_records
 test_stale_claimant_cannot_bypass_unlanded_refusal
 test_missing_worktree_unlanded_branch_refuses
+test_missing_project_refuses_with_distinct_diagnostic
+test_missing_project_force_tears_down_without_pool_lookup
 test_failed_treehouse_status_help_refuses_before_mutation
 test_post_check_rebind_never_mutates_live_worktree
