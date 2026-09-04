@@ -489,6 +489,7 @@ That call runs strictly after terminal retirement, because a handling adapter re
 Exit 0 means the adapter fully applied and acknowledged the result; a missing command, an error, or any other exit is not a capture failure but leaves the result unacknowledged and therefore still eligible for re-announcement, so a handler receives it exactly as before and an adapter with no such command needs no change.
 Announcement ordering is adapter-declared through `bin/fm-procevent-<adapter>.sh self-announcing`: an adapter that answers exit 0 declares that every result its autohandle fully applies is announced through a durable downstream channel of its own, so the runner applies first and publishes a `check` wake only for what remains unhandled afterwards; every other adapter keeps the strict publish-before-apply order, and its autohandle runs only when this capture's own wake was successfully appended to the durable queue.
 The remote-secondmate reply adapter declares itself self-announcing: a captured reply reaches its local status mirror and settles its correlated pending-reply expectation without any handler step, the mirrored status bytes are the single wake for one remote note through the same signal classification a local secondmate's append gets, a byte-identical replayed capture adds no bytes and stays quiet, and only a capture the adapter could not fully apply is published as a `check` wake, whose adapter handling remains idempotent.
+The captain dashboard's `board-answers` adapter is self-announcing in the same way; the [Captain dashboard](#captain-dashboard) section below owns that source.
 
 Keyed captain answers use one more seam of the same kind, and the runner still decides nothing about them.
 Some sources carry the captain's answer to a durable decision, and what such an answer means is owned once by `bin/fm-decision-hold.sh`'s keyed-answer intake rather than by any channel.
@@ -655,3 +656,14 @@ Only after those retries exhaust does it remove the lock, and only when it is pr
 A live lock, a missing `lsof`, any failed check, or any other fetch failure keeps today's behavior.
 Every wait, retry, and removal is printed to stderr, and a successful recovery also prints one `recovered:` summary line to stdout so a session-start refresh - which discards fleet-sync stderr and relays only stdout - still surfaces it.
 The shared staleness proof lives in `bin/fm-lock-lib.sh`, which both `fm-teardown.sh` and `fm-fleet-sync.sh` use.
+
+## Captain dashboard
+
+Bridge, the local captain dashboard, is served by `bin/fm-board.sh serve`; the [`bin/fm-board.py`](../bin/fm-board.py) header owns configuration, HTTP routes, authentication, and runtime storage.
+Set `FM_BOARD_BROWSER_TEST=1` when running `tests/fm-board.test.sh` to add rendered Chrome assertions; the test prints an explicit skip when the flag or a Chrome binary is absent, while API, SSE, and answer-lifecycle checks always run.
+Copy [`board.example.json`](../bin/board/board.example.json) to the owning home's private `config/board.json`, replace its placeholder paths and secret, and restrict the file to mode `0600`.
+The optional `stale_after_s` value sets how old a home's last successful ingest may be before the page and `/healthz` report that home stale; the header owns its default and accepted range.
+The [`launchd example`](../bin/board/com.wondermedia.firstmate-board.plist.example) requires absolute paths to Python 3.14 and the home, with `state/logs/` created before loading it.
+The bookmark carries `?k=<secret>` once; the page stores it locally and immediately removes it from the URL.
+Plain HTTP is supported only on the trusted private LAN.
+Answers the daemon cannot route itself wake firstmate through a self-announcing `board-answers` process-event source; the [`process-event-sources`](../.agents/skills/process-event-sources/SKILL.md) skill owns handling that wake.
