@@ -19,6 +19,9 @@ for path in (code/'bin').iterdir():
 for name in ('fm-board.py','fm-board.sh','fm-procevent-board-answers.sh'):
     shutil.copy2(code/'bin'/name,fixture/'bin'/name)
 shutil.copytree(code/'bin/board',fixture/'bin/board',ignore=shutil.ignore_patterns('__pycache__'))
+page=(code/'bin/board/dashboard.html').read_text()
+# Confirmed failures light the red failed border, the same class decisions use.
+assert ".card.failed{border-top:3px solid var(--red)}" in page and "node.classList.toggle('failed',t.current_state==='failed')" in page
 (fakebin:=root/'fakebin').mkdir()
 home=root/'main'; second=root/'second'
 # Deliberately poison the launching session with a different, contained home.

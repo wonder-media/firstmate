@@ -66,8 +66,10 @@
 # The board-answers adapter advances the exception cursor after durable capture;
 # its unacknowledged exception packet wakes firstmate. Successful routes never
 # fire a source. CLI answered records consumption after firstmate handles errors.
-# The daemon maintains the registered runner; graceful SIGTERM stops its child
-# runner without retiring pending captures. Re-arming backs off to 60 s and
+# The daemon maintains the registered runner through fm-procevent.sh start,
+# which detaches the real runner into its own session; graceful SIGTERM only
+# stops the daemon's start wrapper, so the runner keeps running with pending
+# captures until fm-procevent.sh retire. Re-arming backs off to 60 s and
 # skips a source another live owner already runs, which answers_armed reports as
 # armed. No LLM, browser, or GitHub calls.
 
