@@ -90,6 +90,7 @@ run_spawn() {
 make_project_scoped_treehouse() {
   cat > "$FAKEBIN_DIR/treehouse" <<'SH'
 #!/usr/bin/env bash
+[ -z "${FM_FAKE_TREEHOUSE_CALLS:-}" ] || printf '%s: %s\n' "$(pwd -P)" "$*" >> "$FM_FAKE_TREEHOUSE_CALLS"
 if [ "$(pwd -P)" != "$(cd "$FM_FAKE_PROJECT" && pwd -P)" ]; then
   printf '[]\n'
   exit 0
@@ -137,6 +138,42 @@ test_project_scoped_lookup_and_spawn() {
   [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$(git -C "$POOL_DIR" rev-parse origin/main)" ] \
     || fail "foreign-cwd spawn did not refresh its base"
   pass "lookup preserves both caller cwds and a scout spawns from its foreign home"
+}
+
+test_invalid_project_dir_never_reads_caller_pool() {
+  local rec id out status bad_project calls
+  id='pool-invalid-project-r8'
+  rec=$(make_case invalid-project "$id")
+  read_case_record "$rec"
+  make_project_scoped_treehouse
+  calls="$CASE_DIR/treehouse-calls.log"
+
+  for bad_project in '' "$CASE_DIR/does-not-exist"; do
+    : > "$calls"
+    out=$(
+      cd "$HOME_DIR" || exit 1
+      export PATH="$FAKEBIN_DIR:$PATH" FM_FAKE_PROJECT="$HOME_DIR" FM_FAKE_PANE_PATH="$POOL_DIR" \
+        FM_FAKE_TREEHOUSE_CALLS="$calls"
+      . "$ROOT/bin/fm-treehouse-lib.sh"
+      before=$PWD
+      FM_TREEHOUSE_SLOT_PATH=stale-path
+      FM_TREEHOUSE_SLOT_STATUS=stale-status
+      fm_treehouse_lookup_slot "$POOL_DIR" "$bad_project"
+      lookup_rc=$?
+      fm_treehouse_status_unavailable_rc "$bad_project"
+      capability_rc=$?
+      [ "$PWD" = "$before" ] || exit 9
+      printf '%s %s [%s] [%s]\n' "$lookup_rc" "$capability_rc" \
+        "$FM_TREEHOUSE_SLOT_PATH" "$FM_TREEHOUSE_SLOT_STATUS"
+    )
+    status=$?
+    expect_code 0 "$status" "invalid project '$bad_project' changed the caller cwd"
+    [ "$out" = '3 3 [] []' ] \
+      || fail "invalid project '$bad_project' should return 3 with cleared results, got: $out"
+    [ ! -s "$calls" ] \
+      || fail "invalid project '$bad_project' queried the caller pool: $(cat "$calls")"
+  done
+  pass "an empty or missing project directory fails closed without reading the caller pool"
 }
 
 test_slot_refusal_precedes_base_refresh() {
@@ -309,6 +346,7 @@ test_unresolved_remote_default_refuses_pool() {
 }
 
 test_project_scoped_lookup_and_spawn
+test_invalid_project_dir_never_reads_caller_pool
 test_slot_refusal_precedes_base_refresh
 test_stale_pool_base_refreshes_before_branching
 test_non_main_default_branch_refreshes_before_branching
