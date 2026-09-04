@@ -1413,7 +1413,7 @@ prepare_treehouse_task_slot() {
 
   if ! fm_treehouse_project_dir_ok "$PROJ"; then
     if [ "$FORCE" = "--force" ]; then
-      TREEHOUSE_SLOT_STATE=project-missing
+      TREEHOUSE_SLOT_STATE='project-missing'
       return 0
     fi
     echo "REFUSED: recorded project directory ${PROJ:-<unset>} is missing; cannot read its Treehouse pool for task $ID." >&2
