@@ -30,8 +30,10 @@ if(window.__bridgeTest){
  let attempts=0;
  const begin=setInterval(async()=>{
   const node=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.querySelector('h3')?.textContent==='Choose for instant');
+  const review=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='review-label');
+  const delivery=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='delivery-fail');
   const failed=[...document.querySelectorAll('#task-cards .card')].find(n=>n.data?.task_id==='external');
-  if(!node||!failed){if(++attempts>100){clearInterval(begin);finish({error:'cards did not render'})}return}
+  if(!node||!review||!delivery||!failed){if(++attempts>100){clearInterval(begin);finish({error:'cards did not render'})}return}
   clearInterval(begin);
   const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=radios[0].name;
   radios[0].click();note.value='Unsaved local draft';note.dispatchEvent(new Event('input',{bubbles:true}));
@@ -43,11 +45,15 @@ if(window.__bridgeTest){
   const observe=setInterval(()=>{
    if(!node.querySelector('.decision-state').textContent.startsWith('Queued')){if(++polls>100){clearInterval(observe);finish({error:'queued state did not render'})}return}
    clearInterval(observe);
-   const style=getComputedStyle(failed),saved=localStorage.getItem(key);
+   const style=getComputedStyle(failed),descriptionStyle=getComputedStyle(node.querySelector('.consequence')),saved=localStorage.getItem(key);
    finish({selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
     savedDraft:saved,health:document.querySelector('#answer-health').textContent,
     healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
-    failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor});
+    failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor,
+    description:node.querySelector('.consequence').textContent,descriptionSize:descriptionStyle.fontSize,descriptionWeight:descriptionStyle.fontWeight,
+    registeredOptions:[...node.querySelectorAll('.option')].map(o=>o.textContent),
+    legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),
+    reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent});
   },100);
  },100);
 }
@@ -87,6 +93,7 @@ for h in (home,second):
     for d in ('state','data','config'):(h/d).mkdir(parents=True)
     (h/'data/backlog.md').write_text('fixture backlog')
     (h/'rows.json').write_text('[]')
+    (h/'full-rows.json').write_text('{}')
 script='''#!PYTHON
 import csv,json,os,pathlib,sys,time
 h=pathlib.Path(os.environ['FM_HOME']); name=pathlib.Path(sys.argv[0]).name
@@ -96,12 +103,21 @@ assert all(k not in os.environ for k in ('FM_STATE_OVERRIDE','FM_DATA_OVERRIDE',
 with (h/'calls.jsonl').open('a') as f:f.write(json.dumps([name,sys.argv[1:]])+'\\n')
 if (h/'delay').exists():time.sleep(float((h/'delay').read_text()))
 if (h/'fail').exists():sys.exit(1)
+if name=='fm-send.sh' and (h/'fail-send').exists():sys.exit(1)
 if name=='tasks-axi':
- state=sys.argv[sys.argv.index('--state')+1];rows=json.loads((h/'rows.json').read_text());print('tasks[0]{id,state,kind,repo,title,hold_kind,hold_reason,blocked,blocked_by}:')
- for r in rows:
-  if state==r[1] or state=='held' and r[5]!='-':
-   import io
-   line=io.StringIO();csv.writer(line,lineterminator='').writerow(r);print('  '+line.getvalue())
+ rows=json.loads((h/'rows.json').read_text())
+ if sys.argv[1]=='show':
+  tid=sys.argv[2];r=next(row for row in rows if row[0]==tid);full=json.loads((h/'full-rows.json').read_text()).get(tid,{})
+  print('task:')
+  for field,index in (('title',4),('hold_reason',6),('body',9)):
+   print(f'  {field}: {json.dumps(full.get(field,(r+[""]*10)[index]))}')
+ else:
+  assert 'body' not in sys.argv[sys.argv.index('--fields')+1].split(','),sys.argv
+  state=sys.argv[sys.argv.index('--state')+1];print('tasks[0]{id,state,kind,repo,title,hold_kind,hold_reason,blocked,blocked_by}:')
+  for r in rows:
+   if state==r[1] or state=='held' and r[5]!='-':
+    import io
+    line=io.StringIO();csv.writer(line,lineterminator='').writerow(r[:9]);print('  '+line.getvalue())
 elif name=='fm-crew-state.sh':print('state: parked · source: pane · fixture')
 elif name=='fm-fleet-snapshot.sh':print(json.dumps({'tasks':[]}))
 elif name in ('fm-send.sh','fm-decision-hold.sh'):
@@ -171,7 +187,9 @@ def meta(h,tid,status='working: fixture'):
     (h/f'state/{tid}.meta').write_text('kind=task\nproject=wonderok\n')
     (h/f'state/{tid}.status').write_text(status+'\n')
 def decision(tid,key='choose',project='WOK'):
-    return json.loads(command('decision','Main',tid,key,'--project',project,'--title','Choose for '+tid,'--option','A: Ship it','--option','B: Wait','--rec','A','--why','Small reversible change').stdout)
+    return json.loads(command('decision','Main',tid,key,'--project',project,'--title','Choose for '+tid,
+        '--description','This decides whether the change ships now or waits for another check.',
+        '--option','A: Ship it','--option','B: Wait','--rec','A','--why','Small reversible change').stdout)
 def answer(tid,key='choose',choice='A',note='a note',revision=1):return dict(home='Main',task=tid,key=key,revision=revision,choice=choice,note=note)
 def accelerate(ids):
     for aid in ids:mutate('update answers set ready_at=0 where answer_id=?',(aid,))
@@ -179,6 +197,22 @@ def calls(h,name):
     p=h/'calls.jsonl'
     return [r for r in map(json.loads,p.read_text().splitlines()) if r[0]==name] if p.exists() else []
 def passed(t):print('ok - '+t,flush=True)
+# A phase-1 (user_version=1) database with the original column order and
+# question formats, holding open decisions the upgrade must not re-revision.
+legacy_asked='2026-09-01T00:00:00+00:00'
+with sqlite3.connect(home/'state/board.sqlite') as c:
+    c.executescript('''CREATE TABLE schema_version(version INTEGER NOT NULL);INSERT INTO schema_version VALUES(1);
+        CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);INSERT INTO meta VALUES('rev','7');INSERT INTO meta VALUES('generated_at','');
+        CREATE TABLE decisions(home_id TEXT,task_id TEXT,decision_key TEXT,
+            revision INTEGER,question TEXT,options TEXT,recommendation TEXT,why TEXT,
+            source TEXT,state TEXT,asked_at TEXT,closed_at TEXT,project TEXT,
+            origin_id TEXT,registered INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(home_id,task_id,decision_key,revision));
+        PRAGMA user_version=1;''')
+    c.executemany('INSERT INTO decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[
+        ('Main','alpha','choose',1,'Which release?','[]','','','worker','open',legacy_asked,None,'WOK','',0),
+        ('Main','origin-decision-budget','budget',1,'Budget approval: Set the budget','[]','','','hold','open',legacy_asked,None,'CES','origin',1),
+        ('Main','v1-registered','pick',1,'DECIDE D1: Pick a color',json.dumps([{'value':'A','label':'Red'},{'value':'B','label':'Blue'}]),'A','Red is faster','firstmate','open',legacy_asked,None,'WOK','',1)])
 try:
     for sub in ('serve','ingest','decision','live','answered','refresh','arm-answers','backup'):
         command(sub,'--help');command(sub,'--invalid',ok=False)
@@ -195,15 +229,36 @@ try:
     passed('every subcommand validates arguments and supports --help')
     meta(home,'alpha','needs-decision [key=choose]: Which release?')
     meta(second,'beta')
+    long_title=('DECIDE D2: Wonderok Postgres to Vultr Managed (EWR) - $36 Startup NVMe recommendation '
+                'with enough additional context to exceed one hundred and sixty characters while remaining understandable')
+    marker=f'\\n... (truncated, {len(long_title)} chars total - use show long-decision --full to see complete text)'
+    long_body='This is the complete plain-English body for the long decision. '+('More context. '*20)
     rows=[['alpha','in_flight','ship','wonderok','Release alpha','-','-','no','none'],
           ['origin-decision-budget','queued','captain','ces','Budget approval','captain','Set the budget','no','none'],
+          ['long-decision','queued','captain','wonderok',long_title[:78]+marker,'captain','Choose where the database will live.','no','none'],
           ['blocked-decision-no','queued','captain','ces','Blocked hold','captain','Wait','yes','missing'],
           ['external','in_flight','ship','ces','External wait','external','Supplier','no','none']]
     (home/'rows.json').write_text(json.dumps(rows))
+    (home/'full-rows.json').write_text(json.dumps({'long-decision':{'title':long_title,'body':long_body,'hold_reason':'Choose where the database will live.'}}))
     command('ingest','--once');before=rev()
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
-    assert len(sql("select * from decisions where source='hold'"))==1
+    assert len(sql("select * from decisions where source='hold'"))==2
     assert sql("select * from decisions where task_id='alpha'")[0]['decision_key']=='choose'
+    shows=[call[1] for call in calls(home,'tasks-axi') if call[1][:1]==['show']]
+    assert shows==[['show','long-decision','--full']],shows
+    assert sql('pragma user_version')[0]['user_version']==2 and sql('select version from schema_version')[0]['version']==2
+    assert [col['name'] for col in sql('pragma table_info(decisions)')][-1]=='description'
+    assert before>7
+    for tid,question,description in (('alpha','Release alpha','Which release?'),('origin-decision-budget','Budget approval','Set the budget'),
+                                     ('v1-registered','Pick a color','Your choice decides what happens next for this task.')):
+        rows_for=sql('select * from decisions where task_id=?',(tid,))
+        assert len(rows_for)==1 and rows_for[0]['revision']==1 and rows_for[0]['state']=='open',rows_for
+        assert rows_for[0]['question']==question and rows_for[0]['description']==description,rows_for
+    assert json.loads(sql("select options from decisions where task_id='v1-registered'")[0]['options'])[0]['label']=='Red'
+    long_row=sql("select * from decisions where task_id='long-decision'")[0]
+    assert long_row['question']=='Wonderok Postgres to Vultr Managed (EWR)' and long_row['description']=='Choose where the database will live.',long_row
+    assert 'truncated' not in json.dumps(sql("select payload from backlog"))
+    passed('v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision')
     assert sql("select * from tasks where home_id='Second' and task_id='beta'")
     assert not calls(home,'fm-fleet-snapshot.sh')
     command('ingest','--once');assert rev()==before
@@ -217,8 +272,11 @@ try:
     before=rev();decision('alpha');assert rev()==before+1
     row=sql("select * from decisions where task_id='alpha' order by revision desc")[0]
     assert json.loads(row['options'])[0]['label']=='Ship it' and row['recommendation']=='A'
+    assert row['description']=='This decides whether the change ships now or waits for another check.'
     decision('alpha');assert rev()==before+1
-    passed('decision CLI creates options and recommendation idempotently')
+    command('decision','Main','bad-options','few','--project','WOK','--title','Too few',
+            '--description','This should be rejected.','--option','A: Alone',ok=False)
+    passed('decision CLI creates 2-4 options, description, and recommendation idempotently')
     # Single flight across CLI processes, preserving last-good state on timeout.
     (home/'delay').write_text('12');(home/'state/alpha.status').touch()
     slow=subprocess.Popen([str(cli),'ingest','--once','--home','Main'],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -233,6 +291,10 @@ try:
     assert set(('ok','ingest_age_s','last_snapshot_ms','sse_clients','db_ok','outbox_backlog','answers_armed','answers_error'))<=health.keys()
     assert health['answers_error'] is None
     _,payload,h=request();assert request(extra={'If-None-Match':h['ETag']})[0]==304
+    long_card=next(d for d in payload['decisions'] if d['task_id']=='long-decision')
+    assert long_card['question']=='Wonderok Postgres to Vultr Managed (EWR)',long_card
+    assert long_card['description']=='Choose where the database will live.'
+    assert 'truncated' not in json.dumps(payload)
     _,_,ph=request('/api/state?project=CES');assert ph['ETag']!=h['ETag']
     assert request('/api/state?project=CES',extra={'If-None-Match':h['ETag']})[0]==200
     assert request('/api/state?project=CES',extra={'If-None-Match':ph['ETag']})[0]==304
@@ -346,6 +408,31 @@ try:
     assert len(written)==lines+1,written
     assert written[-1]=='budget\tApprove with conditions\tCaptain dashboard',written[-1]
     passed('empty notes add no suffix and hold answers stay one field-safe line')
+    # Exceptions that need judgment are not delivery failures. A real worker
+    # send failure is surfaced separately and firstmate is notified in both cases.
+    meta(home,'review-label','needs-decision: Close this item?')
+    wait(lambda:any(d['task_id']=='review-label' for d in request()[1]['decisions']))
+    r=request('/answer',answer('review-label',key='default',choice='custom',note='Close this'))
+    review_id=r[1]['answers'][0]['answer_id'];accelerate([review_id])
+    wait(lambda:sql('select error from answers where answer_id=?',(review_id,))[0]['error'])
+    review_card=next(d for d in request()[1]['decisions'] if d['task_id']=='review-label')
+    assert review_card['answer']['delivery_class']=='review',review_card
+    decision('delivery-fail',key='ship')
+    (home/'fail-send').write_text('1')
+    r=request('/answer',answer('delivery-fail',key='ship',choice='A',note=''))
+    delivery_id=r[1]['answers'][0]['answer_id'];accelerate([delivery_id])
+    wait(lambda:sql('select error from answers where answer_id=?',(delivery_id,))[0]['error'])
+    (home/'fail-send').unlink()
+    delivery_card=next(d for d in request()[1]['decisions'] if d['task_id']=='delivery-fail')
+    assert delivery_card['answer']['delivery_class']=='delivery-failed',delivery_card
+    assert sql('select routing_at from answers where answer_id=?',(review_id,))[0]['routing_at'] is None
+    assert sql('select routing_at from answers where answer_id=?',(delivery_id,))[0]['routing_at']
+    known={failed_id:sql('select error from answers where answer_id=?',(failed_id,))[0]['error'] for failed_id in (review_id,delivery_id)}
+    for failed_id in known:mutate('update answers set error=? where answer_id=?',('KeyError: unexpected',failed_id))
+    classes={d['task_id']:d['answer']['delivery_class'] for d in request()[1]['decisions'] if d['task_id'] in ('review-label','delivery-fail')}
+    assert classes=={'review-label':'review','delivery-fail':'delivery-failed'},classes
+    for failed_id,error in known.items():mutate('update answers set error=? where answer_id=?',(error,failed_id))
+    passed('answer exceptions distinguish firstmate review from a true worker delivery failure')
     assert not sql("select * from events where kind='live'")
     command('live','Main','alpha','--url','javascript:bad','--env','production',ok=False)
     command('live','Main','alpha','--url','https://example.com','--env','production',ok=False)
@@ -447,6 +534,12 @@ for bad in (0,86401,'120',12.5):
         assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
         assert observed['savedDraft'] is None,observed
         assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
+        assert observed['description']=='This decides whether the change ships now or waits for another check.',observed
+        assert observed['descriptionSize']=='14px' and observed['descriptionWeight']=='400',observed
+        assert observed['registeredOptions'][0].startswith('Ship itRecommended · Small reversible change'),observed
+        assert observed['legacyOptions']==['Ask firstmate for 2-3 concrete options (recommended)','Send a custom answer'],observed
+        assert observed['reviewState']=='Sent to firstmate to review',observed
+        assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
         assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
         assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
         browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
@@ -465,16 +558,17 @@ for bad in (0,86401,'120',12.5):
     stop()
     passed('source failure reaches API state and SSE without a captured result')
     cursor.write_text(str(json.loads(cursor.read_text())['offset']))
+    prior_lines=len(log.read_text().splitlines())
     with log.open('a') as f:f.write(json.dumps({'ts':'legacy','home':'Main','task':'old','choice':'custom','note':'Older answer'})+'\n')
     ino=log.stat().st_ino
     start()
-    wait(lambda:len(list((home/'state/procevent-inbox').glob('*.result')))==2)
+    wait(lambda:len(list((home/'state/procevent-inbox').glob('*.result')))==results+1)
     wait(lambda:isinstance(json.loads(cursor.read_text()),dict))
     r=request('/answer',{'action':'correction','answer_id':aid,'note':'Review this correction'})
     assert r[0]==200,r
     cid=sql("select answer_id from answers where action='correction'")[0]['answer_id'];accelerate([cid])
     wait(lambda:sql('select exported_at from answers where answer_id=?',(cid,))[0]['exported_at'])
-    assert len(log.read_text().splitlines())==5 and log.stat().st_ino==ino
+    assert len(log.read_text().splitlines())==prior_lines+2 and log.stat().st_ino==ino
     passed('legacy integer cursor and id-less lines migrate without losing or blocking answers')
 except Exception:
     for log in (root/'daemon.log',home/'state/logs/board.log',home/'state/logs/board-answers.log'):

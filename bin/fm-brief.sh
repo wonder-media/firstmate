@@ -90,6 +90,14 @@ resolve_directory_input() {
 }
 
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+IFS= read -r -d '' DECISION_REGISTRATION_RULE <<'EOF' || true
+When you raise a keyed `needs-decision` with clear alternatives, first register 2-4 concrete options with `__FM_ROOT__/bin/fm-board.sh decision`, including an ELI5 title, a one-sentence consequence, the recommendation, and its reason.
+Use the same key in the registration and status line, and never preselect the recommendation.
+Worked example (each worker passes its own home id or home path in place of `<home-id-or-path>`):
+`__FM_ROOT__/bin/fm-board.sh decision <home-id-or-path> task-id deploy-window --project WOK --title "Choose when to release" --description "This decides whether customers get the change today or after one more check." --option "A: Release today" --option "B: Wait for tomorrow's check" --rec B --why "One more check lowers the risk"`
+Then append `needs-decision [key=deploy-window]: Choose when to release` and stop as required below.
+EOF
+DECISION_REGISTRATION_RULE=${DECISION_REGISTRATION_RULE//__FM_ROOT__/$FM_ROOT}
 FM_HOME=$(resolve_directory_input FM_HOME "${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}") || exit 1
 if [ -n "${FM_DATA_OVERRIDE:-}" ]; then
   DATA=$(resolve_directory_input FM_DATA_OVERRIDE "$FM_DATA_OVERRIDE") || exit 1
@@ -339,6 +347,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 6. If a decision belongs to a human (product choices, destructive actions),
    append \`needs-decision: {summary of options}\` and stop. Firstmate will reply with the decision.
+$DECISION_REGISTRATION_RULE
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
@@ -465,6 +474,7 @@ $RULE1
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
    append \`needs-decision: {summary of options}\` and stop. Firstmate will apply the configured authority and reply with the decision.
+$DECISION_REGISTRATION_RULE
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
