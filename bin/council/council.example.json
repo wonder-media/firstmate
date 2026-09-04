@@ -1,0 +1,24 @@
+{
+  "seats": {
+    "architect": "council architect seat",
+    "empiricist": "council empiricist seat",
+    "economist": "council economist seat",
+    "ux": "council ux seat"
+  },
+  "default_roster": ["architect", "empiricist", "economist"],
+  "ux_on_captain_surface": true,
+  "advisory": {
+    "command_template": "agy --model gemini-3.8-flash-high --print-timeout 15m --disable-slash-commands --print={prompt}",
+    "rounds": [1],
+    "word_cap": 1000
+  },
+  "caps": {
+    "max_rounds": 3,
+    "minimum_counted_reports": 3,
+    "review_words": 2000,
+    "economist_words": 1000,
+    "seat_deadline_minutes": 15,
+    "no_status_check_minutes": 5,
+    "replacements_per_seat_per_round": 1
+  }
+}

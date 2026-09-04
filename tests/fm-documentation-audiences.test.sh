@@ -61,6 +61,28 @@ test_repository_inventory_passes() {
   pass "documentation inventory classifies every maintained prose surface exactly once"
 }
 
+test_council_skill_metadata_and_references() {
+  command -v ruby >/dev/null 2>&1 \
+    || fail "ruby is required to parse Council skill frontmatter as YAML"
+  ruby -ryaml -e '
+path = ARGV.fetch(0)
+text = File.read(path)
+frontmatter = text.match(/\A---\n(.*?)\n---\n/m)
+raise "missing Council YAML frontmatter" unless frontmatter
+metadata = YAML.safe_load(frontmatter[1])
+raise "Council must be user-invocable" unless metadata.fetch("user-invocable") == true
+raise "Council must be internal" unless metadata.fetch("metadata").fetch("internal") == true
+links = text.scan(/\[[^\]]*\]\(([^)]+)\)/).flatten
+raise "Council has no resource references" if links.empty?
+links.each do |link|
+  target = File.expand_path(link.split("#", 2).first, File.dirname(path))
+  raise "missing Council resource: #{link}" unless File.file?(target)
+end
+' "$ROOT/.agents/skills/council/SKILL.md" \
+    || fail "Council frontmatter or a referenced resource is invalid"
+  pass "Council frontmatter parses and every linked skill resource exists"
+}
+
 test_duplicate_and_setup_classification_fail() {
   local duplicate="$TMP_ROOT/duplicate.json"
   local bad_setup="$TMP_ROOT/bad-setup.json"
@@ -136,6 +158,7 @@ MD
 }
 
 test_repository_inventory_passes
+test_council_skill_metadata_and_references
 test_duplicate_and_setup_classification_fail
 test_required_pointer_fails
 test_local_links_and_no_keyword_heuristic
