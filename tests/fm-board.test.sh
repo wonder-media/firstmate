@@ -112,11 +112,12 @@ if name=='tasks-axi':
   for field,index in (('title',4),('hold_reason',6),('body',9)):
    print(f'  {field}: {json.dumps(full.get(field,(r+[""]*10)[index]))}')
  else:
-  state=sys.argv[sys.argv.index('--state')+1];print('tasks[0]{id,state,kind,repo,title,hold_kind,hold_reason,blocked,blocked_by,body}:')
+  assert 'body' not in sys.argv[sys.argv.index('--fields')+1].split(','),sys.argv
+  state=sys.argv[sys.argv.index('--state')+1];print('tasks[0]{id,state,kind,repo,title,hold_kind,hold_reason,blocked,blocked_by}:')
   for r in rows:
    if state==r[1] or state=='held' and r[5]!='-':
     import io
-    line=io.StringIO();csv.writer(line,lineterminator='').writerow((r+[''])[:10]);print('  '+line.getvalue())
+    line=io.StringIO();csv.writer(line,lineterminator='').writerow(r[:9]);print('  '+line.getvalue())
 elif name=='fm-crew-state.sh':print('state: parked · source: pane · fixture')
 elif name=='fm-fleet-snapshot.sh':print(json.dumps({'tasks':[]}))
 elif name in ('fm-send.sh','fm-decision-hold.sh'):
@@ -196,6 +197,22 @@ def calls(h,name):
     p=h/'calls.jsonl'
     return [r for r in map(json.loads,p.read_text().splitlines()) if r[0]==name] if p.exists() else []
 def passed(t):print('ok - '+t,flush=True)
+# A phase-1 (user_version=1) database with the original column order and
+# question formats, holding open decisions the upgrade must not re-revision.
+legacy_asked='2026-09-01T00:00:00+00:00'
+with sqlite3.connect(home/'state/board.sqlite') as c:
+    c.executescript('''CREATE TABLE schema_version(version INTEGER NOT NULL);INSERT INTO schema_version VALUES(1);
+        CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);INSERT INTO meta VALUES('rev','7');INSERT INTO meta VALUES('generated_at','');
+        CREATE TABLE decisions(home_id TEXT,task_id TEXT,decision_key TEXT,
+            revision INTEGER,question TEXT,options TEXT,recommendation TEXT,why TEXT,
+            source TEXT,state TEXT,asked_at TEXT,closed_at TEXT,project TEXT,
+            origin_id TEXT,registered INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(home_id,task_id,decision_key,revision));
+        PRAGMA user_version=1;''')
+    c.executemany('INSERT INTO decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[
+        ('Main','alpha','choose',1,'Which release?','[]','','','worker','open',legacy_asked,None,'WOK','',0),
+        ('Main','origin-decision-budget','budget',1,'Budget approval: Set the budget','[]','','','hold','open',legacy_asked,None,'CES','origin',1),
+        ('Main','v1-registered','pick',1,'DECIDE D1: Pick a color',json.dumps([{'value':'A','label':'Red'},{'value':'B','label':'Blue'}]),'A','Red is faster','firstmate','open',legacy_asked,None,'WOK','',1)])
 try:
     for sub in ('serve','ingest','decision','live','answered','refresh','arm-answers','backup'):
         command(sub,'--help');command(sub,'--invalid',ok=False)
@@ -216,19 +233,32 @@ try:
                 'with enough additional context to exceed one hundred and sixty characters while remaining understandable')
     marker=f'\\n... (truncated, {len(long_title)} chars total - use show long-decision --full to see complete text)'
     long_body='This is the complete plain-English body for the long decision. '+('More context. '*20)
-    body_marker=f'\\n... (truncated, {len(long_body)} chars total - use show long-decision --full to see complete text)'
-    rows=[['alpha','in_flight','ship','wonderok','Release alpha','-','-','no','none',''],
-          ['origin-decision-budget','queued','captain','ces','Budget approval','captain','Set the budget','no','none',''],
-          ['long-decision','queued','captain','wonderok',long_title[:78]+marker,'captain','Choose where the database will live.','no','none',long_body[:78]+body_marker],
-          ['blocked-decision-no','queued','captain','ces','Blocked hold','captain','Wait','yes','missing',''],
-          ['external','in_flight','ship','ces','External wait','external','Supplier','no','none','']]
+    rows=[['alpha','in_flight','ship','wonderok','Release alpha','-','-','no','none'],
+          ['origin-decision-budget','queued','captain','ces','Budget approval','captain','Set the budget','no','none'],
+          ['long-decision','queued','captain','wonderok',long_title[:78]+marker,'captain','Choose where the database will live.','no','none'],
+          ['blocked-decision-no','queued','captain','ces','Blocked hold','captain','Wait','yes','missing'],
+          ['external','in_flight','ship','ces','External wait','external','Supplier','no','none']]
     (home/'rows.json').write_text(json.dumps(rows))
     (home/'full-rows.json').write_text(json.dumps({'long-decision':{'title':long_title,'body':long_body,'hold_reason':'Choose where the database will live.'}}))
     command('ingest','--once');before=rev()
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
     assert len(sql("select * from decisions where source='hold'"))==2
     assert sql("select * from decisions where task_id='alpha'")[0]['decision_key']=='choose'
-    assert any(call[1]==['show','long-decision','--full'] for call in calls(home,'tasks-axi')),calls(home,'tasks-axi')
+    shows=[call[1] for call in calls(home,'tasks-axi') if call[1][:1]==['show']]
+    assert shows==[['show','long-decision','--full']],shows
+    assert sql('pragma user_version')[0]['user_version']==2 and sql('select version from schema_version')[0]['version']==2
+    assert [col['name'] for col in sql('pragma table_info(decisions)')][-1]=='description'
+    assert before>7
+    for tid,question,description in (('alpha','Release alpha','Which release?'),('origin-decision-budget','Budget approval','Set the budget'),
+                                     ('v1-registered','Pick a color','Your choice decides what happens next for this task.')):
+        rows_for=sql('select * from decisions where task_id=?',(tid,))
+        assert len(rows_for)==1 and rows_for[0]['revision']==1 and rows_for[0]['state']=='open',rows_for
+        assert rows_for[0]['question']==question and rows_for[0]['description']==description,rows_for
+    assert json.loads(sql("select options from decisions where task_id='v1-registered'")[0]['options'])[0]['label']=='Red'
+    long_row=sql("select * from decisions where task_id='long-decision'")[0]
+    assert long_row['question']=='Wonderok Postgres to Vultr Managed (EWR)' and long_row['description']=='Choose where the database will live.',long_row
+    assert 'truncated' not in json.dumps(sql("select payload from backlog"))
+    passed('v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision')
     assert sql("select * from tasks where home_id='Second' and task_id='beta'")
     assert not calls(home,'fm-fleet-snapshot.sh')
     command('ingest','--once');assert rev()==before
@@ -395,6 +425,13 @@ try:
     (home/'fail-send').unlink()
     delivery_card=next(d for d in request()[1]['decisions'] if d['task_id']=='delivery-fail')
     assert delivery_card['answer']['delivery_class']=='delivery-failed',delivery_card
+    assert sql('select routing_at from answers where answer_id=?',(review_id,))[0]['routing_at'] is None
+    assert sql('select routing_at from answers where answer_id=?',(delivery_id,))[0]['routing_at']
+    known={failed_id:sql('select error from answers where answer_id=?',(failed_id,))[0]['error'] for failed_id in (review_id,delivery_id)}
+    for failed_id in known:mutate('update answers set error=? where answer_id=?',('KeyError: unexpected',failed_id))
+    classes={d['task_id']:d['answer']['delivery_class'] for d in request()[1]['decisions'] if d['task_id'] in ('review-label','delivery-fail')}
+    assert classes=={'review-label':'review','delivery-fail':'delivery-failed'},classes
+    for failed_id,error in known.items():mutate('update answers set error=? where answer_id=?',(error,failed_id))
     passed('answer exceptions distinguish firstmate review from a true worker delivery failure')
     assert not sql("select * from events where kind='live'")
     command('live','Main','alpha','--url','javascript:bad','--env','production',ok=False)

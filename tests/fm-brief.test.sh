@@ -216,6 +216,10 @@ test_ship_modes_generate_clean_briefs() {
       "$id: brief missing dashboard decision-option registration rule"
     assert_grep "--description \"This decides whether customers get the change today or after one more check.\"" "$brief" \
       "$id: brief missing worked ELI5 decision description example"
+    assert_grep "fm-board.sh decision <home-id-or-path> task-id deploy-window" "$brief" \
+      "$id: worked example must use the home placeholder, not a fixed home id"
+    assert_grep "each worker passes its own home id or home path" "$brief" \
+      "$id: brief missing the per-worker home id sentence"
     assert_no_grep "EOF" "$brief" "$id: brief leaked a heredoc EOF marker (unterminated heredoc)"
   done
   pass "fm-brief.sh: no-mistakes/direct-PR/local-only briefs generate cleanly"

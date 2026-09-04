@@ -93,8 +93,8 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 IFS= read -r -d '' DECISION_REGISTRATION_RULE <<'EOF' || true
 When you raise a keyed `needs-decision` with clear alternatives, first register 2-4 concrete options with `__FM_ROOT__/bin/fm-board.sh decision`, including an ELI5 title, a one-sentence consequence, the recommendation, and its reason.
 Use the same key in the registration and status line, and never preselect the recommendation.
-Worked example:
-`__FM_ROOT__/bin/fm-board.sh decision Main task-id deploy-window --project WOK --title "Choose when to release" --description "This decides whether customers get the change today or after one more check." --option "A: Release today" --option "B: Wait for tomorrow's check" --rec B --why "One more check lowers the risk"`
+Worked example (each worker passes its own home id or home path in place of `<home-id-or-path>`):
+`__FM_ROOT__/bin/fm-board.sh decision <home-id-or-path> task-id deploy-window --project WOK --title "Choose when to release" --description "This decides whether customers get the change today or after one more check." --option "A: Release today" --option "B: Wait for tomorrow's check" --rec B --why "One more check lowers the risk"`
 Then append `needs-decision [key=deploy-window]: Choose when to release` and stop as required below.
 EOF
 DECISION_REGISTRATION_RULE=${DECISION_REGISTRATION_RULE//__FM_ROOT__/$FM_ROOT}

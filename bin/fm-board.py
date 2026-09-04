@@ -118,7 +118,8 @@ REVIEW_ERRORS = (
     'unkeyed decision; firstmate must review',
     'unknown answer',
 )
-DELIVERY_FAILURE_ERRORS = ('fm-send.sh:', 'fm-decision-hold.sh:')
+DELIVERY_FAILURE_ERRORS = ('fm-send.sh:', 'fm-decision-hold.sh:', 'fm-crew-state.sh:')
+DEFAULT_CONSEQUENCE = 'Your choice decides what happens next for this task.'
 
 
 class Invalid(ValueError):
@@ -157,14 +158,15 @@ def eli5_title(value):
     return value or 'Decision needed'
 
 
-def delivery_class(error):
+def delivery_class(answer):
+    error = answer['error']
     if not error:
         return None
-    if any(error.startswith(reason) for reason in DELIVERY_FAILURE_ERRORS):
+    if error.startswith(DELIVERY_FAILURE_ERRORS):
         return 'delivery-failed'
-    if any(error.startswith(reason) for reason in REVIEW_ERRORS):
+    if error.startswith(REVIEW_ERRORS):
         return 'review'
-    return 'review'
+    return 'delivery-failed' if answer['routing_at'] else 'review'
 
 
 def slug(value, name):
@@ -364,7 +366,14 @@ class Board:
             ''')
             decision_columns = {row['name'] for row in c.execute('PRAGMA table_info(decisions)')}
             if 'description' not in decision_columns:
-                c.execute("ALTER TABLE decisions ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+                c.execute('ALTER TABLE decisions ADD COLUMN description TEXT')
+                rewritten = False
+                for row in c.execute("SELECT * FROM decisions WHERE registered=1 AND options!='[]'").fetchall():
+                    c.execute('UPDATE decisions SET question=?,description=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?',
+                              (eli5_title(row['question']), DEFAULT_CONSEQUENCE, row['home_id'], row['task_id'], row['decision_key'], row['revision']))
+                    rewritten = True
+                if rewritten:
+                    c.execute("UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='rev'")
             c.execute('UPDATE schema_version SET version=2')
             c.execute('PRAGMA user_version=2')
             c.commit()
@@ -402,16 +411,24 @@ class Board:
             return None
         d = dict(row)
         d['options'] = json.loads(d['options'])
+        d['description'] = d['description'] or ''
         return d
 
     def upsert_decision(self, c, changed, hid, task, key, question, description, options, rec, why,
-                        source, project, origin='', registered=False):
+                        source, project, origin='', registered=False, legacy=None):
         prior = self.latest(c, hid, task, key)
         fields = dict(question=eli5_title(question), description=clean_tasks_text(description),
                       options=json.dumps(options), recommendation=rec,
                       why=why, source=source, project=project, origin_id=origin, registered=int(registered))
-        if prior and all(prior[k] == v for k, v in fields.items()) and prior['state'] != 'closed':
-            return prior['revision']
+        if prior and prior['state'] != 'closed':
+            if all(prior[k] == v for k, v in fields.items()):
+                return prior['revision']
+            unchanged = all(prior[k] == v for k, v in fields.items() if k not in ('question', 'description'))
+            if prior['description'] is None and prior['question'] == legacy and unchanged:
+                c.execute('UPDATE decisions SET question=?,description=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?',
+                          (fields['question'], fields['description'], hid, task, key, prior['revision']))
+                changed[0] = True
+                return prior['revision']
         rev = prior['revision'] + 1 if prior else 1
         if prior and prior['state'] in ('queued', 'sent'):
             raise Conflict('cannot revise a decision with an outstanding answer', self.decision_dict(prior))
@@ -447,7 +464,7 @@ class Board:
             prior = self.latest(c, hid, args.task, args.key)
             source = prior['source'] if prior else 'firstmate'
             origin = prior['origin_id'] if prior else ''
-            description = args.description or (prior['description'] if prior else '') or 'Your choice decides what happens next for this task.'
+            description = args.description or (prior['description'] if prior else '') or DEFAULT_CONSEQUENCE
             rev = self.upsert_decision(c, changed, hid, args.task, args.key, args.title, description, options,
                                        args.rec, args.why, source, args.project, origin, True)
         self.reload()
@@ -480,38 +497,39 @@ class Board:
                 pass
         return result
 
+    @staticmethod
+    def full_title(tid, home, listed):
+        match = re.search(r'^  title: (.*)$', run(['tasks-axi', 'show', tid, '--full'], home), re.M)
+        if not match:
+            return listed
+        try:
+            value = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return match.group(1)
+        return value if isinstance(value, str) else match.group(1)
+
     def backlog_rows(self, home):
         rows = {}
-        full_rows = {}
+        full_titles = {}
         for state in ('held', 'in_flight'):
             output = run(['tasks-axi', 'list', '--state', state, '--fields',
-                          'hold_kind,hold_reason,blocked,blocked_by,body', '--limit', '10000'], home)
+                          'hold_kind,hold_reason,blocked,blocked_by', '--limit', '10000'], home)
             if not re.search(r'^[A-Za-z_ -]+(?:\[\d+\]|:)', output, re.M):
                 raise Invalid('tasks-axi list: invalid response')
             for line in output.splitlines():
                 if not line.startswith('  ') or ',' not in line:
                     continue
                 values = next(csv.reader(io.StringIO(line.strip())))
-                if len(values) < 10:
+                if len(values) < 9:
                     raise Invalid('tasks-axi list: unexpected row shape')
-                tid, actual, kind, repo, title, hold_kind, reason, blocked, blockers, body = values[:10]
+                tid, actual, kind, repo, title, hold_kind, reason, blocked, blockers = values[:9]
                 slug(tid, 'backlog task')
-                listed = {'title': title, 'hold_reason': reason, 'body': body}
-                if any(TASKS_TRUNCATION.search(value) for value in listed.values()):
-                    if tid not in full_rows:
-                        full = run(['tasks-axi', 'show', tid, '--full'], home)
-                        full_rows[tid] = {}
-                        for name in listed:
-                            match = re.search(rf'^  {name}: (.*)$', full, re.M)
-                            if match:
-                                try:
-                                    full_rows[tid][name] = json.loads(match.group(1))
-                                except json.JSONDecodeError:
-                                    full_rows[tid][name] = match.group(1)
-                    listed.update(full_rows[tid])
-                row = dict(id=tid, state=actual, kind=kind, repo=repo,
-                           title=clean_tasks_text(listed['title']), body=clean_tasks_text(listed['body']),
-                           hold_kind=hold_kind, reason=clean_tasks_text(listed['hold_reason']).replace('\\n', ' '),
+                if TASKS_TRUNCATION.search(title):
+                    if tid not in full_titles:
+                        full_titles[tid] = self.full_title(tid, home, title)
+                    title = full_titles[tid]
+                row = dict(id=tid, state=actual, kind=kind, repo=repo, title=clean_tasks_text(title),
+                           hold_kind=hold_kind, reason=clean_tasks_text(reason).replace('\\n', ' '),
                            blocked=blocked, blockers=blockers)
                 # held listing overlaps canonical state listings.
                 rows[tid] = row
@@ -650,7 +668,7 @@ class Board:
                     if prior and (prior['registered'] or prior['state'] in ('queued', 'sent', 'consumed', 'failed')):
                         continue
                     self.upsert_decision(c, changed, hid, tid, key, row['title'], summary, [], '', '',
-                                         'worker', row['project'])
+                                         'worker', row['project'], legacy=summary)
                 for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND task_id=? AND source='worker' AND state='open'", (hid, tid)).fetchall():
                     if prior['decision_key'] not in open_keys:
                         c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
@@ -667,10 +685,11 @@ class Board:
                     if not sep:
                         origin, key = tid, 'default'
                     prior = self.latest(c, hid, tid, key)
-                    if prior and prior['registered']:
+                    if prior and prior['registered'] and not (prior['description'] is None and prior['options'] == '[]'):
                         continue
                     self.upsert_decision(c, changed, hid, tid, key, b['title'], b['reason'], [], '', '',
-                                         'hold', self.project(b['repo']), origin, bool(sep))
+                                         'hold', self.project(b['repo']), origin, bool(sep),
+                                         legacy=b['title'] + ': ' + b['reason'])
             if not error:
                 for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND source='hold' AND state='open'", (hid,)).fetchall():
                     if not backlog.get(prior['task_id'], {}).get('captain_actionable'):
@@ -732,7 +751,7 @@ class Board:
                                    (d['home_id'], d['task_id'], d['decision_key'], d['revision'])).fetchone()
                 d['answer'] = dict(answer) if answer else None
                 if d['answer']:
-                    d['answer']['delivery_class'] = delivery_class(d['answer']['error'])
+                    d['answer']['delivery_class'] = delivery_class(d['answer'])
             events = [dict(r) for r in c.execute('SELECT * FROM events ORDER BY created_at DESC LIMIT 500')]
             runs = {r['home_id']: dict(r) for r in c.execute('SELECT * FROM ingest_runs')}
         homes = []
@@ -870,6 +889,8 @@ class Board:
         with self.write() as (c, changed):
             a = c.execute('SELECT * FROM answers WHERE answer_id=?', (aid,)).fetchone()
             if a and a['error'] != error:
+                if not error.startswith(REVIEW_ERRORS + DELIVERY_FAILURE_ERRORS):
+                    self.log(f'answer {aid}: unclassified error shown as {delivery_class(dict(dict(a), error=error))}: {error}')
                 c.execute('UPDATE answers SET error=? WHERE answer_id=?', (error,aid))
                 if a['action'] == 'answer':
                     c.execute("UPDATE decisions SET state='failed' WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?", (a['home_id'],a['task_id'],a['decision_key'],a['revision']))
