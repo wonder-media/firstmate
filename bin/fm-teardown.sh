@@ -23,16 +23,18 @@
 # teardown refuses rather than risk discarding unlanded work.
 # Uncommitted changes are never landed.
 # Before any ordinary pooled-worktree access, teardown resolves the recorded
-# path against `treehouse status --json`. The status entry supplies the managed
-# path spelling used for return. An available or no-longer-managed slot counts
-# as already returned only after the ordinary landed-work and cleanliness gates
-# pass, including a retained task-branch proof when the worktree is gone. A
-# different task counts as the live rebound owner only when its current endpoint
-# and owner generation agree; stale claims are ignored and ambiguous claims
-# refuse. The host-user-wide Treehouse operation lock spans identity inspection
-# through every worktree mutation and return, while spawn holds the same lock
-# across allocation and owner/meta publication, so a verified slot cannot rebind
-# inside teardown's destructive interval.
+# path against `treehouse status --json`, read from the recorded project= clone
+# because Treehouse reports only the pool of its working directory. A missing
+# project clone refuses before any pool read unless --force is given. The
+# status entry supplies the managed path spelling used for return. An available
+# or no-longer-managed slot counts as already returned only after the ordinary
+# landed-work and cleanliness gates pass, including a retained task-branch proof
+# when the worktree is gone. A different task counts as the live rebound owner
+# only when its current endpoint and owner generation agree; stale claims are
+# ignored and ambiguous claims refuse. The host-user-wide Treehouse operation
+# lock spans identity inspection through every worktree mutation and return,
+# while spawn holds the same lock across allocation and owner/meta publication,
+# so a verified slot cannot rebind inside teardown's destructive interval.
 # local-only projects additionally accept work merged into the local default
 # branch (firstmate performs that merge after configured approval) as a fallback
 # for the common case where there is no remote at all.
@@ -67,7 +69,8 @@
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force]
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
-#   checks, and discards secondmate child work for kind=secondmate. Only use it
+#   checks, proceeds without a pool read when the recorded project clone is
+#   missing, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
 #
 # Transient / stale worktree git lock recovery (teardown-lock-race): a crew process
@@ -1408,7 +1411,17 @@ prepare_treehouse_task_slot() {
   [ "$KIND" != secondmate ] || return 0
   [ "$BACKEND" != orca ] || return 0
 
-  if fm_treehouse_lookup_slot "$WT"; then
+  if ! fm_treehouse_project_dir_ok "$PROJ"; then
+    if [ "$FORCE" = "--force" ]; then
+      TREEHOUSE_SLOT_STATE='project-missing'
+      return 0
+    fi
+    echo "REFUSED: recorded project directory ${PROJ:-<unset>} is missing; cannot read its Treehouse pool for task $ID." >&2
+    echo "Restore the project clone, or get the captain's explicit OK to discard, then --force." >&2
+    return 1
+  fi
+
+  if fm_treehouse_lookup_slot "$WT" "$PROJ"; then
     WT=$FM_TREEHOUSE_SLOT_PATH
     case "$FM_TREEHOUSE_SLOT_STATUS" in
       available)

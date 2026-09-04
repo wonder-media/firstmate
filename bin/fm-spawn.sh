@@ -2514,7 +2514,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   validate_spawn_worktree "treehouse get" "$T"
 fi
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  if fm_treehouse_lookup_slot "$WT"; then
+  if fm_treehouse_lookup_slot "$WT" "$PROJ_ABS"; then
     case "$FM_TREEHOUSE_SLOT_STATUS" in
       in-use|leased) WT=$FM_TREEHOUSE_SLOT_PATH ;;
       *)
