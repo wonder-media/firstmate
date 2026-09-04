@@ -121,6 +121,8 @@ test_project_scoped_lookup_and_spawn() {
   for lookup_cwd in "$HOME_DIR" "$PROJECT_DIR"; do
     out=$(
       cd "$lookup_cwd" || exit 1
+      # The fake treehouse environment is intentionally scoped to the isolated subshell.
+      # shellcheck disable=SC2030,SC2031
       export PATH="$FAKEBIN_DIR:$PATH" FM_FAKE_PROJECT="$PROJECT_DIR" FM_FAKE_PANE_PATH="$POOL_DIR"
       . "$ROOT/bin/fm-treehouse-lib.sh"
       before=$PWD
@@ -152,6 +154,8 @@ test_invalid_project_dir_never_reads_caller_pool() {
     : > "$calls"
     out=$(
       cd "$HOME_DIR" || exit 1
+      # The fake treehouse environment is intentionally scoped to the isolated subshell.
+      # shellcheck disable=SC2030,SC2031
       export PATH="$FAKEBIN_DIR:$PATH" FM_FAKE_PROJECT="$HOME_DIR" FM_FAKE_PANE_PATH="$POOL_DIR" \
         FM_FAKE_TREEHOUSE_CALLS="$calls"
       . "$ROOT/bin/fm-treehouse-lib.sh"
