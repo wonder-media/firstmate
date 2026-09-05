@@ -5,7 +5,9 @@
 # any test script. The function removes every inherited non-test FM_* value,
 # installs a synthetic HOME and operational home, and verifies that all
 # effective writable paths are inside the private root. FM_TEST_* values are
-# test-runner controls rather than production overrides and remain available.
+# test-runner controls rather than production overrides and remain available,
+# as are the exact documented opt-in live-lane switches enumerated in
+# fm_test_env_retained_name; every other FM_* value is removed.
 # Tests may deliberately replace fixture overrides after this boundary.
 
 fm_test_env_error() {
@@ -16,6 +18,37 @@ fm_test_env_error() {
 fm_test_env_canonical_dir() {
   [ -d "$1" ] || return 1
   (CDPATH= cd -P -- "$1" && pwd)
+}
+
+# Exact enumeration of the documented opt-in live-lane switches (each defaults
+# to off and is consulted only by its own test) plus the two executable-path
+# inputs the grok stop lane documents alongside its switch. Nothing here is
+# read by production code.
+fm_test_env_retained_name() {
+  case "$1" in
+    FM_TEST_*) return 0 ;;
+    FM_AFK_PI_HERDR_E2E|\
+    FM_CLAUDE_LIVE_E2E|\
+    FM_CMUX_CLAUDE_COMPOSER_LIVE|\
+    FM_CODEX_LIVE_E2E|\
+    FM_COMPOSER_MATRIX_LIVE|\
+    FM_CURSOR_PRIMARY_LIVE_E2E|\
+    FM_GROK_LIVE_E2E|\
+    FM_GROK_STOP_LIVE_E2E|\
+    FM_GROK_NATIVE_BIN|\
+    FM_GROK_LEGACY_BIN|\
+    FM_HARNESS_LIVENESS_DRIFT|\
+    FM_HERDR_SMOKE_REAL_CLAUDE|\
+    FM_HERDR_VERSION_FLOOR_LIVE_E2E|\
+    FM_MUSE_SIGNALS_LIVE|\
+    FM_OPENCODE_LIVE_E2E|\
+    FM_PI_LIVE_E2E|\
+    FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E|\
+    FM_SEND_MARKER_HERDR_E2E|\
+    FM_SESSIONSTART_HOOK_LIVE_E2E|\
+    FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E) return 0 ;;
+    *) return 1 ;;
+  esac
 }
 
 fm_test_env_assert_within() {
@@ -56,10 +89,9 @@ fm_test_env_assert() {
   done
 
   while IFS= read -r name; do
-    case "$name" in
-      FM_TEST_*|FM_HOME) ;;
-      *) fm_test_env_error "inherited production variable survived isolation: $name" || return 1 ;;
-    esac
+    [ "$name" = FM_HOME ] && continue
+    fm_test_env_retained_name "$name" \
+      || fm_test_env_error "inherited production variable survived isolation: $name" || return 1
   done < <(compgen -e FM_)
 }
 
@@ -80,13 +112,10 @@ fm_test_env_prepare() {
   root=$(fm_test_env_canonical_dir "$requested_root") || return 1
 
   # Dynamic enumeration prevents a newly introduced production FM_* control
-  # from silently reaching tests. FM_TEST_* is the reserved test-control
-  # namespace and is intentionally retained.
+  # from silently reaching tests. Only FM_TEST_* controls and the exact
+  # documented live-lane switches survive.
   while IFS= read -r name; do
-    case "$name" in
-      FM_TEST_*) ;;
-      *) unset "$name" ;;
-    esac
+    fm_test_env_retained_name "$name" || unset "$name"
   done < <(compgen -e FM_)
 
   export HOME="$root/user-home"

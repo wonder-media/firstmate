@@ -332,6 +332,75 @@ SH
   pass "runner and shared helper sanitize inherited FM values before synthetic mutation"
 }
 
+test_documented_live_gates_survive_isolation() {
+  local tmp fixture runner_capture direct_capture
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-gates.XXXXXX")
+  fixture="$tmp/gates.test.sh"
+  runner_capture="$tmp/runner.capture"
+  direct_capture="$tmp/direct.capture"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_TEST_SOURCE_LIB:-0}" = 1 ]; then
+  # shellcheck source=/dev/null
+  . "$FM_TEST_LIB_PATH"
+fi
+
+[ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] || exit 41
+[ "${FM_CMUX_CLAUDE_COMPOSER_LIVE:-}" = 1 ] || exit 42
+[ "${FM_HARNESS_LIVENESS_DRIFT:-}" = 1 ] || exit 43
+[ "${FM_PI_LIVE_E2E:-}" = 1 ] || exit 44
+[ "${FM_MUSE_SIGNALS_LIVE:-}" = 0 ] || exit 45
+[ -z "${FM_UNLISTED_LIVE_E2E+x}" ] || exit 46
+[ -z "${FM_ROOT_OVERRIDE+x}" ] || exit 47
+[ -z "${FM_BACKEND+x}" ] || exit 48
+[ -z "${FM_STATE_OVERRIDE+x}${FM_DATA_OVERRIDE+x}${FM_CONFIG_OVERRIDE+x}${FM_PROJECTS_OVERRIDE+x}" ] || exit 49
+case "$HOME:$FM_HOME" in
+  "$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 50 ;;
+esac
+printf '%s\n' "$FM_TEST_ENV_ROOT" >"$FM_TEST_CAPTURE"
+printf 'ok - documented live gates survive isolation\n'
+SH
+  chmod +x "$fixture"
+
+  HOME=/Users/patrick \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_BACKEND=herdr \
+    FM_CMUX_CLAUDE_COMPOSER_LIVE=1 \
+    FM_HARNESS_LIVENESS_DRIFT=1 \
+    FM_PI_LIVE_E2E=1 \
+    FM_MUSE_SIGNALS_LIVE=0 \
+    FM_UNLISTED_LIVE_E2E=1 \
+    FM_TEST_CAPTURE="$runner_capture" \
+    "$RUNNER" "$fixture" >"$tmp/runner.out" 2>"$tmp/runner.err" \
+    || { rm -rf "$tmp"; fail "runner did not preserve documented live gates while stripping production values"; }
+  [ -s "$runner_capture" ] || { rm -rf "$tmp"; fail "runner live-gate probe did not complete"; }
+  grep -Eq '^FM_TEST_END .+ exit=0 duration_ms=[0-9]+ gate_skip=false$' "$tmp/runner.out" \
+    || { rm -rf "$tmp"; fail "live-gate probe must not be counted as a gate skip"; }
+
+  HOME=/Users/patrick \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_BACKEND=herdr \
+    FM_CMUX_CLAUDE_COMPOSER_LIVE=1 \
+    FM_HARNESS_LIVENESS_DRIFT=1 \
+    FM_PI_LIVE_E2E=1 \
+    FM_MUSE_SIGNALS_LIVE=0 \
+    FM_UNLISTED_LIVE_E2E=1 \
+    FM_TEST_SOURCE_LIB=1 FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+    FM_TEST_CAPTURE="$direct_capture" \
+    bash "$fixture" >"$tmp/direct.out" 2>"$tmp/direct.err" \
+    || { rm -rf "$tmp"; fail "shared test helper did not preserve documented live gates while stripping production values"; }
+  [ -s "$direct_capture" ] || { rm -rf "$tmp"; fail "direct live-gate probe did not complete"; }
+
+  rm -rf "$tmp"
+  pass "documented opt-in live gates survive the runner boundary while production values are stripped"
+}
+
 test_aggregate_exit_behavior() {
   local tmp pass_f fail_f rc
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-agg.XXXXXX")
@@ -794,6 +863,7 @@ test_changed_dependency_selection_and_unmapped_failure
 test_empty_selection_emits_summary
 test_timing_markers_and_json
 test_inherited_fm_environment_is_sanitized
+test_documented_live_gates_survive_isolation
 test_aggregate_exit_behavior
 test_gate_skip_accounting
 test_fail_on_gate_skip_token

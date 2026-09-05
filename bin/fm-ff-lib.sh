@@ -213,25 +213,15 @@ fetch_once() {
 }
 
 LOCAL_OBJECT_ACQUIRE_ERROR=""
+LOCAL_OBJECT_ACQUIRE_TIMEOUT=15
 
 # Acquire one missing local-HEAD target from the validated primary checkout.
 # The source must be a local directory whose default-branch tip is exactly the
-# requested commit. The fetch writes no refs or FETCH_HEAD, has a hard process-
-# group bound, and never consults the target's origin.
+# requested commit. The fetch writes no refs or FETCH_HEAD, has a fixed
+# 15-second process-group bound, and never consults the target's origin.
 acquire_local_base() {  # <target-dir> <base-commit> <primary-dir>
-  local dir=$1 base=$2 source=$3 source_real source_default source_tip timeout rc
+  local dir=$1 base=$2 source=$3 source_real source_default source_tip rc
   LOCAL_OBJECT_ACQUIRE_ERROR=""
-  timeout=${FM_LOCAL_OBJECT_ACQUIRE_TIMEOUT:-15}
-  case "$timeout" in
-    ''|*[!0-9]*|0)
-      LOCAL_OBJECT_ACQUIRE_ERROR="invalid local object-acquisition timeout"
-      return 1
-      ;;
-  esac
-  [ "$timeout" -le 60 ] || {
-    LOCAL_OBJECT_ACQUIRE_ERROR="local object-acquisition timeout exceeds 60s"
-    return 1
-  }
   source_real=$(resolved_existing_dir "$source") || {
     LOCAL_OBJECT_ACQUIRE_ERROR="primary checkout is not a local directory"
     return 1
@@ -252,12 +242,12 @@ acquire_local_base() {  # <target-dir> <base-commit> <primary-dir>
     LOCAL_OBJECT_ACQUIRE_ERROR="requested commit is not the primary default-branch tip"
     return 1
   }
-  fm_run_timed "$timeout" git -C "$dir" fetch --no-tags --quiet --no-write-fetch-head \
+  fm_run_timed "$LOCAL_OBJECT_ACQUIRE_TIMEOUT" git -C "$dir" fetch --no-tags --quiet --no-write-fetch-head \
     "$source_real" "refs/heads/$source_default" </dev/null >/dev/null 2>&1
   rc=$?
   case "$rc" in
     0) ;;
-    124) LOCAL_OBJECT_ACQUIRE_ERROR="timed out after ${timeout}s"; return 1 ;;
+    124) LOCAL_OBJECT_ACQUIRE_ERROR="timed out after ${LOCAL_OBJECT_ACQUIRE_TIMEOUT}s"; return 1 ;;
     *) LOCAL_OBJECT_ACQUIRE_ERROR="local fetch failed"; return 1 ;;
   esac
   git -C "$dir" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1 || {

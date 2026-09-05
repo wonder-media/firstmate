@@ -154,8 +154,48 @@ SH
   pass "each release-channel request is hard bounded and degrades to unknown/offline"
 }
 
+test_multi_digit_versions_parse_whole() {
+  local dir fakebin github_log npm_log out
+  dir="$TMP_ROOT/multi-digit"
+  mkdir -p "$dir"
+  github_log="$dir/github.log"
+  npm_log="$dir/npm.log"
+  : > "$github_log"
+  : > "$npm_log"
+  fakebin=$(make_fake_tools "$dir")
+  cat > "$fakebin/no-mistakes" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'no-mistakes version v12.3.4'
+SH
+  cat > "$fakebin/tasks-axi" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'tasks-axi 10.20.30'
+SH
+  cat > "$fakebin/npm" <<'SH'
+#!/usr/bin/env bash
+package=${2:-}
+printf '%s\n' "$package" >> "${FM_FAKE_NPM_LOG:?}"
+case "$package" in
+  gh-axi) printf '%s\n' 0.1.35 ;;
+  chrome-devtools-axi) printf '%s\n' 0.1.34 ;;
+  lavish-axi) printf '%s\n' 0.1.64 ;;
+  tasks-axi) printf '%s\n' 11.0.0 ;;
+  quota-axi) printf '%s\n' 0.1.37 ;;
+  *) exit 9 ;;
+esac
+SH
+  chmod +x "$fakebin/no-mistakes" "$fakebin/tasks-axi" "$fakebin/npm"
+  out=$(PATH="$fakebin:$BASE_PATH" FM_FAKE_GITHUB_LOG="$github_log" FM_FAKE_NPM_LOG="$npm_log" \
+    "$ROOT/bin/fm-version-inventory.sh")
+
+  assert_row "$out" $'no-mistakes\t12.3.4\t1.31.2\t1.64.0\tsupported\tahead-of-stable\tnone\tgithub:kunchenguid/no-mistakes'
+  assert_row "$out" $'tasks-axi\t10.20.30\t0.2.4\t11.0.0\tsupported\tupdate-available\tnone\tnpm:tasks-axi'
+  pass "multi-digit installed and available versions are parsed whole"
+}
+
 test_inventory_separates_compatibility_freshness_and_pins
 test_offline_inventory_never_calls_release_channels
 test_release_request_is_hard_bounded
+test_multi_digit_versions_parse_whole
 
 echo "# all fm-version-inventory tests passed"
