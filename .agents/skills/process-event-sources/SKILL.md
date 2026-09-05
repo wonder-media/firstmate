@@ -82,6 +82,7 @@ Two rules the commands cannot enforce for you:
   bin/fm-procevent-board-answers.sh handle <source-id> <sequence> <result-file>
   ```
   which acknowledges the wake once every listed answer is consumed; an answer with no dashboard row can only be retired through the generic acknowledgement below.
+  A listed record carrying `request_id` and `lifecycle` (and no `answer_id`) is a failed captain Hold, Discard, or Resume on that home's task, never an answer or approval: repair what its `error` names through the owning home's normal tools (stop or relaunch the worker, confirm its record, release a hold) so the captain's retry from Bridge completes, then run the same handle command; it acknowledges once the task's lifecycle no longer carries that error, and until then the Archive keeps the failure visible.
   Never re-arm this source by hand: `bin/fm-board.sh arm-answers` and the running daemon own registration, and `bin/fm-board.py`'s header owns the answer contract.
 : A captured result with no durable handled acknowledgement stays eligible for bounded re-announcement on the existing wake queue - across any number of drains and firstmate restarts, not only the crash window right after capture - until it is explicitly acknowledged. Once you have fully handled a result, durably record it:
   ```sh
