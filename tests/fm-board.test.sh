@@ -169,7 +169,7 @@ elif name in ('fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
  if name=='fm-control.sh':
   if sys.argv[2]=='relaunch':
    with (h/f'state/{sys.argv[1]}.meta').open('a') as f:f.write('control_relaunch_tx=fixture\\n')
-  elif sys.argv[2]=='exit':print('already-stopped' if (h/'already-stopped').exists() else 'stopped',end='')
+  elif sys.argv[2]=='exit':print(('already-stopped' if (h/'already-stopped').exists() else 'stopped')+f' {sys.argv[1]} harness=fixture backend=fixture endpoint=fixture worktree=fixture')
  elif name=='fm-decision-hold.sh' and sys.argv[1]=='decline':
   origin,key=sys.argv[2:4];decision=pathlib.Path(sys.argv[sys.argv.index('--decision-file')+1]).read_text()
   rows=json.loads((h/'rows.json').read_text());r=next(row for row in rows if row[0]==f'{origin}-decision-{key}')
@@ -800,6 +800,7 @@ try:
     assert stale_retry[0]==409 and 'already complete' in stale_retry[1]['error'],stale_retry
     assert 'fm-control.sh' in next(t for t in request()[1]['archive'] if t['task_id']=='runaway')['lifecycle']['error']
     (home/'state/runaway.meta').unlink();(home/'state/runaway.status').unlink()
+    wait(lambda:not sql("select 1 from tasks where task_id='runaway' and deleted_at is null"))
     runaway_resume='19191919-1919-4191-8191-212121212121'
     assert request('/lifecycle',lifecycle('Main','runaway',still['lifecycle']['revision'],'resume',runaway_resume))[0]==200
     lifecycle_done(runaway_resume)

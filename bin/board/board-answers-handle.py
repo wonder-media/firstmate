@@ -168,7 +168,7 @@ def route_lifecycle(b):
                 actual_state = 'held'
                 record('held', bridge_hold=int(own))
                 if worker_record(b, target_home, task):
-                    if m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60).strip() == 'stopped':
+                    if m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60).split()[:1] == ['stopped']:
                         record(stopped_meta=worker_record(b, target_home, task))
             elif action == 'discard':
                 actual_state = 'discarded'
