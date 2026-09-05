@@ -141,12 +141,15 @@ if name=='tasks-axi':
   print('task:')
   for field,index in (('title',4),('hold_reason',6),('body',9)):
    print(f'  {field}: {json.dumps(full.get(field,(r+[""]*10)[index]))}')
+  print(f'  state: {r[1]}\\n  held: {"yes" if r[5]!="-" and r[1]!="done" else "no"}\\n  hold_kind: {r[5]}')
  elif sys.argv[1] in ('hold','unhold','done'):
   command,tid=sys.argv[1:3];r=next(row for row in rows if row[0]==tid)
-  if command=='hold':r[5]='parked';r[6]=sys.argv[sys.argv.index('--reason')+1]
+  if command=='hold':
+   assert r[5]=='-',('fixture refuses to replace an existing hold',r)
+   r[5]=sys.argv[sys.argv.index('--kind')+1];r[6]=sys.argv[sys.argv.index('--reason')+1]
   elif command=='unhold':r[5]=r[6]='-'
-  else:r[1]='done';r[5]=r[6]='-'
-  (h/'rows.json').write_text(json.dumps(rows));print(json.dumps({'id':tid,'state':r[1]}))
+  else:r[1]='done'
+  (h/'rows.json').write_text(json.dumps(rows));(h/'data/backlog.md').write_text(json.dumps(rows));print(json.dumps({'id':tid,'state':r[1]}))
  else:
   assert 'body' not in sys.argv[sys.argv.index('--fields')+1].split(','),sys.argv
   state=sys.argv[sys.argv.index('--state')+1];print('tasks[0]{id,state,kind,repo,title,hold_kind,hold_reason,blocked,blocked_by}:')
@@ -157,7 +160,15 @@ if name=='tasks-axi':
 elif name=='fm-crew-state.sh':print('state: parked · source: pane · fixture')
 elif name=='fm-fleet-snapshot.sh':print(json.dumps({'tasks':[]}))
 elif name in ('fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
- if name=='fm-control.sh':pass
+ if name=='fm-control.sh':
+  if sys.argv[2]=='relaunch':
+   with (h/f'state/{sys.argv[1]}.meta').open('a') as f:f.write('control_relaunch_tx=fixture\\n')
+ elif name=='fm-decision-hold.sh' and sys.argv[1]=='decline':
+  origin,key=sys.argv[2:4];decision=pathlib.Path(sys.argv[sys.argv.index('--decision-file')+1]).read_text()
+  rows=json.loads((h/'rows.json').read_text());r=next(row for row in rows if row[0]==f'{origin}-decision-{key}')
+  assert r[1]=='queued' and r[5]=='captain',('decline needs an active captain hold',r)
+  r[1]='done';(h/'rows.json').write_text(json.dumps(rows));(h/'data/backlog.md').write_text(json.dumps(rows))
+  with (h/'declines.jsonl').open('a') as f:f.write(json.dumps([origin,key,decision])+'\\n')
  elif name=='fm-decision-hold.sh':
   with (h/'hold-input').open('a') as f:f.write(sys.stdin.read())
   with (h/'deliveries.jsonl').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\\n')
@@ -538,6 +549,10 @@ try:
     resumed_cards=[d for d in resumed_state['decisions'] if d['task_id']=='lifecycle']
     assert len(resumed_cards)==2 and next(d for d in resumed_cards if d['decision_key']=='one')['answer']['answer_id']==preserved_answer
     assert not any(t['task_id']=='lifecycle' for t in resumed_state['archive'])
+    relaunches=[c[1] for c in calls(home,'fm-control.sh') if c[1][:2]==['lifecycle','relaunch']]
+    assert len(relaunches)==1 and relaunches[0][2]=='--note' and resume in relaunches[0][3],relaunches
+    assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['unhold','lifecycle']])==1
+    assert next(r for r in json.loads((home/'rows.json').read_text()) if r[0]=='lifecycle')[5]=='-'
     discard='66666666-6666-4666-8666-666666666666'
     lifecycle_revision=resumed_cards[0]['lifecycle']['revision']
     discarded=request('/lifecycle',lifecycle('Main','lifecycle',lifecycle_revision,'discard',discard));assert discarded[0]==200,discarded
@@ -570,10 +585,111 @@ try:
     accelerate_lifecycle([retry]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(retry,))[0]['state']=='completed')
     owner_archive=next(t for t in request()[1]['archive'] if t['home_id']=='Second' and t['task_id']=='owned')
     assert owner_archive['lifecycle']['error'] is None
-    assert len([c for c in calls(second,'tasks-axi') if c[1][:2]==['hold','owned']])==2
+    assert len([c for c in calls(second,'tasks-axi') if c[1][:2]==['hold','owned']])==1
     assert len([c for c in calls(second,'fm-control.sh') if c[1]==['owned','exit']])==2
     assert not [c for c in calls(home,'tasks-axi') if c[1][:2] in (['hold','owned'],['done','owned'])]
     passed('secondmate lifecycle routes to the owning home and exposes control failure until an idempotent retry succeeds')
+    # A pre-existing captain or external hold is never replaced or released by
+    # Bridge; Discard closes captain decisions through their owner script.
+    def lifecycle_done(rid,state='completed'):
+        accelerate_lifecycle([rid]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(rid,))[0]['state']==state)
+    def backlog_row(tid):return next(r for r in json.loads((home/'rows.json').read_text()) if r[0]==tid)
+    def set_backlog(full,note):
+        (home/'rows.json').write_text(json.dumps(full));(home/'data/backlog.md').write_text(note);command('ingest','--once','--home','Main')
+    def external(tid,note,state=None,hold=None):
+        full=json.loads((home/'rows.json').read_text());r=next(x for x in full if x[0]==tid)
+        if state:r[1]=state
+        if hold:r[5],r[6]=hold
+        set_backlog(full,note)
+    gates=[['gate-decision-scope','queued','captain','wonderok','Scope approval','captain','Pick the scope','no','none'],
+           ['vendor','in_flight','ship','wonderok','Vendor window','external','Waiting for the vendor','no','none']]
+    meta(home,'vendor','working: fixture');set_backlog(json.loads((home/'rows.json').read_text())+gates,'fixture backlog with gates')
+    gate=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']=='gate-decision-scope'),None))
+    assert gate['lifecycle_task_id']=='gate-decision-scope' and gate['question']=='Scope approval' and gate['description']=='Pick the scope',gate
+    gate_hold='99999999-9999-4999-8999-999999999999'
+    assert request('/lifecycle',lifecycle('Main','gate-decision-scope',gate['lifecycle']['revision'],'hold',gate_hold))[0]==200
+    lifecycle_done(gate_hold)
+    assert backlog_row('gate-decision-scope')[5:7]==['captain','Pick the scope']
+    assert not [c for c in calls(home,'tasks-axi') if c[1][0] in ('hold','unhold','done') and c[1][1]=='gate-decision-scope']
+    gate_archive=next(t for t in request()[1]['archive'] if t['task_id']=='gate-decision-scope')
+    assert gate_archive['lifecycle']['state']=='held' and not any(d['task_id']=='gate-decision-scope' for d in request()[1]['decisions'])
+    time.sleep(6)
+    assert next(t for t in request()[1]['archive'] if t['task_id']=='gate-decision-scope')['lifecycle']['state']=='held'
+    gate_resume='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    assert request('/lifecycle',lifecycle('Main','gate-decision-scope',gate_archive['lifecycle']['revision'],'resume',gate_resume))[0]==200
+    lifecycle_done(gate_resume)
+    gate=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']=='gate-decision-scope'),None))
+    assert gate['question']=='Scope approval' and gate['description']=='Pick the scope' and gate['state']=='open',gate
+    assert backlog_row('gate-decision-scope')[5:7]==['captain','Pick the scope']
+    assert not [c for c in calls(home,'tasks-axi') if c[1][0] in ('hold','unhold','done') and c[1][1]=='gate-decision-scope']
+    gate_discard='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    assert request('/lifecycle',lifecycle('Main','gate-decision-scope',gate['lifecycle']['revision'],'discard',gate_discard))[0]==200
+    lifecycle_done(gate_discard)
+    declines=[json.loads(l) for l in (home/'declines.jsonl').read_text().splitlines()]
+    assert [d[:2] for d in declines]==[['gate','scope']] and gate_discard in declines[0][2] and 'gate-decision-scope' in declines[0][2],declines
+    assert (home/'state/board-inbox/lifecycle'/f'{gate_discard}.decision').read_text()==declines[0][2]
+    assert backlog_row('gate-decision-scope')[1]=='done' and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['done','gate-decision-scope']]
+    assert {r['state'] for r in sql("select state from decisions where task_id='gate-decision-scope'")}=={'closed'}
+    assert not any(d['task_id']=='gate-decision-scope' for d in request()[1]['decisions']) and not any(t['task_id']=='gate-decision-scope' for t in request()[1]['archive'])
+    vendor=next(t for t in request()[1]['tasks'] if t['task_id']=='vendor')
+    vendor_hold='cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    assert request('/lifecycle',lifecycle('Main','vendor',vendor['lifecycle']['revision'],'hold',vendor_hold))[0]==200
+    lifecycle_done(vendor_hold)
+    assert backlog_row('vendor')[5:7]==['external','Waiting for the vendor'] and len([c for c in calls(home,'fm-control.sh') if c[1]==['vendor','exit']])==1
+    assert not [c for c in calls(home,'tasks-axi') if c[1][0] in ('hold','unhold') and c[1][1]=='vendor']
+    with (home/'state/vendor.meta').open('a') as f:f.write('control_relaunch_tx=firstmate\n')
+    vendor_archive=next(t for t in request()[1]['archive'] if t['task_id']=='vendor')
+    vendor_resume='dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    assert request('/lifecycle',lifecycle('Main','vendor',vendor_archive['lifecycle']['revision'],'resume',vendor_resume))[0]==200
+    lifecycle_done(vendor_resume)
+    assert next(t for t in request()[1]['tasks'] if t['task_id']=='vendor')['lifecycle']['state']=='active'
+    assert not [c for c in calls(home,'fm-control.sh') if c[1][:2]==['vendor','relaunch']]
+    assert backlog_row('vendor')[5:7]==['external','Waiting for the vendor'] and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['unhold','vendor']]
+    passed('Hold and Resume preserve pre-existing holds, never relaunch a superseded worker, and Discard declines captain holds through fm-decision-hold')
+    # tasks-axi stays authoritative: external reopen, release, and completion
+    # reconcile the Archive on ingest, and a failed relaunch never claims active.
+    assert backlog_row('lifecycle')[1]=='done' and sql("select state from task_lifecycle where task_id='lifecycle'")==[{'state':'discarded'}]
+    external('lifecycle','fixture backlog reopened lifecycle',state='in_flight',hold=('-','-'))
+    wait(lambda:any(t['task_id']=='lifecycle' for t in request()[1]['tasks']))
+    lifecycle_row=sql("select * from task_lifecycle where task_id='lifecycle'")[0]
+    assert lifecycle_row['state']=='active' and lifecycle_row['error'] is None,lifecycle_row
+    wait(lambda:len([d for d in request()[1]['decisions'] if d['task_id']=='lifecycle'])==2)
+    rehold='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    assert request('/lifecycle',lifecycle('Main','lifecycle',lifecycle_row['revision'],'hold',rehold))[0]==200
+    lifecycle_done(rehold)
+    assert backlog_row('lifecycle')[5:7]==['parked','Held in Bridge Archive']
+    external('lifecycle','fixture backlog released lifecycle',hold=('-','-'))
+    wait(lambda:not any(t['task_id']=='lifecycle' for t in request()[1]['archive']))
+    assert sql("select state,bridge_hold,stopped_meta from task_lifecycle where task_id='lifecycle'")==[{'state':'active','bridge_hold':0,'stopped_meta':None}]
+    assert len([d for d in request()[1]['decisions'] if d['task_id']=='lifecycle'])==2
+    revision=sql("select revision from task_lifecycle where task_id='lifecycle'")[0]['revision']
+    rehold='ffffffff-ffff-4fff-8fff-ffffffffffff'
+    assert request('/lifecycle',lifecycle('Main','lifecycle',revision,'hold',rehold))[0]==200
+    lifecycle_done(rehold)
+    (home/'fail-control').write_text('1')
+    failed_resume='12121212-1212-4121-8121-121212121212'
+    revision=sql("select revision from task_lifecycle where task_id='lifecycle'")[0]['revision']
+    assert request('/lifecycle',lifecycle('Main','lifecycle',revision,'resume',failed_resume))[0]==200
+    lifecycle_done(failed_resume,'failed')
+    stuck=next(t for t in request()[1]['archive'] if t['task_id']=='lifecycle')
+    assert stuck['lifecycle']['state']=='held' and 'fm-control.sh' in stuck['lifecycle']['error'],stuck
+    assert backlog_row('lifecycle')[5]=='parked' and not any(t['task_id']=='lifecycle' for t in request()[1]['tasks'])
+    (home/'fail-control').unlink()
+    retry_resume='13131313-1313-4131-8131-131313131313'
+    assert request('/lifecycle',lifecycle('Main','lifecycle',stuck['lifecycle']['revision'],'resume',retry_resume))[0]==200
+    lifecycle_done(retry_resume)
+    assert next(t for t in request()[1]['tasks'] if t['task_id']=='lifecycle')['lifecycle']['state']=='active' and backlog_row('lifecycle')[5]=='-'
+    assert len([c for c in calls(home,'fm-control.sh') if c[1][:2]==['lifecycle','relaunch']])==3
+    revision=sql("select revision from task_lifecycle where task_id='lifecycle'")[0]['revision']
+    rehold='14141414-1414-4141-8141-141414141414'
+    assert request('/lifecycle',lifecycle('Main','lifecycle',revision,'hold',rehold))[0]==200
+    lifecycle_done(rehold)
+    external('lifecycle','fixture backlog finished lifecycle',state='done',hold=('-','-'))
+    wait(lambda:not sql("select 1 from task_lifecycle where task_id='lifecycle'"))
+    assert not any(t['task_id']=='lifecycle' for t in request()[1]['archive'])
+    (home/'state/lifecycle.meta').unlink();(home/'state/lifecycle.status').unlink();(home/'state/vendor.meta').unlink();(home/'state/vendor.status').unlink()
+    set_backlog(rows,'fixture backlog after lifecycle')
+    passed('ingest reconciles held and discarded work with tasks-axi, and a failed relaunch stays held until a retry succeeds')
     # Queue is durable before handler starts; restart does not lose or duplicate.
     code_,posted,_=request('/answer',answer('alpha',revision=row['revision']));assert code_==200,posted
     aid=posted['answers'][0]['answer_id'];assert request('/answer',answer('alpha',revision=row['revision']))[1]['answers'][0]['answer_id']==aid

@@ -44,9 +44,19 @@
 # POST /lifecycle -> {home,task,revision,action,request_id,device?}, where action
 # is hold, discard, or resume. A duplicate request id or same-task/action is
 # idempotent. A queued request may be undone for 15 s with
-# {action:"undo",request_id}. Hold and discard first update the owning home's
-# tasks-axi backlog, then use fm-control exit when a worker record exists; they
-# never call teardown. Held work remains in Archive until resume unholds it.
+# {action:"undo",request_id}. Hold adds a parked tasks-axi hold only when the
+# task carries no hold; an existing captain, external, or dated hold is kept
+# untouched and task_lifecycle.bridge_hold records which case applied. Hold then
+# uses fm-control exit when a non-secondmate worker record exists and keeps the
+# stopped record's digest in stopped_meta; it never calls teardown. Held work
+# remains in Archive until resume, which releases only Bridge's own parked hold
+# and relaunches only the exact worker Bridge stopped (record digest unchanged);
+# a relaunch failure keeps the work held with its error. Discard declines each
+# open captain hold of the task through fm-decision-hold.sh with a decision file
+# under state/board-inbox/lifecycle/<request_id>.decision, then marks the task
+# done. Ingest reconciles held and discarded rows without a pending request
+# against the tasks-axi backlog: a finished task drops its held row, an
+# externally released or reopened task returns to active.
 # Legacy choice values: custom (note required; the note IS the answer text sent
 # to the worker or hold, never 'custom (note: ...)'), request-options. A card
 # without registered options lists custom first, then request-options; neither
@@ -161,6 +171,7 @@ REVIEW_ERRORS = (
 DELIVERY_FAILURE_ERRORS = ('fm-send.sh:', 'fm-decision-hold.sh:', 'fm-crew-state.sh:')
 DEFAULT_CONSEQUENCE = 'Your choice decides what happens next for this task.'
 LIFECYCLE_ACTIONS = ('hold', 'discard', 'resume')
+BRIDGE_HOLD_REASON = 'Held in Bridge Archive'
 
 
 class Invalid(ValueError):
@@ -414,7 +425,8 @@ class Board:
                     PRIMARY KEY(home_id,task_id));
                 CREATE TABLE IF NOT EXISTS task_lifecycle(home_id TEXT,task_id TEXT,state TEXT,
                     revision INTEGER,pending_request_id TEXT,error TEXT,updated_at TEXT,
-                    title TEXT,project TEXT,PRIMARY KEY(home_id,task_id));
+                    title TEXT,project TEXT,bridge_hold INTEGER DEFAULT 0,stopped_meta TEXT,
+                    PRIMARY KEY(home_id,task_id));
                 CREATE TABLE IF NOT EXISTS lifecycle_requests(request_id TEXT PRIMARY KEY,
                     home_id TEXT,task_id TEXT,action TEXT,base_revision INTEGER,state TEXT,
                     received_at TEXT,ready_at REAL,routing_at TEXT,completed_at TEXT,
@@ -476,6 +488,8 @@ class Board:
             return dict(state='active', revision=0, pending_request_id=None, pending_action=None,
                         request_state=None, ready_at=None, error=None, updated_at=None)
         d = dict(row)
+        d.pop('bridge_hold', None)
+        d.pop('stopped_meta', None)
         d['pending_action'] = d.pop('request_action', None)
         d['request_state'] = d.pop('request_state', None)
         d['ready_at'] = d.pop('request_ready_at', None)
@@ -543,8 +557,8 @@ class Board:
             c.execute('''INSERT INTO lifecycle_requests(request_id,home_id,task_id,action,base_revision,state,
                 received_at,ready_at,device) VALUES(?,?,?,?,?,'queued',?,?,?)''',
                 (request_id,hid,tid,action,revision,now,time.time()+15,device))
-            c.execute('''INSERT INTO task_lifecycle(home_id,task_id,state,revision,pending_request_id,error,updated_at,title,project)
-                VALUES(?,?,?,1,?,NULL,?,?,?) ON CONFLICT(home_id,task_id) DO UPDATE SET
+            c.execute('''INSERT INTO task_lifecycle(home_id,task_id,state,revision,pending_request_id,error,updated_at,title,project,bridge_hold,stopped_meta)
+                VALUES(?,?,?,1,?,NULL,?,?,?,0,NULL) ON CONFLICT(home_id,task_id) DO UPDATE SET
                 revision=task_lifecycle.revision+1,pending_request_id=excluded.pending_request_id,
                 error=NULL,updated_at=excluded.updated_at,title=excluded.title,project=excluded.project''',
                 (hid,tid,state,request_id,now,title,project))
@@ -825,6 +839,7 @@ class Board:
 
     def ingest_home(self, hid, reconcile=False):
         started = time.monotonic()
+        pass_started = stamp()
         home = self.homes[hid]
         try:
             fresh = self.manifest(home)
@@ -869,6 +884,8 @@ class Board:
             except (OSError, Invalid, ValueError, KeyError) as e:
                 error = str(e)
         with self.write() as (c, changed):
+            if not error:
+                self.reconcile_lifecycle(c, changed, hid, backlog, pass_started)
             for tid, row, decisions in updates:
                 if row is None:
                     continue
@@ -963,6 +980,32 @@ class Board:
                 for repo, tag in self.repo_tags.items():
                     c.execute('INSERT OR REPLACE INTO projects VALUES(?,?,?,?)', (tag, hid, repo, ''))
         return error
+
+    def reconcile_lifecycle(self, c, changed, hid, backlog, pass_started):
+        """tasks-axi owns the backlog: a Bridge hold or discard with no request in
+        flight follows what the backlog now says about its task. A row written
+        after this pass listed the backlog waits for the next pass."""
+        rows = c.execute('''SELECT * FROM task_lifecycle WHERE home_id=? AND pending_request_id IS NULL
+            AND state IN ('held','discarded') AND updated_at<?''', (hid, pass_started)).fetchall()
+        for l in rows:
+            tid = l['task_id']
+            b = backlog.get(tid)
+            gone = not b or b['state'] == 'done'
+            open_holds = any(t.rpartition('-decision-')[0] == tid and x['state'] != 'done' for t, x in backlog.items())
+            if l['state'] == 'held' and gone:
+                c.execute('DELETE FROM task_lifecycle WHERE home_id=? AND task_id=?', (hid, tid))
+            elif l['state'] == 'held' and b['hold_kind'] in ('', '-'):
+                c.execute('''UPDATE task_lifecycle SET state='active',bridge_hold=0,stopped_meta=NULL,error=NULL,
+                    revision=revision+1,updated_at=? WHERE home_id=? AND task_id=?''', (stamp(), hid, tid))
+            elif l['state'] == 'discarded' and not gone and not l['error']:
+                c.execute('''UPDATE task_lifecycle SET state='active',revision=revision+1,updated_at=?
+                    WHERE home_id=? AND task_id=?''', (stamp(), hid, tid))
+            elif l['state'] == 'discarded' and gone and l['error'] and not open_holds:
+                c.execute('''UPDATE task_lifecycle SET error=NULL,revision=revision+1,updated_at=?
+                    WHERE home_id=? AND task_id=?''', (stamp(), hid, tid))
+            else:
+                continue
+            changed[0] = True
 
     def ingest(self, only=None, reconcile=False):
         if not self.ingest_lock.acquire(blocking=False):

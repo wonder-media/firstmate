@@ -70,6 +70,40 @@ def handle(source, sequence, result):
         return 0
 
 
+def task_hold(home, task):
+    show = m.run(['tasks-axi','show',task,'--full'],home)
+    fields = {}
+    for name in ('held','hold_kind','hold_reason'):
+        match = re.search(rf'^  {name}: (.*)$', show, re.M)
+        raw = match.group(1) if match else ''
+        try:
+            value = json.loads(raw)
+        except json.JSONDecodeError:
+            value = raw
+        fields[name] = value if isinstance(value, str) else raw
+    return fields
+
+
+def bridge_hold_active(hold):
+    return hold['held'] == 'yes' and hold['hold_kind'] == 'parked' and hold['hold_reason'] == m.BRIDGE_HOLD_REASON
+
+
+def worker_record(b, home, task):
+    meta = home / f'state/{task}.meta'
+    if not meta.is_file() or b.read_meta(home, task).get('kind') == 'secondmate':
+        return None
+    return hashlib.sha256(meta.read_bytes()).hexdigest()
+
+
+def discard_decision(request):
+    return ('Discarded from Bridge by the captain.\n'
+            f'Bridge lifecycle request: {request["request_id"]}\n'
+            f'Home: {request["home_id"]}\nTask: {request["task_id"]}\n'
+            f'Received: {request["received_at"]}\nDevice: {request["device"] or "-"}\n'
+            'Outcome: the task is closed without performing its proposed action; '
+            'source, history, and evidence are preserved.\n')
+
+
 def route_lifecycle(b):
     """Apply ready task actions through the owning home's durable control surfaces."""
     completed = 0
@@ -102,26 +136,52 @@ def route_lifecycle(b):
             target_home = b.homes[request['home_id']]
             task = request['task_id']
             action = request['action']
+            def record(state=None, **columns):
+                with b.write() as (c, changed):
+                    columns['updated_at'] = m.stamp()
+                    if state:
+                        columns['state'] = state
+                    c.execute(f'UPDATE task_lifecycle SET {",".join(k+"=?" for k in columns)} WHERE home_id=? AND task_id=?',
+                              (*columns.values(),request['home_id'],task))
+                    changed[0] = True
             if action == 'hold':
-                m.run(['tasks-axi','hold',task,'--reason','Held in Bridge Archive','--kind','parked','--json'],target_home)
+                hold = task_hold(target_home, task)
+                own = bridge_hold_active(hold)
+                if hold['held'] != 'yes':
+                    m.run(['tasks-axi','hold',task,'--reason',m.BRIDGE_HOLD_REASON,'--kind','parked','--json'],target_home)
+                    own = True
                 actual_state = 'held'
+                record('held', bridge_hold=int(own))
+                if worker_record(b, target_home, task):
+                    m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60)
+                    record(stopped_meta=worker_record(b, target_home, task))
             elif action == 'discard':
-                m.run(['tasks-axi','done',task,'--note','Discarded from Bridge; source, history, and evidence preserved.','--no-prune','--json'],target_home)
                 actual_state = 'discarded'
-                with b.connect() as c:
-                    hold_tasks = [r['task_id'] for r in c.execute("SELECT DISTINCT task_id FROM decisions WHERE home_id=? AND source='hold' AND origin_id=?", (request['home_id'],task))]
-                for hold_task in hold_tasks:
-                    if hold_task != task:
-                        m.run(['tasks-axi','done',hold_task,'--note','Underlying task discarded from Bridge.','--no-prune','--json'],target_home)
+                record('discarded')
+                backlog = b.backlog_rows(target_home)
+                holds = [tid for tid, row in backlog.items() if row['state'] != 'done' and row['hold_kind'] == 'captain'
+                         and tid.rpartition('-decision-')[1] and (tid == task or tid.rpartition('-decision-')[0] == task)]
+                if holds:
+                    decision_file = b.state / 'board-inbox/lifecycle' / f'{rid}.decision'
+                    m.atomic(decision_file, discard_decision(request).encode())
+                    for hold_id in holds:
+                        origin, _, key = hold_id.rpartition('-decision-')
+                        m.run([m.ROOT/'bin/fm-decision-hold.sh','decline',origin,key,'--decision-file',decision_file],target_home,60)
+                if task not in holds:
+                    m.run(['tasks-axi','done',task,'--note','Discarded from Bridge; source, history, and evidence preserved.','--no-prune','--json'],target_home)
+                if worker_record(b, target_home, task):
+                    m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60)
             elif action == 'resume':
-                m.run(['tasks-axi','unhold',task,'--json'],target_home)
+                if lifecycle['stopped_meta']:
+                    if worker_record(b, target_home, task) == lifecycle['stopped_meta']:
+                        m.run([m.ROOT/'bin/fm-control.sh',task,'relaunch','--note',
+                               f'Resumed from Bridge Archive by the captain (request {rid}); continue from the recorded checkpoint.'],target_home,300)
+                    record(stopped_meta=None)
+                if lifecycle['bridge_hold']:
+                    if bridge_hold_active(task_hold(target_home, task)):
+                        m.run(['tasks-axi','unhold',task,'--json'],target_home)
+                    record(bridge_hold=0)
                 actual_state = 'active'
-            with b.write() as (c, changed):
-                c.execute('UPDATE task_lifecycle SET state=?,updated_at=? WHERE home_id=? AND task_id=?',
-                          (actual_state,m.stamp(),request['home_id'],task))
-                changed[0] = True
-            if action in ('hold','discard') and (target_home/f'state/{task}.meta').is_file():
-                m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60)
             with b.write() as (c, changed):
                 now = m.stamp()
                 c.execute("UPDATE lifecycle_requests SET state='completed',completed_at=?,error=NULL WHERE request_id=?", (now,rid))
