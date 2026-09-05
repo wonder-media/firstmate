@@ -92,7 +92,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored
   board.sqlite       captain dashboard database; bin/fm-board.py
-  board-inbox/       captain dashboard exception transport; bin/fm-board.py
+  board-inbox/       captain dashboard exception transport and Bridge lifecycle decision files; bin/fm-board.py
   backups/           retained captain dashboard database backups; bin/fm-board.py
   logs/              captain dashboard daemon logs; bin/fm-board.py
   <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth

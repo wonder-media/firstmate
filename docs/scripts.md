@@ -68,7 +68,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-procevent-remote-reply.sh` | Relay the remote-secondmate status stream through non-destructive process-event deltas |
 | `fm-procevent-when.sh`   | Fire a trust-bound deterministic action at most once when its registered condition holds, then wake with the outcome |
 | `fm-procevent-board-answers.sh` | Capture a Bridge exception burst through the process-event seam and acknowledge it only once every listed answer is consumed |
-| `fm-board.sh`            | Drive Bridge: serve, ingest, register decisions and live claims, queue task Hold/Discard/Resume actions, mark answers, refresh, arm answers, and back up |
+| `fm-board.sh`            | Drive Bridge: serve the daemon that takes card answers and task Hold/Discard/Resume requests, ingest, register decisions and live claims, mark answers, refresh, arm answers, and back up |
 | `fm-gate-refuse-lib.sh`  | Shared no-mistakes gate-context refusal for fleet lifecycle entrypoints               |
 | `fm-watch-arm.sh`        | Verified home-scoped watcher arm wrapper with loud cycle endings and bounded lifecycle ledger |
 | `fm-watch-checkpoint.sh` | Run one bounded foreground watcher checkpoint for Codex-style supervision            |
