@@ -87,7 +87,10 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-transition-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-transition-lib.sh"
 
-FM_BACKEND_HERDR_MIN_PROTOCOL=14
+# Compatibility floors and version pins are shared with the explicit
+# maintenance inventory.
+# shellcheck source=bin/fm-tool-versions-lib.sh
+. "$FM_BACKEND_HERDR_ROOT/bin/fm-tool-versions-lib.sh"
 # events.subscribe (the native pane.agent_status_changed push stream) and its
 # subscription_event schema first shipped at protocol 16 (verified: herdr
 # 0.7.3). Below this, or with the events surface absent from `herdr api schema`,

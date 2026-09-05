@@ -92,6 +92,7 @@ init_changed_fixture_repo() {
   local repo=$1 script
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  cp "$ROOT/bin/fm-test-env-lib.sh" "$repo/bin/fm-test-env-lib.sh"
   chmod +x "$repo/bin/fm-test-run.sh"
   for script in \
     fm-brief.test.sh \
@@ -248,6 +249,87 @@ assert "family" in doc["scripts"][0]
 ' "$json" || { rm -rf "$tmp"; fail "JSON timing artifact missing required fields"; }
   rm -rf "$tmp"
   pass "timing markers and JSON artifact are valid"
+}
+
+test_inherited_fm_environment_is_sanitized() {
+  local tmp fixture runner_capture direct_capture
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-env.XXXXXX")
+  fixture="$tmp/environment.test.sh"
+  runner_capture="$tmp/runner.capture"
+  direct_capture="$tmp/direct.capture"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_TEST_SOURCE_LIB:-0}" = 1 ]; then
+  # shellcheck source=/dev/null
+  . "$FM_TEST_LIB_PATH"
+fi
+
+[ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] || exit 21
+[ "${FM_TEST_RETAINED:-}" = retained ] || exit 22
+effective_state=${FM_STATE_OVERRIDE:-$FM_HOME/state}
+effective_data=${FM_DATA_OVERRIDE:-$FM_HOME/data}
+effective_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+effective_projects=${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}
+case "$HOME:$FM_HOME:$effective_state:$effective_data:$effective_config:$effective_projects" in
+  "$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 23 ;;
+esac
+[ "$effective_state" = "$FM_HOME/state" ] || exit 24
+[ "$effective_data/secondmates.md" = "$FM_HOME/data/secondmates.md" ] || exit 25
+[ -z "${FM_ROOT_OVERRIDE+x}" ] || exit 26
+[ -z "${FM_BACKEND+x}" ] || exit 27
+[ -z "${FM_UNRECOGNIZED_OVERRIDE+x}" ] || exit 28
+[ -z "${FM_STATE_OVERRIDE+x}${FM_DATA_OVERRIDE+x}${FM_CONFIG_OVERRIDE+x}${FM_PROJECTS_OVERRIDE+x}" ] || exit 30
+
+# Mutation happens only after the synthetic effective paths pass the assertions.
+touch "$effective_state/asserted-before-mutation"
+
+# A test remains free to install its own fixture overrides after isolation.
+fixture_home="$FM_TEST_ENV_ROOT/test-owned-home"
+mkdir -p "$fixture_home/state" "$fixture_home/data" "$fixture_home/config" "$fixture_home/projects"
+export FM_HOME="$fixture_home"
+export FM_STATE_OVERRIDE="$fixture_home/state"
+export FM_DATA_OVERRIDE="$fixture_home/data"
+export FM_CONFIG_OVERRIDE="$fixture_home/config"
+export FM_PROJECTS_OVERRIDE="$fixture_home/projects"
+[ "$FM_STATE_OVERRIDE" = "$fixture_home/state" ] || exit 29
+printf '%s\n' "$FM_TEST_ENV_ROOT" >"$FM_TEST_CAPTURE"
+printf 'ok - inherited production FM environment sanitized\n'
+SH
+  chmod +x "$fixture"
+
+  HOME=/Users/patrick \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_DATA_OVERRIDE=/Users/patrick/firstmate/data \
+    FM_CONFIG_OVERRIDE=/Users/patrick/firstmate/config \
+    FM_PROJECTS_OVERRIDE=/Users/patrick/firstmate/projects \
+    FM_BACKEND=herdr \
+    FM_UNRECOGNIZED_OVERRIDE=/Users/patrick/Secondmates \
+    FM_TEST_RETAINED=retained FM_TEST_CAPTURE="$runner_capture" \
+    "$RUNNER" "$fixture" >"$tmp/runner.out" 2>"$tmp/runner.err" \
+    || { rm -rf "$tmp"; fail "runner did not sanitize inherited FM environment"; }
+  [ -s "$runner_capture" ] || { rm -rf "$tmp"; fail "runner isolation probe did not complete"; }
+
+  HOME=/Users/patrick \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_DATA_OVERRIDE=/Users/patrick/firstmate/data \
+    FM_CONFIG_OVERRIDE=/Users/patrick/firstmate/config \
+    FM_PROJECTS_OVERRIDE=/Users/patrick/firstmate/projects \
+    FM_BACKEND=herdr \
+    FM_UNRECOGNIZED_OVERRIDE=/Users/patrick/Secondmates \
+    FM_TEST_SOURCE_LIB=1 FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+    FM_TEST_RETAINED=retained FM_TEST_CAPTURE="$direct_capture" \
+    bash "$fixture" >"$tmp/direct.out" 2>"$tmp/direct.err" \
+    || { rm -rf "$tmp"; fail "shared test helper did not sanitize direct invocation"; }
+  [ -s "$direct_capture" ] || { rm -rf "$tmp"; fail "direct isolation probe did not complete"; }
+
+  rm -rf "$tmp"
+  pass "runner and shared helper sanitize inherited FM values before synthetic mutation"
 }
 
 test_aggregate_exit_behavior() {
@@ -507,6 +589,7 @@ test_jobs_parallel_scheduler_and_failure_propagation() {
   d=tests/fm-supervision-instructions.test.sh
   mkdir -p "$repo/bin" "$repo/tests" "$evidence" "$fake_bin"
   cp "$RUNNER" "$runner"
+  cp "$ROOT/bin/fm-test-env-lib.sh" "$repo/bin/fm-test-env-lib.sh"
   cat >"$fake_bin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "-c" ] && [ "$2" = "%a" ]; then
@@ -710,6 +793,7 @@ test_changed_file_selection_is_conservative
 test_changed_dependency_selection_and_unmapped_failure
 test_empty_selection_emits_summary
 test_timing_markers_and_json
+test_inherited_fm_environment_is_sanitized
 test_aggregate_exit_behavior
 test_gate_skip_accounting
 test_fail_on_gate_skip_token

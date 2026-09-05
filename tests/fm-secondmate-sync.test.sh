@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Tests for the local-HEAD secondmate sync: every secondmate home tracks the
 # PRIMARY firstmate checkout's current default-branch commit by a purely LOCAL
-# fast-forward (no origin fetch). Two hook points drive it - bin/fm-spawn.sh
+# fast-forward. A standalone clone may acquire a missing object from that local
+# checkout, but the path never consults origin. Two hook points drive it - bin/fm-spawn.sh
 # (before launching a secondmate) and bin/fm-bootstrap.sh (a startup sweep of
 # every live secondmate home) - and both share the ff machinery in
 # bin/fm-ff-lib.sh.
@@ -11,7 +12,8 @@
 #     home (updated), is a no-op on an already-current home (current, no nudge),
 #     and refuses - leaving work untouched - on a dirty, diverged, or
 #     in-flight (feature-branch) home.
-#   - No origin fetch happens in the local-HEAD sync path.
+#   - Linked worktrees perform no fetch, while standalone clones acquire a
+#     missing commit only from the validated primary checkout through a hard bound.
 #   - The bootstrap sweep fast-forwards every live secondmate home and sends a
 #     reread nudge ONLY for a running secondmate whose instruction surface
 #     actually changed; a successful send is reported as BOOTSTRAP_INFO:, a
@@ -68,6 +70,21 @@ new_world() {
 add_sm_worktree() {
   local w=$1 id=$2 commit=$3
   git -C "$w/main" worktree add -q --detach "$w/$id" "$commit"
+  printf '%s\n' "$id" > "$w/$id/.fm-secondmate-home"
+  {
+    printf 'window=firstmate:fm-%s\n' "$id"
+    printf 'kind=secondmate\n'
+    printf 'harness=codex\n'
+    printf 'home=%s/%s\n' "$w" "$id"
+  } > "$w/home/state/$id.meta"
+}
+
+# add_sm_standalone <w> <id>: a secondmate home as an independent clone whose
+# object store does not receive later primary-only commits, plus live metadata.
+add_sm_standalone() {
+  local w=$1 id=$2
+  git clone -q --no-local "$w/main" "$w/$id"
+  git -C "$w/$id" checkout -q --detach
   printf '%s\n' "$id" > "$w/$id/.fm-secondmate-home"
   {
     printf 'window=firstmate:fm-%s\n' "$id"
@@ -233,10 +250,9 @@ test_ff_inflight_feature_branch() {
   pass "T5 in-flight: a home on a feature branch is skipped, its work preserved"
 }
 
-# --- T6: no origin fetch happens in the local-HEAD sync path -----------------
-# A bare `git fetch` would need the network; the sync must never reach for it.
+# --- T6: a linked worktree never needs local object acquisition --------------
 # Shadow git with a wrapper that records any `fetch` invocation, then drive the
-# updated path and confirm the wrapper saw none.
+# updated linked-worktree path and confirm the shared object store avoided it.
 test_no_fetch_in_local_path() {
   local w c1 base fakebin log real_git
   w=$(new_world ff-nofetch)
@@ -262,7 +278,115 @@ SH
 
   [ "$FF_STATUS" = updated ] || fail "FF_STATUS: expected updated, got '$FF_STATUS'"
   [ ! -f "$log" ] || fail "git fetch was invoked in the local-HEAD sync path: $(cat "$log")"
-  pass "T6 no fetch: the local-HEAD sync never invokes git fetch"
+  pass "T6 linked worktree: a shared object store never invokes git fetch"
+}
+
+# --- T6b: a standalone clone acquires a missing primary commit locally --------
+test_standalone_missing_object_converges() {
+  local w base out
+  w=$(new_world standalone-converges)
+  add_sm_standalone "$w" sm-standalone
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+  git -C "$w/sm-standalone" cat-file -e "$base^{commit}" 2>/dev/null \
+    && fail "precondition: standalone clone already had the primary target"
+
+  FM_ROOT="$w/main" FM_HOME="$w/home"
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+
+  assert_contains "$out" "secondmate sm-standalone: updated " \
+    "standalone clone reports its local fast-forward"
+  [ "$(head_of "$w/sm-standalone")" = "$base" ] \
+    || fail "standalone clone did not converge to the primary target"
+  git -C "$w/sm-standalone" symbolic-ref -q HEAD >/dev/null \
+    && fail "standalone secondmate is no longer detached"
+  pass "T6b standalone clone: a missing commit is acquired from the local primary and fast-forwarded"
+}
+
+# --- T6c: dirty standalone homes refuse before acquiring any object -----------
+test_standalone_dirty_refuses_before_fetch() {
+  local w base before fakebin log real_git out
+  w=$(new_world standalone-dirty)
+  add_sm_standalone "$w" sm-dirty-standalone
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+  printf 'local edit\n' >> "$w/sm-dirty-standalone/AGENTS.md"
+  before=$(head_of "$w/sm-dirty-standalone")
+  fakebin="$w/fakebin"
+  log="$w/fetch.log"
+  real_git=$(command -v git)
+  mkdir -p "$fakebin"
+  cat > "$fakebin/git" <<SH
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = fetch ]; then printf 'FETCH\n' >> '$log'; fi
+done
+exec '$real_git' "\$@"
+SH
+  chmod +x "$fakebin/git"
+
+  FM_ROOT="$w/main" FM_HOME="$w/home"
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(PATH="$fakebin:$BASE_PATH" sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+
+  assert_contains "$out" "secondmate sm-dirty-standalone: skipped: dirty working tree" \
+    "dirty standalone clone is refused"
+  [ ! -f "$log" ] || fail "dirty standalone clone acquired objects before refusal"
+  [ "$(head_of "$w/sm-dirty-standalone")" = "$before" ] || fail "dirty standalone HEAD moved"
+  git -C "$w/sm-dirty-standalone" cat-file -e "$base^{commit}" 2>/dev/null \
+    && fail "dirty standalone clone acquired the missing target"
+  pass "T6c standalone guard: dirty work refuses before local object acquisition"
+}
+
+# --- T6d: standalone divergence remains a refusal after bounded acquisition ---
+test_standalone_divergence_refuses_fast_forward() {
+  local w base before out
+  w=$(new_world standalone-diverged)
+  add_sm_standalone "$w" sm-diverged-standalone
+  printf 'fork\n' > "$w/sm-diverged-standalone/README.md"
+  git -C "$w/sm-diverged-standalone" add README.md
+  git -C "$w/sm-diverged-standalone" commit -qm local-fork
+  before=$(head_of "$w/sm-diverged-standalone")
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+
+  FM_ROOT="$w/main" FM_HOME="$w/home"
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+
+  assert_contains "$out" "secondmate sm-diverged-standalone: skipped: diverged from $base" \
+    "diverged standalone clone is refused"
+  [ "$(head_of "$w/sm-diverged-standalone")" = "$before" ] \
+    || fail "diverged standalone HEAD moved"
+  git -C "$w/sm-diverged-standalone" cat-file -e "$base^{commit}" 2>/dev/null \
+    || fail "divergence check did not receive the bounded local object"
+  pass "T6d standalone guard: divergence still refuses the fast-forward"
+}
+
+# --- T6e: home identity is validated before standalone object acquisition -----
+test_standalone_identity_refuses_before_fetch() {
+  local w base out
+  w=$(new_world standalone-identity)
+  add_sm_standalone "$w" sm-wrong
+  printf 'someone-else\n' > "$w/sm-wrong/.fm-secondmate-home"
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+
+  FM_ROOT="$w/main" FM_HOME="$w/home"
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+
+  assert_contains "$out" \
+    "secondmate sm-wrong: skipped: unsafe home: marked for secondmate someone-else, expected sm-wrong" \
+    "wrong standalone identity is refused"
+  git -C "$w/sm-wrong" cat-file -e "$base^{commit}" 2>/dev/null \
+    && fail "identity-refused standalone clone acquired the missing target"
+  pass "T6e standalone guard: identity refusal happens before object acquisition"
 }
 
 # --- T7: sweep advances a readme-only home but does NOT nudge it -------------
@@ -742,6 +866,38 @@ SH
   pass "T10 spawn fast-forwards a secondmate worktree to the primary's local HEAD before launch"
 }
 
+# --- T10b: spawn converges a standalone clone missing the primary object -------
+test_spawn_standalone_acquires_before_launch() {
+  local w base fakebin
+  w=$(new_world spawn-standalone)
+  add_sm_standalone "$w" sm
+  mkdir -p "$w/sm/data"
+  printf 'charter\n' > "$w/sm/data/charter.md"
+  bump_primary "$w" instr
+  base=$(head_of "$w/main")
+  git -C "$w/sm" cat-file -e "$base^{commit}" 2>/dev/null \
+    && fail "precondition: standalone spawn home already has primary target"
+
+  fakebin="$w/fakebin"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+
+  PATH="$fakebin:$BASE_PATH" TMUX='' \
+    FM_ROOT_OVERRIDE="$w/main" FM_HOME="$w/home" \
+    FM_STATE_OVERRIDE="$w/home/state" FM_DATA_OVERRIDE="$w/home/data" \
+    FM_PROJECTS_OVERRIDE="$w/home/projects" FM_CONFIG_OVERRIDE="$w/home/config" \
+    FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" sm "$w/sm" codex --secondmate >/dev/null 2>&1 || true
+
+  [ "$(head_of "$w/sm")" = "$base" ] \
+    || fail "spawn did not acquire and fast-forward the standalone secondmate home"
+  pass "T10b spawn acquires a standalone home's missing commit from the local primary"
+}
+
 # --- T11: spawn warns when pre-launch sync is skipped ------------------------
 test_spawn_warns_when_sync_skipped_before_launch() {
   local w c1 before fakebin err
@@ -805,8 +961,8 @@ test_seed_marker_clean_when_gitignored() {
 # The convergence chicken-and-egg: existing homes predate the fix, so their marker
 # is still untracked-and-unignored, and the fix itself only arrives by fast-forward.
 # The marker-tolerant ff-skip (ignore_seed_marker=yes) bridges the gap for
-# linked-worktree homes, which bootstrap/spawn fast-forward from the primary's local HEAD.
-# Standalone-clone homes converge through /updatefirstmate's origin fetch instead.
+# linked-worktree and standalone-clone homes, which bootstrap/spawn fast-forward
+# from the primary's local HEAD without consulting origin.
 # Once advanced, the now-ignored marker reads clean with no hand intervention.
 test_seed_marker_converges_existing_home() {
   local w c0 base
@@ -857,6 +1013,10 @@ test_ff_dirty
 test_ff_diverged
 test_ff_inflight_feature_branch
 test_no_fetch_in_local_path
+test_standalone_missing_object_converges
+test_standalone_dirty_refuses_before_fetch
+test_standalone_divergence_refuses_fast_forward
+test_standalone_identity_refuses_before_fetch
 test_sweep_nudge_requires_instruction_change
 test_bootstrap_sweep_nudges_only_instruction_change
 test_bootstrap_nudge_send_uses_state_override
@@ -867,6 +1027,7 @@ test_bootstrap_nudge_retry_refuses_changed_home
 test_nudge_retry_uses_fresh_herdr_endpoint_after_respawn
 test_bootstrap_sweep_surfaces_skipped_home
 test_spawn_fast_forwards_before_launch
+test_spawn_standalone_acquires_before_launch
 test_spawn_warns_when_sync_skipped_before_launch
 test_seed_marker_clean_when_gitignored
 test_seed_marker_converges_existing_home

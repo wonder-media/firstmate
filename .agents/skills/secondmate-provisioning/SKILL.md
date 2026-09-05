@@ -100,7 +100,9 @@ This is secondmate-only: crewmate/scout model resolution is untouched by this fi
 This section is the single owner of the secondmate sync and inherited-local-material propagation contract; `AGENTS.md` sections 3 and 4 point here.
 Before a local launch, `fm-spawn.sh --secondmate` locally fast-forwards the home to the primary firstmate checkout's current default-branch commit when it is safe; dirty, diverged, or in-flight homes launch unchanged with a warning.
 The locked session-start deferred network stage runs the same bootstrap sweep for every live local secondmate home, discovered from `state/<id>.meta` records with `kind=secondmate` (`data/secondmates.md` only backfills `home=` for older records).
-That no-fetch path is a purely local fast-forward of tracked files, never an origin fetch, and it never touches the gitignored operational dirs, so a secondmate's backlog, projects, and in-flight work are never disturbed; a linked worktree advances immediately, while a standalone clone that lacks the target receives firstmate updates through `/updatefirstmate`'s origin refresh.
+That path never consults origin and never touches the gitignored operational dirs, so a secondmate's backlog, projects, and in-flight work are never disturbed.
+A linked worktree already shares the target object; after home identity, branch, and dirtiness checks pass, a standalone clone that lacks it may acquire only the primary checkout's exact local default-branch tip through the hard-bounded local fetch owned by `bin/fm-ff-lib.sh`, then faces the same ancestry and ff-only guards before HEAD can move.
+A failed or timed-out acquisition, a mismatched primary target, or a dirty, diverged, in-flight, or invalid home is left unchanged and reported.
 A remote launch and the deferred bootstrap sweep ask the configured host to fast-forward its persistent home to that host's code-root commit under the same clean and ancestry guards.
 `/updatefirstmate` first updates the remote code root from its own origin, then runs that guarded home sync.
 SSH exit 255 preserves the route and reports unknown completion; it never triggers local respawn or failover.
