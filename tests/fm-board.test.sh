@@ -22,6 +22,12 @@ for path in (code/'bin').iterdir():
 for name in ('fm-board.py','fm-board.sh','fm-procevent-board-answers.sh'):
     shutil.copy2(code/'bin'/name,fixture/'bin'/name)
 shutil.copytree(code/'bin/board',fixture/'bin/board',ignore=shutil.ignore_patterns('__pycache__'))
+shutil.move(fixture/'bin/board/board-answers-handle.sh',fixture/'bin/board/board-answers-handle-real.sh')
+(fixture/'bin/board/board-answers-handle.sh').write_text('#!/bin/bash\nprintf \'%s\\n\' "$*" >> "$FM_BOARD_TEST_ROOT/handler-runs.log"\nexec "$(dirname "$0")/board-answers-handle-real.sh" "$@"\n')
+(fixture/'bin/board/board-answers-handle.sh').chmod(0o755)
+def handler_runs():
+    p=root/'handler-runs.log'
+    return len(p.read_text().splitlines()) if p.exists() else 0
 page_path=fixture/'bin/board/dashboard.html'
 page=page_path.read_text().replace('<script>',"<script>window.__bridgeTest=new URLSearchParams(location.search).has('browser-test')</script><script>",1)
 page=page.replace('refresh(true);connect();flush();','refresh(true);if(!window.__bridgeTest)connect();flush();')
@@ -638,6 +644,7 @@ try:
         if hold:r[5],r[6]=hold
         set_backlog(full,note)
     gates=[['gate-decision-scope','queued','captain','wonderok','Scope approval','captain','Pick the scope','no','none'],
+           ['orphan-decision-pick','queued','captain','wonderok','Pick a size','captain','Pick the size','no','none'],
            ['vendor','in_flight','ship','wonderok','Vendor window','external','Waiting for the vendor','no','none']]
     meta(home,'vendor','working: fixture');set_backlog(json.loads((home/'rows.json').read_text())+gates,'fixture backlog with gates')
     gate=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']=='gate-decision-scope'),None))
@@ -667,6 +674,28 @@ try:
     assert backlog_row('gate-decision-scope')[1]=='done' and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['done','gate-decision-scope']]
     assert {r['state'] for r in sql("select state from decisions where task_id='gate-decision-scope'")}=={'closed'}
     assert not any(d['task_id']=='gate-decision-scope' for d in request()[1]['decisions']) and not any(t['task_id']=='gate-decision-scope' for t in request()[1]['archive'])
+    # A held hold-card whose origin has no task row keeps its ready answer
+    # unrouted without spinning the routing handler, then routes it after Resume.
+    orphan=next(d for d in request()[1]['decisions'] if d['task_id']=='orphan-decision-pick')
+    assert orphan['lifecycle_task_id']=='orphan-decision-pick',orphan
+    orphan_answer=request('/answer',answer('orphan-decision-pick',key='pick',choice='custom',note='Pick the small one',revision=orphan['revision']))[1]['answers'][0]['answer_id']
+    orphan_hold='cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd'
+    assert request('/lifecycle',lifecycle('Main','orphan-decision-pick',orphan['lifecycle']['revision'],'hold',orphan_hold))[0]==200
+    lifecycle_done(orphan_hold)
+    accelerate([orphan_answer]);time.sleep(0.6);runs=handler_runs()
+    gated=subprocess.run([str(handler),'route','--config',str(config)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert gated.returncode==0 and json.loads(gated.stdout)['routed']==0 and json.loads(gated.stdout)['exceptions']==[],(gated.stdout,gated.stderr)
+    time.sleep(2.5)
+    assert handler_runs()==runs+1,(runs,handler_runs())
+    assert sql('select routing_at,consumed_at,cancelled_at from answers where answer_id=?',(orphan_answer,))==[{'routing_at':None,'consumed_at':None,'cancelled_at':None}]
+    assert not [d for d in delivered('answers') if d[1]=='orphan']
+    orphan_archive=next(t for t in request()[1]['archive'] if t['task_id']=='orphan-decision-pick')
+    orphan_resume='cdcdcdcd-cdcd-4dcd-8dcd-dededededede'
+    assert request('/lifecycle',lifecycle('Main','orphan-decision-pick',orphan_archive['lifecycle']['revision'],'resume',orphan_resume))[0]==200
+    lifecycle_done(orphan_resume)
+    wait(lambda:sql('select consumed_at from answers where answer_id=?',(orphan_answer,))[0]['consumed_at'])
+    assert [d for d in delivered('answers') if d[1]=='orphan']==[['answers','orphan','--source',f'board:{orphan_answer}']]
+    assert 'pick\tPick the small one\tCaptain dashboard' in (home/'hold-input').read_text().splitlines()
     vendor=next(t for t in request()[1]['tasks'] if t['task_id']=='vendor')
     vendor_hold='cccccccc-cccc-4ccc-8ccc-cccccccccccc'
     assert request('/lifecycle',lifecycle('Main','vendor',vendor['lifecycle']['revision'],'hold',vendor_hold))[0]==200
@@ -815,7 +844,7 @@ try:
     assert sql("select state from decisions where task_id='origin-decision-budget' order by revision desc")[0]['state']=='queued'
     accelerate([hid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(hid,))[0]['consumed_at'])
-    assert (home/'hold-input').read_text().startswith('budget\tUse the small budget\t')
+    assert any(line.startswith('budget\tUse the small budget\t') for line in (home/'hold-input').read_text().splitlines())
     ingested_after(last_ok)
     consumed_hold=sql("select * from decisions where task_id='origin-decision-budget' order by revision desc")[0]
     assert consumed_hold['state']=='consumed' and consumed_hold['revision']==held['revision'],consumed_hold
@@ -940,8 +969,9 @@ for bad in (0,86401,'120',12.5):
     cursor=home/'state/board-inbox/answers.cursor'
     # A broken cursor is a source failure: no captured result, no wake, only an
     # honest /healthz reason until the cursor is repaired; then the source re-arms.
-    good=cursor.read_text();results=len(list((home/'state/procevent-inbox').glob('*.result')))
     start()
+    wait(lambda:json.loads(cursor.read_text())['offset']==log.stat().st_size,30)
+    good=cursor.read_text();results=len(list((home/'state/procevent-inbox').glob('*.result')))
     req=urllib.request.Request(f'http://localhost:{port}/events',headers={'Authorization':'Bearer '+secret})
     source_stream=urllib.request.urlopen(req,timeout=15)
     initial=b''

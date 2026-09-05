@@ -240,13 +240,14 @@ def route(config):
     with m.file_lock(b.state / 'board-inbox/route.lock'):
         lifecycle_completed, lifecycle_exceptions = route_lifecycle(b)
         with b.connect() as c:
-            rows = c.execute('''SELECT * FROM answers a WHERE consumed_at IS NULL AND error IS NULL
+            rows = c.execute(f'''SELECT * FROM answers a WHERE consumed_at IS NULL AND error IS NULL
                 AND cancelled_at IS NULL AND ready_at<=? AND NOT EXISTS
                 (SELECT 1 FROM decisions d JOIN task_lifecycle l ON l.home_id=d.home_id
-                AND l.task_id=CASE WHEN d.source='hold' AND d.origin_id!='' THEN d.origin_id ELSE d.task_id END
+                AND l.task_id={m.LIFECYCLE_TARGET_SQL}
                 WHERE d.home_id=a.home_id AND d.task_id=a.task_id AND d.decision_key=a.decision_key
                 AND d.revision=a.revision AND (l.state!='active' OR l.pending_request_id IS NOT NULL))
                 ORDER BY received_at LIMIT 50''', (m.time.time(),)).fetchall()
+        routed = 0
         for a in rows:
             aid = a['answer_id']
             try:
@@ -294,11 +295,12 @@ def route(config):
                     changed[0] = True
                 m.run(argv,target_home,10,stdin)
                 m.run([m.ROOT/'bin/fm-board.sh','answered',aid,'--config',b.config_path],b.home)
+                routed += 1
             except (OSError,ValueError,KeyError) as e:
                 b.failed(aid,str(e)[:500])
                 exceptions.append({'answer_id':aid,'error':str(e)[:500]})
         b.export()
-    print(json.dumps({'routed':len(rows)-len(exceptions),'exceptions':exceptions,
+    print(json.dumps({'routed':routed,'exceptions':exceptions,
                       'lifecycle_completed':lifecycle_completed,'lifecycle_exceptions':lifecycle_exceptions}))
     return 0
 

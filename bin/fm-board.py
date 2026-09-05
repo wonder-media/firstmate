@@ -182,6 +182,9 @@ DELIVERY_FAILURE_ERRORS = ('fm-send.sh:', 'fm-decision-hold.sh:', 'fm-crew-state
 DEFAULT_CONSEQUENCE = 'Your choice decides what happens next for this task.'
 LIFECYCLE_ACTIONS = ('hold', 'discard', 'resume')
 BRIDGE_HOLD_REASON = 'Held in Bridge Archive'
+LIFECYCLE_TARGET_SQL = '''CASE WHEN d.source='hold' AND d.origin_id!='' AND EXISTS (SELECT 1 FROM tasks t
+    WHERE t.home_id=d.home_id AND t.task_id=d.origin_id UNION SELECT 1 FROM task_lifecycle x
+    WHERE x.home_id=d.home_id AND x.task_id=d.origin_id) THEN d.origin_id ELSE d.task_id END'''
 
 
 class Invalid(ValueError):
@@ -506,13 +509,8 @@ class Board:
         return d
 
     def decision_lifecycle_task(self, c, decision):
-        if decision['source'] != 'hold' or not decision['origin_id']:
-            return decision['task_id']
-        origin = decision['origin_id']
-        known = c.execute('''SELECT 1 FROM tasks WHERE home_id=? AND task_id=?
-            UNION SELECT 1 FROM task_lifecycle WHERE home_id=? AND task_id=? LIMIT 1''',
-            (decision['home_id'],origin,decision['home_id'],origin)).fetchone()
-        return origin if known else decision['task_id']
+        return c.execute(f'SELECT {LIFECYCLE_TARGET_SQL} FROM (SELECT ? AS home_id,? AS task_id,? AS source,? AS origin_id) d',
+            (decision['home_id'],decision['task_id'],decision['source'],decision['origin_id'] or '')).fetchone()[0]
 
     def lifecycle_for(self, c, hid, task):
         return c.execute('''SELECT l.*,
@@ -1371,11 +1369,10 @@ class Board:
                 with self.connect() as c:
                     pending = c.execute('''SELECT 1 FROM lifecycle_requests
                         WHERE state='queued' AND cancelled_at IS NULL AND ready_at<=? LIMIT 1''', (time.time(),)).fetchone()
-                    pending = pending or c.execute('''SELECT 1 FROM answers a WHERE consumed_at IS NULL
+                    pending = pending or c.execute(f'''SELECT 1 FROM answers a WHERE consumed_at IS NULL
                         AND a.error IS NULL AND a.cancelled_at IS NULL AND a.ready_at<=?
                         AND NOT EXISTS (SELECT 1 FROM decisions d JOIN task_lifecycle l
-                            ON l.home_id=d.home_id AND l.task_id=CASE
-                                WHEN d.source='hold' AND d.origin_id!='' THEN d.origin_id ELSE d.task_id END
+                            ON l.home_id=d.home_id AND l.task_id={LIFECYCLE_TARGET_SQL}
                             WHERE d.home_id=a.home_id AND d.task_id=a.task_id
                             AND d.decision_key=a.decision_key AND d.revision=a.revision
                             AND (l.state!='active' OR l.pending_request_id IS NOT NULL)) LIMIT 1''', (time.time(),)).fetchone()
