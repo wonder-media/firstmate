@@ -549,9 +549,6 @@ class Board:
         leaf = repo.rstrip('/').rsplit('/', 1)[-1]
         return self.repo_leaf_tags.get(leaf)
 
-    def project(self, repo):
-        return self.mapped_project(repo) or 'FM'
-
     @staticmethod
     def reproject_latest(c, changed, hid, task, project):
         c.execute('''UPDATE decisions SET project=? WHERE home_id=? AND task_id=? AND project!=?
@@ -564,7 +561,10 @@ class Board:
     def resolve_project(self, c, hid, task, origin, backlog, home, present):
         repos = [backlog.get(task, {}).get('repo'), backlog.get(origin, {}).get('repo')]
         if origin in present:
-            repos.append(self.read_meta(home, origin).get('project', ''))
+            try:
+                repos.append(self.read_meta(home, origin).get('project', ''))
+            except OSError:
+                pass
         for candidate in repos:
             project = self.mapped_project(candidate)
             if project:
@@ -673,10 +673,9 @@ class Board:
             key, verb, summary = line.split('\t', 2)
             decisions.append((key, summary))
         b = backlog.get(task, {})
-        repo = b.get('repo') or meta.get('project', '')
         return dict(home_id=hid, task_id=task, title=b.get('title') or task, kind=meta.get('kind', 'task'),
                     current_state=current, worker=' '.join(filter(None, [meta.get('harness'), meta.get('model')])),
-                    pr_url=meta.get('pr', ''), project=self.project(repo), last_status=last, meta_present=1), decisions
+                    pr_url=meta.get('pr', ''), project='', last_status=last, meta_present=1), decisions
 
     def update_task(self, c, changed, row):
         old = c.execute('SELECT * FROM tasks WHERE home_id=? AND task_id=?', (row['home_id'], row['task_id'])).fetchone()
@@ -795,7 +794,7 @@ class Board:
                         continue
                     duplicate = self.latest(c, hid, origin, key) if sep else None
                     if duplicate and duplicate['registered'] and duplicate['state'] == 'open' \
-                            and (not prior or not prior['registered'] or prior['state'] == 'closed'):
+                            and (not prior or prior['options'] == '[]' or prior['state'] == 'closed'):
                         self.upsert_decision(c, changed, hid, tid, key, duplicate['question'],
                             duplicate['description'], json.loads(duplicate['options']), duplicate['recommendation'],
                             duplicate['why'], 'hold', hold_project, origin, True)

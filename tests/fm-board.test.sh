@@ -281,12 +281,14 @@ try:
           ['qualified-leaf','in_flight','ship','qualified-only','Qualified alias leaf','-','-','no','none'],
           ['ambiguous-exact','in_flight','ship','org-a/shared','Exact shared alias','-','-','no','none'],
           ['ambiguous-unlisted','in_flight','ship','org-c/shared','Ambiguous shared leaf','-','-','no','none'],
-          ['ambiguous-unlisted-decision-pick','queued','captain','','Pick a vendor','captain','Pick the vendor for the shared work.','no','none']]
+          ['ambiguous-unlisted-decision-pick','queued','captain','','Pick a vendor','captain','Pick the vendor for the shared work.','no','none'],
+          ['stale-origin','in_flight','ship','wonderok','Stale origin work','-','-','no','none'],
+          ['stale-origin-decision-merge','queued','captain','','Merge now?','captain','Choose whether to merge now.','no','none']]
     (home/'rows.json').write_text(json.dumps(rows))
     (home/'full-rows.json').write_text(json.dumps({'long-decision':{'title':long_title,'body':long_body,'hold_reason':'Choose where the database will live.'}}))
     command('ingest','--once');before=rev()
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
-    assert len(sql("select * from decisions where source='hold'"))==4
+    assert len(sql("select * from decisions where source='hold'"))==5
     assert sql("select * from decisions where task_id='alpha'")[0]['decision_key']=='choose'
     shows=[call[1] for call in calls(home,'tasks-axi') if call[1][:1]==['show']]
     assert shows==[['show','long-decision','--full']],shows
@@ -308,6 +310,19 @@ try:
     inherited=sql("select * from decisions where task_id='inherit-origin-decision-scope'")[0]
     assert inherited['project']=='WOK' and inherited['origin_id']=='inherit-origin',inherited
     assert projects['inherit-origin-decision-scope']=='WOK',projects
+    legacy_hold=sql("select * from decisions where task_id='stale-origin-decision-merge'")[0]
+    assert legacy_hold['state']=='open' and legacy_hold['options']=='[]',legacy_hold
+    mutate('''insert into decisions(home_id,task_id,decision_key,revision,question,description,options,recommendation,why,
+        source,state,asked_at,closed_at,project,origin_id,registered) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        ('Main','stale-origin','merge',1,'Merge now?','This decides whether the branch lands today.',
+         json.dumps([{'value':'A','label':'Merge now'},{'value':'B','label':'Wait for review'}]),'B','Review lowers the risk.',
+         'firstmate','open',legacy_asked,None,'WOK','',1))
+    command('ingest','--once')
+    merged=sql("select * from decisions where task_id='stale-origin-decision-merge' order by revision desc")
+    assert merged[0]['state']=='open' and merged[0]['registered']==1 and merged[0]['recommendation']=='B' and merged[0]['origin_id']=='stale-origin',merged[0]
+    assert merged[0]['revision']==2 and merged[1]['state']=='closed' and merged[1]['revision']==1,merged
+    assert sql("select state from decisions where task_id='stale-origin'")==[{'state':'closed'}]
+    before=rev();command('ingest','--once');assert rev()==before
     assert {e['project'] for e in sql("select project from events where task_id='inherit-origin-decision-scope'")}=={'WOK'}
     assert projects['ambiguous-unlisted-decision-pick']=='FM' and sql("select project from decisions where task_id='ambiguous-unlisted-decision-pick'")[0]['project']=='FM'
     picked=json.loads(command('decision','Main','ambiguous-unlisted','pick','--project','WOK','--title','Pick a vendor',
@@ -389,15 +404,26 @@ try:
     assert factual_row['recommendation']=='' and factual_row['why']=='Verify the current schedule before choosing.',factual_row
     passed('decision CLI creates 2-3 options, description, and recommendation idempotently')
     # Single flight across CLI processes, preserving last-good state on timeout.
+    # A hold whose origin meta vanishes after the manifest snapshot must not abort the home.
+    meta(home,'vanish',repo='');rows.append(['vanish-decision-keep','queued','captain','','Keep the branch?','captain','Choose whether to keep it.','no','none'])
+    (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog with vanishing origin')
+    command('ingest','--once')
+    assert sql("select project from decisions where task_id='vanish-decision-keep'")==[{'project':'FM'}]
     (home/'delay').write_text('12');(home/'state/alpha.status').touch()
     fixture_boundary()
     slow=subprocess.Popen([str(cli),'ingest','--once','--home','Main'],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    time.sleep(.5);n=len(calls(home,'fm-crew-state.sh'))
+    time.sleep(.5);n=len(calls(home,'fm-crew-state.sh'));(home/'state/vanish.meta').unlink()
     command('ingest','--once','--home','Main');assert len(calls(home,'fm-crew-state.sh'))==n
     _,err=slow.communicate(timeout=20);assert slow.returncode!=0 and b'timeout' in err
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
     assert 'timeout' in sql("select last_error from ingest_runs where home_id='Main'")[0]['last_error']
-    (home/'delay').unlink();command('ingest','--once');passed('single-flight and bounded subprocess failure keep last-good rows')
+    assert sql("select state from decisions where task_id='vanish-decision-keep'")==[{'state':'open'}]
+    (home/'delay').unlink();rows.pop()
+    (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog without vanishing origin')
+    command('ingest','--once')
+    assert sql("select state from decisions where task_id='vanish-decision-keep'")==[{'state':'closed'}]
+    assert sql("select deleted_at from tasks where task_id='vanish'")[0]['deleted_at']
+    passed('single-flight and bounded subprocess failure keep last-good rows; a vanished origin meta is tolerated')
     start();assert calls(home,'fm-fleet-snapshot.sh')
     status,health,_=request('/healthz');assert status==200 and health['answers_armed']
     assert set(('ok','ingest_age_s','last_snapshot_ms','sse_clients','db_ok','outbox_backlog','answers_armed','answers_error'))<=health.keys()
