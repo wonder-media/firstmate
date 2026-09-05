@@ -56,7 +56,7 @@
 # answer did not reach its target.
 #
 # CLI decision <home> <task> <key> --project TAG --title ELI5 --option 'A: ...'
-# (2..4, each 'L: wording' with a distinct one-character label L)
+# (2..3, each 'L: wording' with a distinct one-character label L)
 # [--description|--consequence TEXT] [--rec VALUE] --why TEXT registers 2..3
 # options. --rec must match an option and is shown inline as Recommended with
 # its reason, never preselected. For factual inputs whose value is not yet
