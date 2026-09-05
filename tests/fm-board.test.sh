@@ -169,6 +169,7 @@ elif name in ('fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
  if name=='fm-control.sh':
   if sys.argv[2]=='relaunch':
    with (h/f'state/{sys.argv[1]}.meta').open('a') as f:f.write('control_relaunch_tx=fixture\\n')
+  elif sys.argv[2]=='exit':print('already-stopped' if (h/'already-stopped').exists() else 'stopped',end='')
  elif name=='fm-decision-hold.sh' and sys.argv[1]=='decline':
   origin,key=sys.argv[2:4];decision=pathlib.Path(sys.argv[sys.argv.index('--decision-file')+1]).read_text()
   rows=json.loads((h/'rows.json').read_text());r=next(row for row in rows if row[0]==f'{origin}-decision-{key}')
@@ -647,8 +648,11 @@ try:
            ['known','in_flight','ship','wonderok','Known worker','-','-','no','none'],
            ['known-decision-go','queued','captain','wonderok','Go decision','captain','Go or wait','no','none'],
            ['orphan-decision-pick','queued','captain','wonderok','Pick a size','captain','Pick the size','no','none'],
-           ['vendor','in_flight','ship','wonderok','Vendor window','external','Waiting for the vendor','no','none']]
-    meta(home,'vendor','working: fixture');meta(home,'known','working: fixture');set_backlog(json.loads((home/'rows.json').read_text())+gates,'fixture backlog with gates')
+           ['vendor','in_flight','ship','wonderok','Vendor window','external','Waiting for the vendor','no','none'],
+           ['crashed','in_flight','ship','wonderok','Crashed worker','-','-','no','none'],
+           ['runaway','in_flight','ship','wonderok','Runaway worker','-','-','no','none']]
+    for worker in ('vendor','known','crashed','runaway'):meta(home,worker,'working: fixture')
+    set_backlog(json.loads((home/'rows.json').read_text())+gates,'fixture backlog with gates')
     gate=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']=='gate-decision-scope'),None))
     assert gate['lifecycle_task_id']=='gate-decision-scope' and gate['question']=='Scope approval' and gate['description']=='Pick the scope',gate
     gate_hold='99999999-9999-4999-8999-999999999999'
@@ -752,6 +756,56 @@ try:
     assert not any(t['task_id']=='vendor' for t in request()[1]['archive']+request()[1]['tasks'])
     assert len([c for c in calls(home,'fm-control.sh') if c[1]==['vendor','exit']])==3
     passed('Hold and Resume preserve pre-existing holds, a changed worker record blocks Resume, and a failed Discard stop stays visible until a retry succeeds')
+    # A worker fm-control reports already-stopped was not stopped by Bridge:
+    # Hold records no stop provenance, Resume never relaunches it and stays
+    # held for its owner until the stale record is gone.
+    (home/'already-stopped').write_text('1')
+    crashed=next(t for t in request()[1]['tasks'] if t['task_id']=='crashed')
+    crashed_hold='16161616-1616-4161-8161-161616161616'
+    assert request('/lifecycle',lifecycle('Main','crashed',crashed['lifecycle']['revision'],'hold',crashed_hold))[0]==200
+    lifecycle_done(crashed_hold)
+    (home/'already-stopped').unlink()
+    assert sql("select state,bridge_hold,stopped_meta,error from task_lifecycle where task_id='crashed'")==[{'state':'held','bridge_hold':1,'stopped_meta':None,'error':None}]
+    assert len([c for c in calls(home,'fm-control.sh') if c[1]==['crashed','exit']])==1 and backlog_row('crashed')[5]=='parked'
+    crashed_archive=next(t for t in request()[1]['archive'] if t['task_id']=='crashed')
+    crashed_resume='16161616-1616-4161-8161-171717171717'
+    assert request('/lifecycle',lifecycle('Main','crashed',crashed_archive['lifecycle']['revision'],'resume',crashed_resume))[0]==200
+    lifecycle_done(crashed_resume,'failed')
+    crashed_archive=next(t for t in request()[1]['archive'] if t['task_id']=='crashed')
+    assert crashed_archive['lifecycle']['state']=='held' and 'was not stopped by Bridge' in crashed_archive['lifecycle']['error'],crashed_archive
+    assert not [c for c in calls(home,'fm-control.sh') if c[1][:2]==['crashed','relaunch']] and backlog_row('crashed')[5]=='parked'
+    assert not any(t['task_id']=='crashed' for t in request()[1]['tasks'])
+    (home/'state/crashed.meta').unlink();(home/'state/crashed.status').unlink()
+    crashed_retry='16161616-1616-4161-8161-181818181818'
+    assert request('/lifecycle',lifecycle('Main','crashed',crashed_archive['lifecycle']['revision'],'resume',crashed_retry))[0]==200
+    lifecycle_done(crashed_retry)
+    assert not [c for c in calls(home,'fm-control.sh') if c[1][:2]==['crashed','relaunch']] and backlog_row('crashed')[5]=='-'
+    assert sql("select state,bridge_hold,stopped_meta,error from task_lifecycle where task_id='crashed'")==[{'state':'active','bridge_hold':0,'stopped_meta':None,'error':None}]
+    # A failed Hold whose worker was never stopped keeps its error and Archive
+    # card after that worker finishes the task elsewhere; ingest never clears it.
+    (home/'fail-control').write_text('1')
+    runaway=next(t for t in request()[1]['tasks'] if t['task_id']=='runaway')
+    runaway_hold='19191919-1919-4191-8191-191919191919'
+    assert request('/lifecycle',lifecycle('Main','runaway',runaway['lifecycle']['revision'],'hold',runaway_hold))[0]==200
+    lifecycle_done(runaway_hold,'failed')
+    (home/'fail-control').unlink()
+    runaway_archive=next(t for t in request()[1]['archive'] if t['task_id']=='runaway')
+    assert runaway_archive['lifecycle']['state']=='held' and 'fm-control.sh' in runaway_archive['lifecycle']['error'] and backlog_row('runaway')[5]=='parked',runaway_archive
+    external('runaway','fixture backlog finished runaway',state='done',hold=('-','-'))
+    time.sleep(6)
+    still=next(t for t in request()[1]['archive'] if t['task_id']=='runaway')
+    assert still['lifecycle']==runaway_archive['lifecycle'],(still,runaway_archive)
+    assert not any(t['task_id']=='runaway' for t in request()[1]['tasks'])
+    stale_retry=request('/lifecycle',lifecycle('Main','runaway',still['lifecycle']['revision'],'hold','19191919-1919-4191-8191-202020202020'))
+    assert stale_retry[0]==409 and 'already complete' in stale_retry[1]['error'],stale_retry
+    assert 'fm-control.sh' in next(t for t in request()[1]['archive'] if t['task_id']=='runaway')['lifecycle']['error']
+    (home/'state/runaway.meta').unlink();(home/'state/runaway.status').unlink()
+    runaway_resume='19191919-1919-4191-8191-212121212121'
+    assert request('/lifecycle',lifecycle('Main','runaway',still['lifecycle']['revision'],'resume',runaway_resume))[0]==200
+    lifecycle_done(runaway_resume)
+    assert not any(t['task_id']=='runaway' for t in request()[1]['archive']+request()[1]['tasks'])
+    assert not [c for c in calls(home,'fm-control.sh') if c[1][:2]==['runaway','relaunch']] and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['unhold','runaway']]
+    passed('an already-stopped worker is never relaunched by Resume, and a failed Hold keeps its error after the task finishes elsewhere')
     # tasks-axi stays authoritative: external reopen, release, and completion
     # reconcile the Archive on ingest, and a failed relaunch never claims active.
     assert backlog_row('lifecycle')[1]=='done' and sql("select state from task_lifecycle where task_id='lifecycle'")==[{'state':'discarded'}]

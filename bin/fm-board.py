@@ -53,20 +53,23 @@
 # external, or dated hold, expired or not, is kept untouched and
 # task_lifecycle.bridge_hold records which case applied. Hold then uses
 # fm-control exit when a non-secondmate worker record exists and keeps the
-# stopped record's digest in stopped_meta; it never calls teardown. Held work
-# remains in Archive until resume, which releases only Bridge's own parked hold
-# and relaunches only the exact worker Bridge stopped (record digest unchanged).
-# When that record changed or vanished, resume completes only if the backend's
-# recovery-grade classifier (fm_backend_agent_state) reports the current agent
-# alive; otherwise, and on any relaunch failure, the work stays held with the
-# error for its owner. Discard declines each open captain hold of the task
-# through fm-decision-hold.sh with a decision file under
+# stopped record's digest in stopped_meta only when fm-control reports
+# `stopped` (an `already-stopped` agent was not stopped by Bridge); it never
+# calls teardown. Held work remains in Archive until resume, which releases
+# only Bridge's own parked hold and relaunches only the exact worker Bridge
+# stopped (record digest unchanged). When a worker record exists that Bridge
+# did not stop, or the stopped record changed, resume completes only if the
+# backend's recovery-grade classifier (fm_backend_agent_state) reports the
+# current agent alive; otherwise, and on any relaunch failure, the work stays
+# held with the error for its owner. Discard declines each open captain hold
+# of the task through fm-decision-hold.sh with a decision file under
 # state/board-inbox/lifecycle/<request_id>.decision, then marks the task done.
-# Ingest reconciles held and discarded rows without a pending request against
-# the tasks-axi backlog: a finished task drops its held row, an externally
-# released or reopened task returns to active; a failed step's error is never
-# cleared by ingest, only by a retried request that completes. Queueing or
-# undoing that retry leaves the prior error in place.
+# Ingest reconciles held and discarded rows without a pending request or error
+# against the tasks-axi backlog: a finished task drops its held row, an
+# externally released or reopened task returns to active; a row carrying a
+# failed step's error is left untouched by ingest and only a retried request
+# that completes clears it. Queueing or undoing that retry leaves the prior
+# error in place.
 # Legacy choice values: custom (note required; the note IS the answer text sent
 # to the worker or hold, never 'custom (note: ...)'), request-options. A card
 # without registered options lists custom first, then request-options; neither
@@ -1007,7 +1010,7 @@ class Board:
         flight follows what the backlog now says about its task. A row written
         after this pass listed the backlog waits for the next pass."""
         rows = c.execute('''SELECT * FROM task_lifecycle WHERE home_id=? AND pending_request_id IS NULL
-            AND state IN ('held','discarded') AND updated_at<?''', (hid, pass_started)).fetchall()
+            AND error IS NULL AND state IN ('held','discarded') AND updated_at<?''', (hid, pass_started)).fetchall()
         for l in rows:
             tid = l['task_id']
             b = backlog.get(tid)
@@ -1017,7 +1020,7 @@ class Board:
             elif l['state'] == 'held' and b['hold_kind'] in ('', '-'):
                 c.execute('''UPDATE task_lifecycle SET state='active',bridge_hold=0,stopped_meta=NULL,error=NULL,
                     revision=revision+1,updated_at=? WHERE home_id=? AND task_id=?''', (stamp(), hid, tid))
-            elif l['state'] == 'discarded' and not gone and not l['error']:
+            elif l['state'] == 'discarded' and not gone:
                 c.execute('''UPDATE task_lifecycle SET state='active',revision=revision+1,updated_at=?
                     WHERE home_id=? AND task_id=?''', (stamp(), hid, tid))
             else:

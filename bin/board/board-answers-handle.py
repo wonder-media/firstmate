@@ -168,8 +168,8 @@ def route_lifecycle(b):
                 actual_state = 'held'
                 record('held', bridge_hold=int(own))
                 if worker_record(b, target_home, task):
-                    m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60)
-                    record(stopped_meta=worker_record(b, target_home, task))
+                    if m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60).strip() == 'stopped':
+                        record(stopped_meta=worker_record(b, target_home, task))
             elif action == 'discard':
                 actual_state = 'discarded'
                 record('discarded')
@@ -187,17 +187,19 @@ def route_lifecycle(b):
                 if worker_record(b, target_home, task):
                     m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60)
             elif action == 'resume':
-                if lifecycle['stopped_meta']:
-                    current = worker_record(b, target_home, task)
-                    if current == lifecycle['stopped_meta']:
-                        m.run([m.ROOT/'bin/fm-control.sh',task,'relaunch','--note',
-                               f'Resumed from Bridge Archive by the captain (request {rid}); continue from the recorded checkpoint.'],target_home,300)
-                    elif current is None:
-                        raise m.Invalid(f'worker record for {task} is gone since Bridge stopped it; ask its owner to confirm the worker before resuming')
-                    else:
-                        state = agent_state(target_home, task)
-                        if state != 'alive':
-                            raise m.Invalid(f'worker record for {task} changed since Bridge stopped it and its agent state is {state}; ask its owner to confirm the worker before resuming')
+                current = worker_record(b, target_home, task)
+                stopped = lifecycle['stopped_meta']
+                if stopped and current == stopped:
+                    m.run([m.ROOT/'bin/fm-control.sh',task,'relaunch','--note',
+                           f'Resumed from Bridge Archive by the captain (request {rid}); continue from the recorded checkpoint.'],target_home,300)
+                elif stopped and current is None:
+                    raise m.Invalid(f'worker record for {task} is gone since Bridge stopped it; ask its owner to confirm the worker before resuming')
+                elif current is not None:
+                    state = agent_state(target_home, task)
+                    if state != 'alive':
+                        why = 'changed since Bridge stopped it' if stopped else 'was not stopped by Bridge'
+                        raise m.Invalid(f'worker record for {task} {why} and its agent state is {state}; ask its owner to confirm the worker before resuming')
+                if stopped:
                     record(stopped_meta=None)
                 if lifecycle['bridge_hold']:
                     if bridge_hold_active(task_hold(target_home, task)):
