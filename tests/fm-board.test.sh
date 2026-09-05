@@ -35,7 +35,8 @@ if(window.__bridgeTest){
   const delivery=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='delivery-fail');
   const factual=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='factual-rate');
   const failed=[...document.querySelectorAll('#task-cards .card')].find(n=>n.data?.task_id==='external');
-  if(!node||!review||!delivery||!factual||!failed){if(++attempts>30){clearInterval(begin);finish({error:'cards did not render',missing:{node:!node,review:!review,delivery:!delivery,factual:!factual,failed:!failed}})}return}
+  const archived=[...document.querySelectorAll('#archive-cards .card')].find(n=>n.data?.task_id==='owned');
+  if(!node||!review||!delivery||!factual||!failed||!archived){if(++attempts>30){clearInterval(begin);finish({error:'cards did not render',missing:{node:!node,review:!review,delivery:!delivery,factual:!factual,failed:!failed,archived:!archived}})}return}
   clearInterval(begin);
   const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=draftKey(node.data);
   const preselected=[...radios].some(r=>r.checked);
@@ -78,7 +79,10 @@ if(window.__bridgeTest){
     registeredOptions:[...node.querySelectorAll('.option')].map(o=>o.textContent),
     legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),legacyNotice:review.querySelector('.options-needed')?.textContent,
     factualPreselected:[...factual.querySelectorAll('input[type=radio]')].some(r=>r.checked),factualGuidance:factual.querySelector('.recommend')?.textContent,
-    reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent});
+    reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent,
+    decisionLifecycle:[...node.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
+    taskLifecycle:[...failed.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
+    archiveLifecycle:[...archived.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),archiveTitle:document.querySelector('#archive-title').textContent});
   },100);
  },100);
 }
@@ -129,6 +133,7 @@ with (h/'calls.jsonl').open('a') as f:f.write(json.dumps([name,sys.argv[1:]])+'\
 if (h/'delay').exists():time.sleep(float((h/'delay').read_text()))
 if (h/'fail').exists():sys.exit(1)
 if name=='fm-send.sh' and (h/'fail-send').exists():sys.exit(1)
+if name=='fm-control.sh' and (h/'fail-control').exists():sys.exit(1)
 if name=='tasks-axi':
  rows=json.loads((h/'rows.json').read_text())
  if sys.argv[1]=='show':
@@ -136,6 +141,12 @@ if name=='tasks-axi':
   print('task:')
   for field,index in (('title',4),('hold_reason',6),('body',9)):
    print(f'  {field}: {json.dumps(full.get(field,(r+[""]*10)[index]))}')
+ elif sys.argv[1] in ('hold','unhold','done'):
+  command,tid=sys.argv[1:3];r=next(row for row in rows if row[0]==tid)
+  if command=='hold':r[5]='parked';r[6]=sys.argv[sys.argv.index('--reason')+1]
+  elif command=='unhold':r[5]=r[6]='-'
+  else:r[1]='done';r[5]=r[6]='-'
+  (h/'rows.json').write_text(json.dumps(rows));print(json.dumps({'id':tid,'state':r[1]}))
  else:
   assert 'body' not in sys.argv[sys.argv.index('--fields')+1].split(','),sys.argv
   state=sys.argv[sys.argv.index('--state')+1];print('tasks[0]{id,state,kind,repo,title,hold_kind,hold_reason,blocked,blocked_by}:')
@@ -145,12 +156,15 @@ if name=='tasks-axi':
     line=io.StringIO();csv.writer(line,lineterminator='').writerow(r[:9]);print('  '+line.getvalue())
 elif name=='fm-crew-state.sh':print('state: parked · source: pane · fixture')
 elif name=='fm-fleet-snapshot.sh':print(json.dumps({'tasks':[]}))
-elif name in ('fm-send.sh','fm-decision-hold.sh'):
- if name=='fm-decision-hold.sh':
+elif name in ('fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
+ if name=='fm-control.sh':pass
+ elif name=='fm-decision-hold.sh':
   with (h/'hold-input').open('a') as f:f.write(sys.stdin.read())
- with (h/'deliveries.jsonl').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\\n')
+  with (h/'deliveries.jsonl').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\\n')
+ else:
+  with (h/'deliveries.jsonl').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\\n')
 '''.replace('PYTHON',sys.executable)
-for name in ('tasks-axi','fm-crew-state.sh','fm-fleet-snapshot.sh','fm-send.sh','fm-decision-hold.sh'):
+for name in ('tasks-axi','fm-crew-state.sh','fm-fleet-snapshot.sh','fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
     dest=(fakebin if name=='tasks-axi' else fixture/'bin')/name
     if dest.is_symlink():dest.unlink()
     dest.write_text(script);dest.chmod(0o755)
@@ -162,8 +176,7 @@ for key in ('FM_HOME','FM_BOARD_CONFIG','FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','
     env.pop(key,None)
 env.update(FM_HOME=str(home),FM_BOARD_CONFIG=str(config),FM_BOARD_PYTHON=sys.executable,
            FM_PROCEVENT_CLAIM_ROOT=str(root/'claims'),PATH=str(fakebin)+os.pathsep+os.environ['PATH'])
-for key in ('FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'):
-    env[key]=str(sentinel/{'FM_STATE_OVERRIDE':'state','FM_DATA_OVERRIDE':'data','FM_PROJECTS_OVERRIDE':'projects'}[key])
+poisoned_env=dict(env,FM_STATE_OVERRIDE=str(sentinel/'state'),FM_DATA_OVERRIDE=str(sentinel/'data'),FM_PROJECTS_OVERRIDE=str(sentinel/'projects'))
 cli=fixture/'bin/fm-board.sh';daemon=None;out=(root/'daemon.log').open('wb')
 def fixture_boundary(candidate_env=env,candidate_config=config):
     def descendant(path,label):
@@ -173,6 +186,7 @@ def fixture_boundary(candidate_env=env,candidate_config=config):
         assert relative.parts, f'{label} must be a strict fixture-root descendant'
         return resolved
     fixture_home=descendant(candidate_env['FM_HOME'],'FM_HOME')
+    assert all(k not in candidate_env for k in ('FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'))
     fixture_config=descendant(candidate_config,'config')
     fixture_db=descendant(fixture_home/'state/board.sqlite','database')
     assert fixture_config==pathlib.Path(candidate_env['FM_BOARD_CONFIG']).resolve()
@@ -238,8 +252,11 @@ def decision(tid,key='choose',project='WOK'):
         '--description','This decides whether the change ships now or waits for another check.',
         '--option','A: Ship it','--option','B: Wait','--rec','A','--why','Small reversible change').stdout)
 def answer(tid,key='choose',choice='A',note='a note',revision=1):return dict(home='Main',task=tid,key=key,revision=revision,choice=choice,note=note)
+def lifecycle(hid,tid,revision,action,rid):return dict(home=hid,task=tid,revision=revision,action=action,request_id=rid,device='fixture')
 def accelerate(ids):
     for aid in ids:mutate('update answers set ready_at=0 where answer_id=?',(aid,))
+def accelerate_lifecycle(ids):
+    for rid in ids:mutate('update lifecycle_requests set ready_at=0 where request_id=?',(rid,))
 def calls(h,name):
     p=h/'calls.jsonl'
     return [r for r in map(json.loads,p.read_text().splitlines()) if r[0]==name] if p.exists() else []
@@ -264,7 +281,7 @@ try:
     for sub in ('serve','ingest','decision','live','answered','refresh','arm-answers','backup'):
         command(sub,'--help');command(sub,'--invalid',ok=False)
     command('--help');command('decision','Main','../bad','key',ok=False)
-    refused=subprocess.run([str(pe),'sweep-home'],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    refused=subprocess.run([str(pe),'sweep-home'],env=poisoned_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     assert refused.returncode and b'fixture containment refused' in refused.stderr
     assert sentinel_state()==sentinel_before
     handler=fixture/'bin/board/board-answers-handle.sh'
@@ -275,12 +292,14 @@ try:
     assert guarded.returncode!=0 and b'3.14' in guarded.stderr,guarded
     passed('every subcommand validates arguments and supports --help')
     meta(home,'alpha','needs-decision [key=choose]: Which release?')
+    meta(home,'lifecycle','needs-decision [key=one]: Choose the first path\nneeds-decision [key=two]: Choose the second path')
     meta(second,'beta')
     long_title=('DECIDE D2: Wonderok Postgres to Vultr Managed (EWR) - $36 Startup NVMe recommendation '
                 'with enough additional context to exceed one hundred and sixty characters while remaining understandable')
     marker=f'\\n... (truncated, {len(long_title)} chars total - use show long-decision --full to see complete text)'
     long_body='This is the complete plain-English body for the long decision. '+('More context. '*20)
     rows=[['alpha','in_flight','ship','wonder-media/wonderok','Release alpha','-','-','no','none'],
+          ['lifecycle','in_flight','ship','wonder-media/wonderok','Lifecycle fixture','-','-','no','none'],
           ['origin-decision-budget','queued','captain','example/ces','Budget approval','captain','Set the budget','no','none'],
           ['long-decision','queued','captain','wonderok',long_title[:78]+marker,'captain','Choose where the database will live.','no','none'],
           ['blocked-decision-no','queued','captain','ces','Blocked hold','captain','Wait','yes','missing'],
@@ -301,7 +320,7 @@ try:
     assert sql("select * from decisions where task_id='alpha'")[0]['decision_key']=='choose'
     shows=[call[1] for call in calls(home,'tasks-axi') if call[1][:1]==['show']]
     assert shows==[['show','long-decision','--full']],shows
-    assert sql('pragma user_version')[0]['user_version']==2 and sql('select version from schema_version')[0]['version']==2
+    assert sql('pragma user_version')[0]['user_version']==3 and sql('select version from schema_version')[0]['version']==3
     assert [col['name'] for col in sql('pragma table_info(decisions)')][-1]=='description'
     assert before>7
     for tid,question,description in (('alpha','Release alpha','Which release?'),('origin-decision-budget','Budget approval','Set the budget'),
@@ -478,6 +497,83 @@ try:
     assert time.monotonic()-started<1.5,'registration did not push promptly'
     assert request('/internal/reload',{},auth=False)[0]==403
     stream.close();passed('changed SSE carries rev, status arrives within ten seconds, registration pushes immediately')
+    # Task lifecycle is queued once per underlying task, even when several
+    # decision cards expose the same Hold and Discard actions.
+    lifecycle_cards=[d for d in request()[1]['decisions'] if d['task_id']=='lifecycle']
+    assert {d['decision_key'] for d in lifecycle_cards}=={'one','two'} and {d['lifecycle_task_id'] for d in lifecycle_cards}=={'lifecycle'}
+    answer_post=request('/answer',answer('lifecycle',key='one',choice='custom',note='Preserve this answer',revision=next(d for d in lifecycle_cards if d['decision_key']=='one')['revision']))
+    assert answer_post[0]==200,answer_post
+    preserved_answer=answer_post[1]['answers'][0]['answer_id']
+    mutate('update answers set ready_at=? where answer_id=?',(time.time()+3600,preserved_answer))
+    hold_one='11111111-1111-4111-8111-111111111111'
+    queued=request('/lifecycle',lifecycle('Main','lifecycle',0,'hold',hold_one));assert queued[0]==200,queued
+    assert queued[1]['lifecycle']['pending_action']=='hold'
+    assert request('/lifecycle',{'action':'undo','request_id':hold_one})[0]==200
+    after_undo=next(d for d in request()[1]['decisions'] if d['task_id']=='lifecycle')['lifecycle']
+    assert after_undo['state']=='active' and after_undo['revision']==2 and not after_undo['pending_request_id'],after_undo
+    hold_two='22222222-2222-4222-8222-222222222222'
+    queued=request('/lifecycle',lifecycle('Main','lifecycle',after_undo['revision'],'hold',hold_two));assert queued[0]==200,queued
+    duplicate=request('/lifecycle',lifecycle('Main','lifecycle',after_undo['revision'],'hold','33333333-3333-4333-8333-333333333333'))
+    assert duplicate[0]==200 and duplicate[1]['request']['request_id']==hold_two,duplicate
+    stale=request('/lifecycle',lifecycle('Main','lifecycle',0,'discard','44444444-4444-4444-8444-444444444444'))
+    assert stale[0]==409,stale
+    pending_cards=[d for d in request()[1]['decisions'] if d['task_id']=='lifecycle']
+    assert len(pending_cards)==2 and {d['lifecycle']['pending_request_id'] for d in pending_cards}=={hold_two}
+    accelerate_lifecycle([hold_two])
+    wait(lambda:sql('select state from lifecycle_requests where request_id=?',(hold_two,))[0]['state']=='completed')
+    held_state=request()[1]
+    assert not any(d['task_id']=='lifecycle' for d in held_state['decisions']) and not any(t['task_id']=='lifecycle' for t in held_state['tasks'])
+    archived=next(t for t in held_state['archive'] if t['task_id']=='lifecycle')
+    assert archived['lifecycle']['state']=='held' and archived['lifecycle']['error'] is None,archived
+    assert sql('select state from decisions where task_id=?',('lifecycle',))==[{'state':'queued'},{'state':'open'}]
+    assert sql('select cancelled_at from answers where answer_id=?',(preserved_answer,))[0]['cancelled_at'] is None
+    assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['hold','lifecycle']])==1
+    assert len([c for c in calls(home,'fm-control.sh') if c[1]==['lifecycle','exit']])==1
+    stop(kill=True);start()
+    archived=next(t for t in request()[1]['archive'] if t['task_id']=='lifecycle')
+    resume='55555555-5555-4555-8555-555555555555'
+    resumed=request('/lifecycle',lifecycle('Main','lifecycle',archived['lifecycle']['revision'],'resume',resume));assert resumed[0]==200,resumed
+    accelerate_lifecycle([resume]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(resume,))[0]['state']=='completed')
+    resumed_state=request()[1]
+    resumed_cards=[d for d in resumed_state['decisions'] if d['task_id']=='lifecycle']
+    assert len(resumed_cards)==2 and next(d for d in resumed_cards if d['decision_key']=='one')['answer']['answer_id']==preserved_answer
+    assert not any(t['task_id']=='lifecycle' for t in resumed_state['archive'])
+    discard='66666666-6666-4666-8666-666666666666'
+    lifecycle_revision=resumed_cards[0]['lifecycle']['revision']
+    discarded=request('/lifecycle',lifecycle('Main','lifecycle',lifecycle_revision,'discard',discard));assert discarded[0]==200,discarded
+    accelerate_lifecycle([discard]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(discard,))[0]['state']=='completed')
+    discarded_state=request()[1]
+    assert not any(d['task_id']=='lifecycle' for d in discarded_state['decisions'])
+    assert not any(t['task_id']=='lifecycle' for t in discarded_state['tasks']+discarded_state['archive'])
+    assert {r['state'] for r in sql('select state from decisions where task_id=?',('lifecycle',))}=={'closed'}
+    assert sql('select cancelled_at from answers where answer_id=?',(preserved_answer,))[0]['cancelled_at']
+    assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['done','lifecycle']])==1
+    assert len([c for c in calls(home,'fm-control.sh') if c[1]==['lifecycle','exit']])==2
+    stop(kill=True);start()
+    assert not any(d['task_id']=='lifecycle' for d in request()[1]['decisions'])
+    passed('Hold/archive/resume and Discard persist across restart, preserve answers until discard, and dedupe stale multi-card actions')
+    # A secondmate-owned task is mutated only in that configured home. A
+    # control-plane failure stays visible in Archive and a retry converges.
+    meta(second,'owned','needs-decision [key=scope]: Choose scope',repo='ces')
+    (second/'rows.json').write_text(json.dumps([['owned','in_flight','ship','ces','Secondmate-owned task','-','-','no','none']]))
+    command('ingest','--once','--home','Second')
+    owned=wait(lambda:next((d for d in request()[1]['decisions'] if d['home_id']=='Second' and d['task_id']=='owned'),None))
+    (second/'fail-control').write_text('1')
+    owner_hold='77777777-7777-4777-8777-777777777777'
+    assert request('/lifecycle',lifecycle('Second','owned',owned['lifecycle']['revision'],'hold',owner_hold))[0]==200
+    accelerate_lifecycle([owner_hold]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(owner_hold,))[0]['state']=='failed')
+    failed_archive=next(t for t in request()[1]['archive'] if t['home_id']=='Second' and t['task_id']=='owned')
+    assert failed_archive['lifecycle']['state']=='held' and 'fm-control.sh' in failed_archive['lifecycle']['error'],failed_archive
+    (second/'fail-control').unlink()
+    retry='88888888-8888-4888-8888-888888888888'
+    assert request('/lifecycle',lifecycle('Second','owned',failed_archive['lifecycle']['revision'],'hold',retry))[0]==200
+    accelerate_lifecycle([retry]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(retry,))[0]['state']=='completed')
+    owner_archive=next(t for t in request()[1]['archive'] if t['home_id']=='Second' and t['task_id']=='owned')
+    assert owner_archive['lifecycle']['error'] is None
+    assert len([c for c in calls(second,'tasks-axi') if c[1][:2]==['hold','owned']])==2
+    assert len([c for c in calls(second,'fm-control.sh') if c[1]==['owned','exit']])==2
+    assert not [c for c in calls(home,'tasks-axi') if c[1][:2] in (['hold','owned'],['done','owned'])]
+    passed('secondmate lifecycle routes to the owning home and exposes control failure until an idempotent retry succeeds')
     # Queue is durable before handler starts; restart does not lose or duplicate.
     code_,posted,_=request('/answer',answer('alpha',revision=row['revision']));assert code_==200,posted
     aid=posted['answers'][0]['answer_id'];assert request('/answer',answer('alpha',revision=row['revision']))[1]['answers'][0]['answer_id']==aid
@@ -732,6 +828,8 @@ for bad in (0,86401,'120',12.5):
         assert observed['factualGuidance']=='Recommended next step · Verify the current schedule before choosing.',observed
         assert observed['reviewState']=='Sent to firstmate to review',observed
         assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
+        assert observed['decisionLifecycle']==['Hold','Discard'] and observed['taskLifecycle']==['Hold','Discard'],observed
+        assert observed['archiveLifecycle']==['Discard','Resume'] and observed['archiveTitle']=='Archive',observed
         assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
         assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
         browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']

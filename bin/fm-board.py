@@ -41,6 +41,12 @@
 # consumed by POST. /answer also accepts {action:"undo",answer_id}; only while
 # queued and before its deadline. {action:"correction",answer_id,note} queues
 # a correction request for a consumed answer without reopening its decision.
+# POST /lifecycle -> {home,task,revision,action,request_id,device?}, where action
+# is hold, discard, or resume. A duplicate request id or same-task/action is
+# idempotent. A queued request may be undone for 15 s with
+# {action:"undo",request_id}. Hold and discard first update the owning home's
+# tasks-axi backlog, then use fm-control exit when a worker record exists; they
+# never call teardown. Held work remains in Archive until resume unholds it.
 # Legacy choice values: custom (note required; the note IS the answer text sent
 # to the worker or hold, never 'custom (note: ...)'), request-options. A card
 # without registered options lists custom first, then request-options; neither
@@ -69,7 +75,7 @@
 # a conflict; a closed registered hold reopens with its registered content when
 # it becomes actionable again, and an answered hold is never superseded.
 #
-# SQLite: WAL, busy_timeout=5000, user_version=2 plus schema_version table.
+# SQLite: WAL, busy_timeout=5000, user_version=3 plus schema_version table.
 # v1 -> v2 adds decisions.description and rewrites registered questions to the
 # ELI5 headline once; a legacy open row is patched in place, not re-revisioned.
 # Every visible committing transaction bumps meta.rev ONCE; bookkeeping-only
@@ -154,6 +160,7 @@ REVIEW_ERRORS = (
 )
 DELIVERY_FAILURE_ERRORS = ('fm-send.sh:', 'fm-decision-hold.sh:', 'fm-crew-state.sh:')
 DEFAULT_CONSEQUENCE = 'Your choice decides what happens next for this task.'
+LIFECYCLE_ACTIONS = ('hold', 'discard', 'resume')
 
 
 class Invalid(ValueError):
@@ -369,7 +376,7 @@ class Board:
     def migrate(self):
         with self.connect() as c:
             version = c.execute('PRAGMA user_version').fetchone()[0]
-            if version > 2:
+            if version > 3:
                 raise Invalid('database schema is newer than this daemon')
             c.execute('PRAGMA journal_mode=WAL')
             c.executescript('''
@@ -405,6 +412,13 @@ class Board:
                     PRIMARY KEY(home_id,path));
                 CREATE TABLE IF NOT EXISTS backlog(home_id TEXT,task_id TEXT,payload TEXT,
                     PRIMARY KEY(home_id,task_id));
+                CREATE TABLE IF NOT EXISTS task_lifecycle(home_id TEXT,task_id TEXT,state TEXT,
+                    revision INTEGER,pending_request_id TEXT,error TEXT,updated_at TEXT,
+                    title TEXT,project TEXT,PRIMARY KEY(home_id,task_id));
+                CREATE TABLE IF NOT EXISTS lifecycle_requests(request_id TEXT PRIMARY KEY,
+                    home_id TEXT,task_id TEXT,action TEXT,base_revision INTEGER,state TEXT,
+                    received_at TEXT,ready_at REAL,routing_at TEXT,completed_at TEXT,
+                    cancelled_at TEXT,error TEXT,device TEXT);
             ''')
             decision_columns = {row['name'] for row in c.execute('PRAGMA table_info(decisions)')}
             if 'description' not in decision_columns:
@@ -416,8 +430,8 @@ class Board:
                     rewritten = True
                 if rewritten:
                     c.execute("UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='rev'")
-            c.execute('UPDATE schema_version SET version=2')
-            c.execute('PRAGMA user_version=2')
+            c.execute('UPDATE schema_version SET version=3')
+            c.execute('PRAGMA user_version=3')
             c.commit()
         os.chmod(self.db, 0o600)
 
@@ -455,6 +469,106 @@ class Board:
         d['options'] = json.loads(d['options'])
         d['description'] = d['description'] or ''
         return d
+
+    @staticmethod
+    def lifecycle_dict(row):
+        if row is None:
+            return dict(state='active', revision=0, pending_request_id=None, pending_action=None,
+                        request_state=None, ready_at=None, error=None, updated_at=None)
+        d = dict(row)
+        d['pending_action'] = d.pop('request_action', None)
+        d['request_state'] = d.pop('request_state', None)
+        d['ready_at'] = d.pop('request_ready_at', None)
+        return d
+
+    def decision_lifecycle_task(self, c, decision):
+        if decision['source'] != 'hold' or not decision['origin_id']:
+            return decision['task_id']
+        origin = decision['origin_id']
+        known = c.execute('''SELECT 1 FROM tasks WHERE home_id=? AND task_id=?
+            UNION SELECT 1 FROM task_lifecycle WHERE home_id=? AND task_id=? LIMIT 1''',
+            (decision['home_id'],origin,decision['home_id'],origin)).fetchone()
+        return origin if known else decision['task_id']
+
+    def lifecycle_for(self, c, hid, task):
+        return c.execute('''SELECT l.*,
+            r.action AS request_action,r.state AS request_state,r.ready_at AS request_ready_at
+            FROM task_lifecycle l LEFT JOIN lifecycle_requests r
+            ON r.request_id=l.pending_request_id WHERE l.home_id=? AND l.task_id=?''',
+            (hid, task)).fetchone()
+
+    def lifecycle_action(self, record):
+        if not isinstance(record, dict):
+            raise Invalid('lifecycle request must be an object')
+        action = record.get('action')
+        if action == 'undo':
+            return self.lifecycle_undo(record)
+        if action not in LIFECYCLE_ACTIONS:
+            raise Invalid('unknown lifecycle action')
+        hid = self.hid(record.get('home', ''))
+        tid = slug(record.get('task'), 'task')
+        request_id = str(uuid.UUID(record.get('request_id', '')))
+        device = text(record.get('device', ''), 'device', 120, empty=True)
+        if type(record.get('revision')) is not int:
+            raise Invalid('lifecycle revision must be an integer')
+        with self.write() as (c, changed):
+            prior_request = c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?', (request_id,)).fetchone()
+            if prior_request:
+                if (prior_request['home_id'], prior_request['task_id'], prior_request['action']) != (hid, tid, action):
+                    raise Invalid('request id belongs to a different lifecycle action')
+                return {'request':dict(prior_request), 'lifecycle':self.lifecycle_dict(self.lifecycle_for(c,hid,tid))}
+            task = c.execute('SELECT * FROM tasks WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
+            current = self.lifecycle_for(c, hid, tid)
+            if not task and not current:
+                raise Invalid('unknown task')
+            state = current['state'] if current else 'active'
+            revision = current['revision'] if current else 0
+            desired = {'hold':'held','discard':'discarded','resume':'active'}[action]
+            if current and current['pending_request_id']:
+                pending = c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?', (current['pending_request_id'],)).fetchone()
+                if pending and pending['action'] == action:
+                    return {'request':dict(pending), 'lifecycle':self.lifecycle_dict(self.lifecycle_for(c,hid,tid))}
+                raise Conflict('task already has a lifecycle action in progress', self.lifecycle_dict(self.lifecycle_for(c,hid,tid)))
+            if state == desired and not (current and current['error']):
+                return {'request':None, 'lifecycle':self.lifecycle_dict(current), 'already_complete':True}
+            if record['revision'] != revision:
+                raise Conflict('stale task lifecycle revision', self.lifecycle_dict(current))
+            if action == 'resume' and state != 'held':
+                raise Conflict('only held work can be resumed', self.lifecycle_dict(current))
+            if action == 'hold' and state == 'discarded':
+                raise Conflict('discarded work cannot be held', self.lifecycle_dict(current))
+            title = task['title'] if task else current['title']
+            project = task['project'] if task else current['project']
+            now = stamp()
+            c.execute('''INSERT INTO lifecycle_requests(request_id,home_id,task_id,action,base_revision,state,
+                received_at,ready_at,device) VALUES(?,?,?,?,?,'queued',?,?,?)''',
+                (request_id,hid,tid,action,revision,now,time.time()+15,device))
+            c.execute('''INSERT INTO task_lifecycle(home_id,task_id,state,revision,pending_request_id,error,updated_at,title,project)
+                VALUES(?,?,?,1,?,NULL,?,?,?) ON CONFLICT(home_id,task_id) DO UPDATE SET
+                revision=task_lifecycle.revision+1,pending_request_id=excluded.pending_request_id,
+                error=NULL,updated_at=excluded.updated_at,title=excluded.title,project=excluded.project''',
+                (hid,tid,state,request_id,now,title,project))
+            changed[0] = True
+            return {'request':dict(c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?',(request_id,)).fetchone()),
+                    'lifecycle':self.lifecycle_dict(self.lifecycle_for(c,hid,tid))}
+
+    def lifecycle_undo(self, record):
+        request_id = str(uuid.UUID(record.get('request_id', '')))
+        with self.write() as (c, changed):
+            request = c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?', (request_id,)).fetchone()
+            if not request:
+                raise Invalid('unknown lifecycle request')
+            if request['state'] == 'cancelled':
+                return {'ok':True, 'lifecycle':self.lifecycle_dict(self.lifecycle_for(c,request['home_id'],request['task_id']))}
+            if request['state'] != 'queued' or time.time() >= request['ready_at']:
+                raise Conflict('lifecycle action can no longer be undone')
+            now = stamp()
+            c.execute("UPDATE lifecycle_requests SET state='cancelled',cancelled_at=? WHERE request_id=?", (now,request_id))
+            c.execute('''UPDATE task_lifecycle SET pending_request_id=NULL,revision=revision+1,updated_at=?
+                WHERE home_id=? AND task_id=? AND pending_request_id=?''',
+                (now,request['home_id'],request['task_id'],request_id))
+            changed[0] = True
+            return {'ok':True, 'lifecycle':self.lifecycle_dict(self.lifecycle_for(c,request['home_id'],request['task_id']))}
 
     def upsert_decision(self, c, changed, hid, task, key, question, description, options, rec, why,
                         source, project, origin='', registered=False, legacy=None):
@@ -761,6 +875,12 @@ class Board:
                 row['project'] = self.resolve_project(c, hid, tid, tid, backlog, home, present)
                 self.update_task(c, changed, row)
                 self.reproject_latest(c, changed, hid, tid, row['project'])
+                lifecycle = c.execute('SELECT state FROM task_lifecycle WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
+                if lifecycle and lifecycle['state'] == 'discarded':
+                    c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND state NOT IN ('closed','consumed')",
+                              (stamp(),hid,tid))
+                    changed[0] = changed[0] or c.execute('SELECT changes()').fetchone()[0] > 0
+                    continue
                 open_keys = set()
                 for key, summary in decisions:
                     open_keys.add(key)
@@ -875,8 +995,22 @@ class Board:
                 d['answer'] = dict(answer) if answer else None
                 if d['answer']:
                     d['answer']['delivery_class'] = delivery_class(d['answer'])
+                d['lifecycle_task_id'] = self.decision_lifecycle_task(c, d)
             events = [dict(r) for r in c.execute('SELECT * FROM events ORDER BY created_at DESC LIMIT 500')]
             runs = {r['home_id']: dict(r) for r in c.execute('SELECT * FROM ingest_runs')}
+            lifecycle_rows = c.execute('''SELECT l.*,
+                r.action AS request_action,r.state AS request_state,r.ready_at AS request_ready_at
+                FROM task_lifecycle l LEFT JOIN lifecycle_requests r ON r.request_id=l.pending_request_id''').fetchall()
+        lifecycle = {(r['home_id'],r['task_id']):self.lifecycle_dict(r) for r in lifecycle_rows}
+        for task in tasks:
+            task['lifecycle'] = lifecycle.get((task['home_id'],task['task_id']), self.lifecycle_dict(None))
+        for decision in decisions:
+            decision['lifecycle'] = lifecycle.get((decision['home_id'],decision['lifecycle_task_id']), self.lifecycle_dict(None))
+        tasks = [t for t in tasks if t['lifecycle']['state'] == 'active']
+        decisions = [d for d in decisions if d['lifecycle']['state'] == 'active']
+        archives = [dict(home_id=r['home_id'],task_id=r['task_id'],title=r['title'],project=r['project'],
+                         lifecycle=self.lifecycle_dict(r)) for r in lifecycle_rows
+                    if r['state'] == 'held' or (r['state'] == 'discarded' and r['error'])]
         homes = []
         for hid in self.homes:
             r = runs.get(hid, {})
@@ -889,9 +1023,10 @@ class Board:
             tasks = [r for r in tasks if r['project'] == project]
             decisions = [r for r in decisions if r['project'] == project]
             events = [r for r in events if r['project'] == project]
+            archives = [r for r in archives if r['project'] == project]
         armed = self.armed_now()
         return dict(rev=int(meta['rev']), generated_at=meta['generated_at'], homes=homes, tasks=tasks,
-                    decisions=decisions, events=events, counts=counts, answers_armed=armed,
+                    decisions=decisions, archive=archives, events=events, counts=counts, answers_armed=armed,
                     answers_error=self.source_error(),
                     connection={'transport':'sse', 'github':'Not connected yet'})
 
@@ -1173,7 +1308,16 @@ class Board:
         while not self.stop.wait(0.5):
             try:
                 with self.connect() as c:
-                    pending = c.execute('SELECT 1 FROM answers WHERE consumed_at IS NULL AND error IS NULL AND cancelled_at IS NULL AND ready_at<=? LIMIT 1', (time.time(),)).fetchone()
+                    pending = c.execute('''SELECT 1 FROM lifecycle_requests
+                        WHERE state='queued' AND cancelled_at IS NULL AND ready_at<=? LIMIT 1''', (time.time(),)).fetchone()
+                    pending = pending or c.execute('''SELECT 1 FROM answers a WHERE consumed_at IS NULL
+                        AND a.error IS NULL AND a.cancelled_at IS NULL AND a.ready_at<=?
+                        AND NOT EXISTS (SELECT 1 FROM decisions d JOIN task_lifecycle l
+                            ON l.home_id=d.home_id AND l.task_id=CASE
+                                WHEN d.source='hold' AND d.origin_id!='' THEN d.origin_id ELSE d.task_id END
+                            WHERE d.home_id=a.home_id AND d.task_id=a.task_id
+                            AND d.decision_key=a.decision_key AND d.revision=a.revision
+                            AND (l.state!='active' OR l.pending_request_id IS NOT NULL)) LIMIT 1''', (time.time(),)).fetchone()
                 if pending:
                     run([ROOT / 'bin/board/board-answers-handle.sh','route','--config',self.config_path], self.home, 600)
             except Exception as e:
@@ -1367,7 +1511,7 @@ def handler(board, internal=False):
                         raise Invalid('internal reload requires an empty JSON object')
                     board.notify()
                     self.respond(200,{'ok':True}); return
-                if internal or self.path not in ('/answer','/answers'):
+                if internal or self.path not in ('/answer','/answers','/lifecycle'):
                     self.respond(404,{'error':'route not found'}); return
                 if self.headers.get('Transfer-Encoding') or len(self.headers.get_all('Content-Length', [])) != 1:
                     raise Invalid('one Content-Length is required')
@@ -1380,7 +1524,9 @@ def handler(board, internal=False):
                 data = json.loads(body)
                 if not isinstance(data, dict):
                     raise Invalid('request must be an object')
-                if self.path == '/answer' and 'action' in data:
+                if self.path == '/lifecycle':
+                    result = board.lifecycle_action(data)
+                elif self.path == '/answer' and 'action' in data:
                     result = board.answer_action(data)
                 else:
                     result = board.answer(data.get('answers') if self.path == '/answers' else [data])

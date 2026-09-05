@@ -686,6 +686,8 @@ The shared staleness proof lives in `bin/fm-lock-lib.sh`, which both `fm-teardow
 ## Captain dashboard
 
 Bridge, the local captain dashboard, is served by `bin/fm-board.sh serve`; the [`bin/fm-board.py`](../bin/fm-board.py) header owns configuration, HTTP routes, authentication, and runtime storage.
+Every task and decision card exposes task-level Hold and Discard actions with the same 15-second undo window as answers: Hold preserves the task in Bridge's Archive until Resume, while Discard closes its backlog task and open decisions without deleting its worktree, source, history, or evidence.
+Lifecycle actions route through the configured owning home, use `tasks-axi` for persistent backlog state, and use `fm-control.sh exit` to stop a recorded worker without bypassing teardown guards.
 Set `FM_BOARD_BROWSER_TEST=1` when running `tests/fm-board.test.sh` to add rendered Chrome assertions; the test prints an explicit skip when the flag or a Chrome binary is absent, while API, SSE, and answer-lifecycle checks always run.
 Set `FM_BOARD_EXTERNAL_BROWSER=1` instead when headless Chrome cannot render the page in time; the test then prints an `external-browser-fixture` line with the synthetic URL and a proof path, and waits a bounded time for an operator-driven browser to create that proof file before continuing.
 Copy [`board.example.json`](../bin/board/board.example.json) to the owning home's private `config/board.json`, replace its placeholder paths and secret, and restrict the file to mode `0600`.
