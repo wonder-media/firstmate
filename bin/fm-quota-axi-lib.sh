@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Shared quota-axi compatibility floor for the bootstrap diagnostic.
+# Shared quota-axi compatibility probe for the bootstrap diagnostic.
 # Usage: . bin/fm-quota-axi-lib.sh
 #
 # FM_QUOTA_AXI_MIN is sourced from bin/fm-tool-versions-lib.sh, the compatibility
