@@ -43,14 +43,15 @@ if(window.__bridgeTest){
   const origin=structuredClone(state.decisions.find(d=>d.task_id==='instant'));
   const moved=structuredClone(state),moving=moved.decisions.find(d=>d.task_id==='instant');
   moving.project='CES';moving.origin_id='instant';moving.task_id='instant-decision-choose';paint(moved);
-  const liveProject=node.querySelector('.badge').textContent,draftAfterMove=JSON.parse(localStorage.getItem(key));
+  const holdKey=draftKey(node.data),liveProject=node.querySelector('.badge').textContent,draftAfterMove=JSON.parse(localStorage.getItem(holdKey)),draftLeftBehind=localStorage.getItem(key);
   document.querySelector('#projects button[data-tag="CES"]').click();
   const visibleAfterMove=!node.hidden;
   document.querySelector('#projects button[data-tag="All"]').click();
   const coexist=structuredClone(state);coexist.decisions.push(origin);paint(coexist);
   const originCard=cards.get(identity(origin)),holdRadios=[...node.querySelectorAll('input[type=radio]')],originRadios=[...originCard.querySelectorAll('input[type=radio]')];
-  originRadios[1].click();
-  const migration={cards:[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(origin)).length,radioNames:[holdRadios[0].name,originRadios[0].name],
+  originRadios[1].click();paint(structuredClone(coexist));
+  const migration={records:[record(node.data).choice,record(originCard.data).choice],rebuilt:[node.data,originCard.data].map(d=>{const fresh=buildDecision(d);return [fresh.querySelector('input:checked')?.value||null,record(fresh.data).choice]}),
+   cards:[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(origin)).length,radioNames:[holdRadios[0].name,originRadios[0].name],
    selected:[holdRadios.find(r=>r.checked)?.value||null,originRadios.find(r=>r.checked)?.value||null],confirm:[node.querySelector('.confirm').textContent,originCard.querySelector('.confirm').textContent],
    checkedOpen:[...cards.values()].filter(n=>!n.hidden&&n.data.state==='open'&&n.querySelector('input:checked')).length,batch:document.querySelector('#submit-drafted').textContent};
   paint(moved);
@@ -69,7 +70,7 @@ if(window.__bridgeTest){
    const distinctRadioGroups=new Set(duplicateCards.map(n=>n.querySelector('input[type=radio]').name)).size;
    const style=getComputedStyle(failed),descriptionStyle=getComputedStyle(node.querySelector('.consequence')),saved=localStorage.getItem(key);
    finish({viewport:[innerWidth,innerHeight],horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
-    preselected,liveProject,draftAfterMove,visibleAfterMove,migration,distinctDuplicateCards,distinctRadioGroups,selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
+    preselected,liveProject,draftAfterMove,draftLeftBehind,visibleAfterMove,migration,distinctDuplicateCards,distinctRadioGroups,selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
     savedDraft:saved,health:document.querySelector('#answer-health').textContent,
     healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
     failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor,
@@ -712,11 +713,12 @@ for bad in (0,86401,'120',12.5):
         assert observed['horizontalOverflow'] is False,observed
         assert observed['preselected'] is False,observed
         assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed
-        assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'},observed
+        assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'} and observed['draftLeftBehind'] is None,observed
         migration=observed['migration']
         assert migration['cards']==2 and len(set(migration['radioNames']))==2,observed
         assert migration['selected']==['A','B'] and migration['confirm']==['Confirm: Ship it','Confirm: Wait'],observed
         assert migration['checkedOpen']==2 and migration['batch'].startswith('Submit drafted (2 of '),observed
+        assert migration['records']==['A','B'] and migration['rebuilt']==[['A','A'],['B','B']],observed
         assert observed['distinctDuplicateCards']==2 and observed['distinctRadioGroups']==2,observed
         assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
         assert observed['savedDraft'] is None,observed
