@@ -540,6 +540,15 @@ try:
     assert sql('select cancelled_at from answers where answer_id=?',(preserved_answer,))[0]['cancelled_at'] is None
     assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['hold','lifecycle']])==1
     assert len([c for c in calls(home,'fm-control.sh') if c[1]==['lifecycle','exit']])==1
+    def delivered(tid):
+        p=home/'deliveries.jsonl'
+        return [d for d in map(json.loads,p.read_text().splitlines()) if d[0]==tid] if p.exists() else []
+    accelerate([preserved_answer])
+    gated=subprocess.run([str(handler),'route','--config',str(config)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    assert gated.returncode==0 and json.loads(gated.stdout)['routed']==0 and json.loads(gated.stdout)['exceptions']==[],(gated.stdout,gated.stderr)
+    time.sleep(1.5)
+    assert sql('select routing_at,consumed_at,error from answers where answer_id=?',(preserved_answer,))==[{'routing_at':None,'consumed_at':None,'error':None}]
+    assert not delivered('lifecycle')
     stop(kill=True);start()
     archived=next(t for t in request()[1]['archive'] if t['task_id']=='lifecycle')
     resume='55555555-5555-4555-8555-555555555555'
@@ -549,6 +558,10 @@ try:
     resumed_cards=[d for d in resumed_state['decisions'] if d['task_id']=='lifecycle']
     assert len(resumed_cards)==2 and next(d for d in resumed_cards if d['decision_key']=='one')['answer']['answer_id']==preserved_answer
     assert not any(t['task_id']=='lifecycle' for t in resumed_state['archive'])
+    wait(lambda:sql('select consumed_at from answers where answer_id=?',(preserved_answer,))[0]['consumed_at'])
+    assert delivered('lifecycle')==[['lifecycle','--resolve-key','one','Preserve this answer']],delivered('lifecycle')
+    second_answer=request('/answer',answer('lifecycle',key='two',choice='custom',note='Still queued',revision=next(d for d in resumed_cards if d['decision_key']=='two')['revision']))[1]['answers'][0]['answer_id']
+    mutate('update answers set ready_at=? where answer_id=?',(time.time()+3600,second_answer))
     relaunches=[c[1] for c in calls(home,'fm-control.sh') if c[1][:2]==['lifecycle','relaunch']]
     assert len(relaunches)==1 and relaunches[0][2]=='--note' and resume in relaunches[0][3],relaunches
     assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['unhold','lifecycle']])==1
@@ -560,8 +573,9 @@ try:
     discarded_state=request()[1]
     assert not any(d['task_id']=='lifecycle' for d in discarded_state['decisions'])
     assert not any(t['task_id']=='lifecycle' for t in discarded_state['tasks']+discarded_state['archive'])
-    assert {r['state'] for r in sql('select state from decisions where task_id=?',('lifecycle',))}=={'closed'}
-    assert sql('select cancelled_at from answers where answer_id=?',(preserved_answer,))[0]['cancelled_at']
+    assert sql("select decision_key,state from decisions where task_id=? and state!='closed'",('lifecycle',))==[{'decision_key':'one','state':'consumed'}]
+    assert sql('select cancelled_at from answers where answer_id=?',(second_answer,))[0]['cancelled_at']
+    assert sql('select cancelled_at from answers where answer_id=?',(preserved_answer,))[0]['cancelled_at'] is None
     assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['done','lifecycle']])==1
     assert len([c for c in calls(home,'fm-control.sh') if c[1]==['lifecycle','exit']])==2
     stop(kill=True);start()
@@ -579,12 +593,34 @@ try:
     accelerate_lifecycle([owner_hold]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(owner_hold,))[0]['state']=='failed')
     failed_archive=next(t for t in request()[1]['archive'] if t['home_id']=='Second' and t['task_id']=='owned')
     assert failed_archive['lifecycle']['state']=='held' and 'fm-control.sh' in failed_archive['lifecycle']['error'],failed_archive
+    # The failure reaches the owner as one request-scoped packet on the
+    # board-answers seam, distinct from any answer, and is acknowledged only
+    # after the failed step completes; a queued or undone retry keeps the error.
+    log=home/'state/board-inbox/answers.jsonl'
+    packet=wait(lambda:log.exists() and next((r for r in map(json.loads,log.read_text().splitlines()) if r.get('request_id')==owner_hold),None))
+    assert packet['home']=='Second' and packet['task']=='owned' and packet['lifecycle']=='hold' and 'fm-control.sh' in packet['error'],packet
+    assert not {'answer_id','choice','key'}&set(packet)
+    result=wait(lambda:next((p for p in (home/'state/procevent-inbox').glob('*.result') if owner_hold in p.read_text()),None))
+    source_id,seq=result.name[:-len('.result')].rsplit('.',1)
+    def handle_result():return subprocess.run([str(fixture/'bin/fm-procevent-board-answers.sh'),'handle',source_id,seq,str(result)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+    unresolved=handle_result();report=json.loads(unresolved.stdout)
+    assert unresolved.returncode==1 and [a['request_id'] for a in report['answers']]==[owner_hold] and 'fm-control.sh' in report['answers'][0]['error'],(unresolved.stdout,unresolved.stderr)
+    undone_retry='abababab-abab-4bab-8bab-abababababab'
+    queued_retry=request('/lifecycle',lifecycle('Second','owned',failed_archive['lifecycle']['revision'],'hold',undone_retry))
+    assert queued_retry[0]==200 and queued_retry[1]['lifecycle']['pending_action']=='hold' and 'fm-control.sh' in queued_retry[1]['lifecycle']['error'],queued_retry
+    assert request('/lifecycle',{'action':'undo','request_id':undone_retry})[0]==200
+    failed_archive=next(t for t in request()[1]['archive'] if t['home_id']=='Second' and t['task_id']=='owned')
+    assert failed_archive['lifecycle']['state']=='held' and 'fm-control.sh' in failed_archive['lifecycle']['error'] and not failed_archive['lifecycle']['pending_request_id'],failed_archive
+    assert handle_result().returncode==1
     (second/'fail-control').unlink()
     retry='88888888-8888-4888-8888-888888888888'
     assert request('/lifecycle',lifecycle('Second','owned',failed_archive['lifecycle']['revision'],'hold',retry))[0]==200
     accelerate_lifecycle([retry]);wait(lambda:sql('select state from lifecycle_requests where request_id=?',(retry,))[0]['state']=='completed')
     owner_archive=next(t for t in request()[1]['archive'] if t['home_id']=='Second' and t['task_id']=='owned')
     assert owner_archive['lifecycle']['error'] is None
+    handled=handle_result()
+    assert handled.returncode==0 and json.loads(handled.stdout)['schema']=='board-answers.handled.v1',(handled.stdout,handled.stderr)
+    assert [r for r in map(json.loads,log.read_text().splitlines()) if r.get('request_id')==owner_hold]==[packet]
     assert len([c for c in calls(second,'tasks-axi') if c[1][:2]==['hold','owned']])==1
     assert len([c for c in calls(second,'fm-control.sh') if c[1]==['owned','exit']])==2
     assert not [c for c in calls(home,'tasks-axi') if c[1][:2] in (['hold','owned'],['done','owned'])]
@@ -718,9 +754,10 @@ try:
     aid=request('/answer',answer('alpha',revision=row['revision']))[1]['answers'][0]['answer_id']
     stop(kill=True);start();accelerate([aid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(aid,))[0]['consumed_at'])
-    delivered=list(map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()))
+    delivered=[d for d in map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()) if d[0]=='alpha']
     assert len(delivered)==1 and delivered[0][:3]==['alpha','--resolve-key','choose'] and '(note: a note)' in delivered[0][-1]
-    assert not (home/'state/board-inbox/answers.jsonl').exists()
+    log=home/'state/board-inbox/answers.jsonl'
+    assert not [r for r in map(json.loads,log.read_text().splitlines()) if 'answer_id' in r] if log.exists() else True
     command('answered',aid);passed('authoritative queued payload, undo, dedupe, crash replay, routing, and consumption')
     # A known keyed legacy answer goes to its worker, including its note.
     meta(home,'keyed-legacy','needs-decision [key=reason]: Explain your choice')
@@ -740,21 +777,23 @@ try:
     # Three legacy answers are exceptions: one atomic JSONL burst, one source fire.
     for i in range(3):meta(home,f'legacy{i}',f'needs-decision: Explain choice {i}')
     wait(lambda:len([d for d in request()[1]['decisions'] if d['task_id'].startswith('legacy')])==3)
+    log=home/'state/board-inbox/answers.jsonl';cursor=home/'state/board-inbox/answers.cursor'
+    wait(lambda:cursor.exists() and json.loads(cursor.read_text())['offset']==log.stat().st_size)
+    prior_lines=len(log.read_text().splitlines());prior_results=len(list((home/'state/procevent-inbox').glob('*.result')))
     batch=[answer(f'legacy{i}',key='default',choice='custom',note='Please inspect') for i in range(3)]
     response=request('/answers',{'answers':batch});assert response[0]==200,response
     aids=[a['answer_id'] for a in response[1]['answers']];accelerate(aids)
-    log=home/'state/board-inbox/answers.jsonl'
-    wait(lambda:log.exists() and len(log.read_text().splitlines())==3)
-    wait(lambda:len(list((home/'state/procevent-inbox').glob('*.result')))==1)
+    wait(lambda:len(log.read_text().splitlines())==prior_lines+3)
+    wait(lambda:len(list((home/'state/procevent-inbox').glob('*.result')))==prior_results+1)
     time.sleep(1)
-    assert len(list((home/'state/procevent-inbox').glob('*.result')))==1
-    exported=list(map(json.loads,log.read_text().splitlines()))
+    assert len(list((home/'state/procevent-inbox').glob('*.result')))==prior_results+1
+    exported=list(map(json.loads,log.read_text().splitlines()[prior_lines:]))
     assert {a['answer_id'] for a in exported}==set(aids)
     assert all(set(('ts','home','task','choice','note','key','answer_id'))<=a.keys() for a in exported)
     # Restore the exact crash-after-publication state; restart must not append duplicates.
     stop();mutate('update answers set exported_at=NULL where error IS NOT NULL');start()
     wait(lambda:all(a['exported_at'] for a in sql('select * from answers where error IS NOT NULL')))
-    assert len(log.read_text().splitlines())==3
+    assert len(log.read_text().splitlines())==prior_lines+3
     for a in aids:command('answered',a)
     passed('batch exceptions produce one JSONL burst/source fire; publication crash replay is idempotent')
     # A backlog hold invokes the authoritative keyed-answer intake.

@@ -61,7 +61,8 @@
 # Ingest reconciles held and discarded rows without a pending request against
 # the tasks-axi backlog: a finished task drops its held row, an externally
 # released or reopened task returns to active; a failed step's error is never
-# cleared by ingest, only by a retried request that completes.
+# cleared by ingest, only by a retried request that completes. Queueing or
+# undoing that retry leaves the prior error in place.
 # Legacy choice values: custom (note required; the note IS the answer text sent
 # to the worker or hold, never 'custom (note: ...)'), request-options. A card
 # without registered options lists custom first, then request-options; neither
@@ -110,7 +111,11 @@
 # tombstoned on a complete pass. Timestamp-only churn does not change rev.
 #
 # Queue: SQLite is authoritative. Ready answers route in one single-flight
-# handler directly, without JSONL on the main path. Only errors export to JSONL.
+# handler directly, without JSONL on the main path. Only answer errors and
+# failed lifecycle requests export to JSONL: a lifecycle line carries
+# request_id, home, task, lifecycle (the action), and error, never answer_id or
+# choice, so the board-answers handler can never read it as an approval; it is
+# acknowledged only once the task's lifecycle row no longer carries an error.
 # POST /internal/reload (Bearer auth, 127.0.0.1 only, same port) immediately
 # notifies SSE after decision/live CLI writes. /api/state uses rev as its ETag,
 # qualified by project so a filtered representation never reuses an unfiltered one.
@@ -435,7 +440,7 @@ class Board:
                 CREATE TABLE IF NOT EXISTS lifecycle_requests(request_id TEXT PRIMARY KEY,
                     home_id TEXT,task_id TEXT,action TEXT,base_revision INTEGER,state TEXT,
                     received_at TEXT,ready_at REAL,routing_at TEXT,completed_at TEXT,
-                    cancelled_at TEXT,error TEXT,device TEXT);
+                    cancelled_at TEXT,error TEXT,device TEXT,exported_at TEXT);
             ''')
             decision_columns = {row['name'] for row in c.execute('PRAGMA table_info(decisions)')}
             if 'description' not in decision_columns:
@@ -565,7 +570,7 @@ class Board:
             c.execute('''INSERT INTO task_lifecycle(home_id,task_id,state,revision,pending_request_id,error,updated_at,title,project,bridge_hold,stopped_meta)
                 VALUES(?,?,?,1,?,NULL,?,?,?,0,NULL) ON CONFLICT(home_id,task_id) DO UPDATE SET
                 revision=task_lifecycle.revision+1,pending_request_id=excluded.pending_request_id,
-                error=NULL,updated_at=excluded.updated_at,title=excluded.title,project=excluded.project''',
+                updated_at=excluded.updated_at,title=excluded.title,project=excluded.project''',
                 (hid,tid,state,request_id,now,title,project))
             changed[0] = True
             return {'request':dict(c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?',(request_id,)).fetchone()),
@@ -1147,23 +1152,35 @@ class Board:
         with file_lock(self.state / 'board-inbox/export.lock'):
             with self.write() as (c, changed):
                 rows = c.execute('SELECT * FROM answers WHERE exported_at IS NULL AND error IS NOT NULL AND cancelled_at IS NULL AND ready_at<=? ORDER BY received_at', (time.time(),)).fetchall()
-                if not rows:
+                failures = c.execute("SELECT * FROM lifecycle_requests WHERE exported_at IS NULL AND state='failed' ORDER BY received_at").fetchall()
+                if not rows and not failures:
                     return
                 path = self.state / 'board-inbox/answers.jsonl'
                 data = path.read_bytes() if path.exists() else b''
                 lines = data.splitlines(keepends=True)
                 if lines and not lines[-1].endswith(b'\n'):
                     raise Invalid('answer log contains an incomplete line')
-                seen = {json.loads(line).get('answer_id') for line in lines}
+                seen = set()
+                for line in lines:
+                    record = json.loads(line)
+                    seen.add(record.get('answer_id'))
+                    seen.add(record.get('request_id'))
                 burst = []
                 for a in rows:
                     if a['answer_id'] not in seen:
                         burst.append(json.dumps(dict(ts=a['received_at'],home=a['home_id'],task=a['task_id'],
                             choice=a['choice'],note=a['note'],key=a['decision_key'],answer_id=a['answer_id'])) + '\n')
+                for r in failures:
+                    if r['request_id'] not in seen:
+                        burst.append(json.dumps(dict(ts=r['received_at'],home=r['home_id'],task=r['task_id'],
+                            lifecycle=r['action'],request_id=r['request_id'],error=r['error'])) + '\n')
                 if burst:
                     append(path, ''.join(burst).encode())
                 for a in rows:
                     c.execute('UPDATE answers SET exported_at=? WHERE answer_id=?', (stamp(),a['answer_id']))
+                    changed[0] = True
+                for r in failures:
+                    c.execute('UPDATE lifecycle_requests SET exported_at=? WHERE request_id=?', (stamp(),r['request_id']))
                     changed[0] = True
 
     def export_pending(self):

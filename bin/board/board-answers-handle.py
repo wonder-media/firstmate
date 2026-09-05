@@ -56,6 +56,14 @@ def handle(source, sequence, result):
             m.atomic(cursor,json.dumps({'offset':end,'prefix':packet['prefix']}).encode())
         for record in records:
             with b.connect() as c:
+                if 'request_id' in record and 'answer_id' not in record:
+                    r = c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?', (record['request_id'],)).fetchone()
+                    l = r and c.execute('SELECT error FROM task_lifecycle WHERE home_id=? AND task_id=?', (r['home_id'],r['task_id'])).fetchone()
+                    if not r:
+                        exceptions.append(dict(record,error='unknown lifecycle request'))
+                    elif l and l['error']:
+                        exceptions.append(dict(record,error=l['error']))
+                    continue
                 a = c.execute('SELECT * FROM answers WHERE answer_id=?', (record.get('answer_id'),)).fetchone()
                 if not a or not a['consumed_at']:
                     exceptions.append(dict(record,error=a['error'] if a else 'unknown answer'))
