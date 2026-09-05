@@ -7,7 +7,8 @@
 # repo_tags={"repository-name":"WOK", ...}. Exact aliases win; a bare alias
 # also matches the leaf of an owner-qualified repository, and qualified aliases
 # provide a bare leaf only when every configured use of that leaf has one tag.
-# Unknown or ambiguous repositories display as FM. Optional: stale_after_s (integer
+# Unknown or ambiguous repositories take the project of an explicit decision
+# registration on the task, its origin, or a sibling hold, else FM. Optional: stale_after_s (integer
 # seconds 1..86400, default 120, above the 90 s snapshot budget plus one tick):
 # a home whose last successful ingest is older is reported stale and turns
 # /healthz ok false; github_boards={} (reserved, never queried in phase 1). FM_HOME is the absolute owning home; source homes
@@ -42,7 +43,8 @@
 # a correction request for a consumed answer without reopening its decision.
 # Legacy choice values: custom (note required; the note IS the answer text sent
 # to the worker or hold, never 'custom (note: ...)'), request-options. A card
-# without registered options lists request-options first, then custom.
+# without registered options lists custom first, then request-options; neither
+# is recommended.
 # Every decision carries question (an ELI5 headline: DECIDE prefix dropped,
 # cut at a natural break past 90 chars) and description (a plain consequence;
 # hold cards derive it from the hold reason, worker cards from the status
@@ -61,8 +63,10 @@
 # known, omit --rec and use --why for the recommended verification step; the UI
 # shows that guidance without falsely recommending an answer. An omitted description
 # keeps the prior revision's or falls back to DEFAULT_CONSEQUENCE.
-# If a durable hold already owns the origin/key, registration resolves to that
-# hold identity and retires only an unanswered open duplicate at the origin.
+# If an open actionable hold already owns the origin/key, registration resolves
+# to that hold identity and retires only an unanswered open duplicate at the
+# origin; a closed registered hold reopens with its registered content when it
+# becomes actionable again.
 #
 # SQLite: WAL, busy_timeout=5000, user_version=2 plus schema_version table.
 # v1 -> v2 adds decisions.description and rewrites registered questions to the
@@ -501,7 +505,7 @@ class Board:
             original_task = args.task
             holds = c.execute('''SELECT d.* FROM decisions d
                 WHERE d.home_id=? AND d.origin_id=? AND d.decision_key=? AND d.source='hold'
-                AND d.state!='closed' AND d.revision=(SELECT max(x.revision) FROM decisions x
+                AND d.state='open' AND d.revision=(SELECT max(x.revision) FROM decisions x
                     WHERE x.home_id=d.home_id AND x.task_id=d.task_id AND x.decision_key=d.decision_key)''',
                 (hid, original_task, args.key)).fetchall()
             if len(holds) > 1:
@@ -552,21 +556,29 @@ class Board:
         if c.execute('SELECT changes()').fetchone()[0]:
             changed[0] = True
 
-    def hold_project(self, c, hid, task, origin, backlog):
-        for candidate in (backlog.get(task, {}).get('repo'), backlog.get(origin, {}).get('repo')):
+    def resolve_project(self, c, hid, task, origin, backlog, home, present):
+        repos = [backlog.get(task, {}).get('repo'), backlog.get(origin, {}).get('repo')]
+        if origin in present:
+            repos.append(self.read_meta(home, origin).get('project', ''))
+        for candidate in repos:
             project = self.mapped_project(candidate)
             if project:
                 return project
-        inherited = c.execute('SELECT project FROM tasks WHERE home_id=? AND task_id=? AND deleted_at IS NULL',
-                              (hid, origin)).fetchone()
-        if inherited:
-            return inherited['project']
-        for candidate in (task, origin):
-            registered = c.execute('''SELECT project FROM decisions WHERE home_id=? AND task_id=? AND registered=1
-                ORDER BY revision DESC LIMIT 1''', (hid, candidate)).fetchone()
+        for column, value in (('task_id', task), ('task_id', origin), ('origin_id', origin)):
+            registered = c.execute(f'''SELECT project FROM decisions WHERE home_id=? AND {column}=? AND registered=1
+                AND options!='[]' ORDER BY asked_at DESC, revision DESC LIMIT 1''', (hid, value)).fetchone()
             if registered:
                 return registered['project']
         return 'FM'
+
+    @staticmethod
+    def read_meta(home, task):
+        meta = {}
+        for line in (home / f'state/{task}.meta').read_text().splitlines():
+            if '=' in line:
+                k, v = line.split('=', 1)
+                meta[k] = v.strip()
+        return meta
 
     def manifest(self, home):
         paths = [home / 'data/backlog.md']
@@ -628,13 +640,9 @@ class Board:
         return rows
 
     def task_row(self, hid, task, home, backlog, snapshot=None):
-        meta = {}
-        for line in (home / f'state/{task}.meta').read_text().splitlines():
-            if '=' in line:
-                k, v = line.split('=', 1)
-                meta[k] = v.strip()
+        meta = self.read_meta(home, task)
         if meta.get('kind') == 'secondmate':
-            return None, [], None
+            return None, []
         status = home / f'state/{task}.status'
         last = ''
         if status.exists():
@@ -661,10 +669,9 @@ class Board:
             decisions.append((key, summary))
         b = backlog.get(task, {})
         repo = b.get('repo') or meta.get('project', '')
-        source_project = self.mapped_project(repo)
         return dict(home_id=hid, task_id=task, title=b.get('title') or task, kind=meta.get('kind', 'task'),
                     current_state=current, worker=' '.join(filter(None, [meta.get('harness'), meta.get('model')])),
-                    pr_url=meta.get('pr', ''), project=source_project or 'FM', last_status=last, meta_present=1), decisions, source_project
+                    pr_url=meta.get('pr', ''), project=self.project(repo), last_status=last, meta_present=1), decisions
 
     def update_task(self, c, changed, row):
         old = c.execute('SELECT * FROM tasks WHERE home_id=? AND task_id=?', (row['home_id'], row['task_id'])).fetchone()
@@ -744,12 +751,12 @@ class Board:
             except (OSError, Invalid, ValueError, KeyError) as e:
                 error = str(e)
         with self.write() as (c, changed):
-            for tid, row, decisions, source_project in updates:
+            for tid, row, decisions in updates:
                 if row is None:
                     continue
+                row['project'] = self.resolve_project(c, hid, tid, tid, backlog, home, present)
                 self.update_task(c, changed, row)
-                if source_project:
-                    self.reproject_latest(c, changed, hid, tid, source_project)
+                self.reproject_latest(c, changed, hid, tid, row['project'])
                 open_keys = set()
                 for key, summary in decisions:
                     open_keys.add(key)
@@ -767,21 +774,21 @@ class Board:
                                   (stamp(), hid, tid, prior['decision_key'], prior['revision']))
                         changed[0] = True
             for tid, b in backlog.items():
+                origin, sep, key = tid.rpartition('-decision-')
+                if not sep:
+                    origin, key = tid, 'default'
+                hold_project = self.resolve_project(c, hid, tid, origin, backlog, home, present)
                 was_worker = c.execute('SELECT meta_present FROM tasks WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
                 if tid not in present and b['state'] != 'done' and not (was_worker and was_worker['meta_present']):
                     self.update_task(c, changed, dict(home_id=hid, task_id=tid, title=b['title'], kind=b['kind'],
                         current_state='paused' if b['hold_kind'] not in ('', '-') else b['state'], worker='',
-                        pr_url='', project=self.project(b['repo']), last_status=b['reason'] if b['reason'] != '-' else '', meta_present=0))
-                origin, sep, key = tid.rpartition('-decision-')
-                if not sep:
-                    origin, key = tid, 'default'
-                hold_project = self.hold_project(c, hid, tid, origin, backlog)
+                        pr_url='', project=hold_project, last_status=b['reason'] if b['reason'] != '-' else '', meta_present=0))
                 self.reproject_latest(c, changed, hid, tid, hold_project)
                 if b['captain_actionable']:
                     prior = self.latest(c, hid, tid, key)
                     duplicate = self.latest(c, hid, origin, key) if sep else None
                     if duplicate and duplicate['registered'] and duplicate['state'] == 'open' \
-                            and (not prior or not prior['registered']):
+                            and (not prior or not prior['registered'] or prior['state'] == 'closed'):
                         if prior and prior['state'] in ('queued', 'sent', 'failed'):
                             raise Conflict('durable hold has a recorded or outstanding answer', self.decision_dict(prior))
                         rev = self.upsert_decision(c, changed, hid, tid, key, duplicate['question'],
@@ -792,7 +799,13 @@ class Board:
                         changed[0] = True
                         prior = self.latest(c, hid, tid, key)
                     if prior and prior['registered'] and not (prior['description'] is None and prior['options'] == '[]'):
-                        continue
+                        if prior['state'] != 'closed':
+                            continue
+                        if prior['options'] != '[]':
+                            self.upsert_decision(c, changed, hid, tid, key, prior['question'], prior['description'],
+                                json.loads(prior['options']), prior['recommendation'], prior['why'],
+                                'hold', hold_project, origin, True)
+                            continue
                     self.upsert_decision(c, changed, hid, tid, key, b['title'], b['reason'], [], '', '',
                                          'hold', hold_project, origin, bool(sep),
                                          legacy=b['title'] + ': ' + b['reason'])

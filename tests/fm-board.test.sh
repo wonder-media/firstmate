@@ -37,7 +37,7 @@ if(window.__bridgeTest){
   const failed=[...document.querySelectorAll('#task-cards .card')].find(n=>n.data?.task_id==='external');
   if(!node||!review||!delivery||!factual||!failed){if(++attempts>30){clearInterval(begin);finish({error:'cards did not render',missing:{node:!node,review:!review,delivery:!delivery,factual:!factual,failed:!failed}})}return}
   clearInterval(begin);
-  const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=radios[0].name;
+  const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=draftKey(node.data);
   const preselected=[...radios].some(r=>r.checked);
   radios[0].click();note.value='Unsaved local draft';note.dispatchEvent(new Event('input',{bubbles:true}));
   const moved=structuredClone(state),moving=moved.decisions.find(d=>d.task_id==='instant');
@@ -57,10 +57,11 @@ if(window.__bridgeTest){
    clearInterval(observe);
    const conflicting=structuredClone(state),base=conflicting.decisions.find(d=>d.task_id==='instant');
    conflicting.decisions.push({...base,task_id:'instant-decision-choose',origin_id:'instant'});paint(conflicting);
-   const distinctDuplicateCards=[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(base)).length;
+   const duplicateCards=[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(base)),distinctDuplicateCards=duplicateCards.length;
+   const distinctRadioGroups=new Set(duplicateCards.map(n=>n.querySelector('input[type=radio]').name)).size;
    const style=getComputedStyle(failed),descriptionStyle=getComputedStyle(node.querySelector('.consequence')),saved=localStorage.getItem(key);
    finish({viewport:[innerWidth,innerHeight],horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
-    preselected,liveProject,draftAfterMove,visibleAfterMove,distinctDuplicateCards,selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
+    preselected,liveProject,draftAfterMove,visibleAfterMove,distinctDuplicateCards,distinctRadioGroups,selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
     savedDraft:saved,health:document.querySelector('#answer-health').textContent,
     healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
     failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor,
@@ -279,12 +280,13 @@ try:
           ['inherit-origin-decision-scope','queued','captain','','Choose scope','captain','Choose the bounded scope.','no','none'],
           ['qualified-leaf','in_flight','ship','qualified-only','Qualified alias leaf','-','-','no','none'],
           ['ambiguous-exact','in_flight','ship','org-a/shared','Exact shared alias','-','-','no','none'],
-          ['ambiguous-unlisted','in_flight','ship','org-c/shared','Ambiguous shared leaf','-','-','no','none']]
+          ['ambiguous-unlisted','in_flight','ship','org-c/shared','Ambiguous shared leaf','-','-','no','none'],
+          ['ambiguous-unlisted-decision-pick','queued','captain','','Pick a vendor','captain','Pick the vendor for the shared work.','no','none']]
     (home/'rows.json').write_text(json.dumps(rows))
     (home/'full-rows.json').write_text(json.dumps({'long-decision':{'title':long_title,'body':long_body,'hold_reason':'Choose where the database will live.'}}))
     command('ingest','--once');before=rev()
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
-    assert len(sql("select * from decisions where source='hold'"))==3
+    assert len(sql("select * from decisions where source='hold'"))==4
     assert sql("select * from decisions where task_id='alpha'")[0]['decision_key']=='choose'
     shows=[call[1] for call in calls(home,'tasks-axi') if call[1][:1]==['show']]
     assert shows==[['show','long-decision','--full']],shows
@@ -305,6 +307,18 @@ try:
     assert projects['qualified-leaf']=='MF' and projects['ambiguous-exact']=='WOK' and projects['ambiguous-unlisted']=='FM',projects
     inherited=sql("select * from decisions where task_id='inherit-origin-decision-scope'")[0]
     assert inherited['project']=='WOK' and inherited['origin_id']=='inherit-origin',inherited
+    assert projects['inherit-origin-decision-scope']=='WOK',projects
+    assert {e['project'] for e in sql("select project from events where task_id='inherit-origin-decision-scope'")}=={'WOK'}
+    assert projects['ambiguous-unlisted-decision-pick']=='FM' and sql("select project from decisions where task_id='ambiguous-unlisted-decision-pick'")[0]['project']=='FM'
+    picked=json.loads(command('decision','Main','ambiguous-unlisted','pick','--project','WOK','--title','Pick a vendor',
+        '--option','A: Vendor one','--option','B: Vendor two','--rec','A','--why','Vendor one is already approved.').stdout)
+    assert picked['task']=='ambiguous-unlisted-decision-pick',picked
+    command('ingest','--once')
+    explicit=sql("select * from decisions where task_id='ambiguous-unlisted-decision-pick' order by revision desc")[0]
+    assert explicit['project']=='WOK' and explicit['state']=='open' and explicit['revision']==picked['revision'],explicit
+    projects={row['task_id']:row['project'] for row in sql('select task_id,project from tasks')}
+    assert projects['ambiguous-unlisted-decision-pick']=='WOK' and projects['ambiguous-unlisted']=='WOK',projects
+    assert {e['project'] for e in sql("select project from events where task_id in ('ambiguous-unlisted','ambiguous-unlisted-decision-pick')")}=={'WOK'}
     canonical=json.loads(command('decision','Main','inherit-origin','scope','--project','FM','--title','Choose scope',
         '--description','This decides the bounded scope.','--option','A: Small scope','--option','B: Broad scope',
         '--rec','A','--why','The smaller scope is easier to verify.').stdout)
@@ -327,7 +341,28 @@ try:
     late_origin=sql("select * from decisions where task_id='late-origin' order by revision desc")[0]
     assert late_hold['registered']==1 and late_hold['origin_id']=='late-origin' and late_hold['state']=='open',late_hold
     assert late_origin['state']=='closed' and late_origin['revision']==late['revision'],late_origin
+    def late_actionable(actionable):
+        rows[-1][7:9]=['no','none'] if actionable else ['yes','missing']
+        (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog late hold actionable '+str(actionable))
+        command('ingest','--once')
+        return sql("select * from decisions where task_id='late-origin-decision-route' order by revision desc")[0]
+    blocked_hold=late_actionable(False)
+    assert blocked_hold['state']=='closed' and blocked_hold['revision']==late_hold['revision'],blocked_hold
+    rerouted=json.loads(command('decision','Main','late-origin','route','--project','WOK','--title','Choose the route',
+        '--option','A: Direct','--option','B: Staged','--option','C: Manual','--rec','C','--why','Manual routing is reversible.').stdout)
+    assert rerouted['task']=='late-origin',rerouted
+    assert late_actionable(False)['state']=='closed'
+    absorbed=late_actionable(True)
+    assert absorbed['state']=='open' and absorbed['registered']==1 and absorbed['recommendation']=='C',absorbed
+    assert absorbed['revision']==blocked_hold['revision']+1 and len(json.loads(absorbed['options']))==3,absorbed
+    assert sql("select state from decisions where task_id='late-origin' order by revision desc")[0]['state']=='closed'
+    assert late_actionable(False)['state']=='closed'
+    reopened=late_actionable(True)
+    assert reopened['state']=='open' and reopened['revision']==absorbed['revision']+1,reopened
+    assert (reopened['question'],reopened['options'],reopened['recommendation'],reopened['why'])==(absorbed['question'],absorbed['options'],absorbed['recommendation'],absorbed['why']),reopened
+    assert len(sql("select * from decisions where task_id='late-origin-decision-route'"))==reopened['revision']
     passed('qualified aliases, ambiguity, hold inheritance, canonical registration, and in-place project reconciliation')
+    passed('closed registered hold reopens with its content; registration never targets a closed hold')
     passed('v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision')
     before=rev()
     assert sql("select * from tasks where home_id='Second' and task_id='beta'")
@@ -627,15 +662,14 @@ for bad in (0,86401,'120',12.5):
         assert observed['preselected'] is False,observed
         assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed
         assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'},observed
-        assert observed['distinctDuplicateCards']==2,observed
+        assert observed['distinctDuplicateCards']==2 and observed['distinctRadioGroups']==2,observed
         assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
         assert observed['savedDraft'] is None,observed
-        assert observed['state'] in ('Queued - undo available for 15 s','Sent - awaiting consumption','Consumed'),observed
-        assert observed['health'].startswith('Answers: '),observed
+        assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
         assert observed['description']=='This decides whether the change ships now or waits for another check.',observed
         assert observed['descriptionSize']=='14px' and observed['descriptionWeight']=='400',observed
         assert observed['registeredOptions'][0].startswith('Ship itRecommended · Small reversible change'),observed
-        assert observed['legacyOptions']==['Write my own answer'],observed
+        assert observed['legacyOptions']==['Write my own answer','Ask firstmate for 2-3 concrete options'],observed
         assert observed['legacyNotice']=='Concrete options and a recommendation are still being prepared.',observed
         assert observed['factualPreselected'] is False,observed
         assert observed['factualGuidance']=='Recommended next step · Verify the current schedule before choosing.',observed
@@ -643,9 +677,8 @@ for bad in (0,86401,'120',12.5):
         assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
         assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
         assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
-        if observed['state'].startswith('Queued'):
-            browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
-            assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
+        browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
+        assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
         passed('rendered failed styling, source health, authoritative answer, and submitted draft clearing')
     elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1':
         print('skip: no chrome',flush=True)
