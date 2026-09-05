@@ -496,10 +496,27 @@ try:
     held=next(d for d in request()[1]['decisions'] if d['task_id']=='origin-decision-budget')
     r=request('/answer',answer(held['task_id'],key='budget',choice='custom',note='Use the small budget',revision=held['revision']))
     assert r[0]==200,r
-    hid=r[1]['answers'][0]['answer_id'];accelerate([hid])
+    hid=r[1]['answers'][0]['answer_id']
+    def ingested_after(previous):
+        wait(lambda:sql("select last_ok from ingest_runs where home_id='Main'")[0]['last_ok']!=previous)
+        run_=sql("select last_ok,last_error from ingest_runs where home_id='Main'")[0]
+        assert run_['last_error'] is None,run_
+        return run_['last_ok']
+    last_ok=sql("select last_ok from ingest_runs where home_id='Main'")[0]['last_ok']
+    blocked=command('decision','Main','origin','budget','--project','CES','--title','Budget approval',
+            '--option','A: Approve','--option','B: Reject','--rec','A','--why','Approval unblocks the work.',ok=False)
+    assert b'outstanding answer' in blocked.stderr+blocked.stdout,blocked.stderr
+    assert not sql("select * from decisions where task_id='origin'")
+    last_ok=ingested_after(last_ok)
+    assert sql("select state from decisions where task_id='origin-decision-budget' order by revision desc")[0]['state']=='queued'
+    accelerate([hid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(hid,))[0]['consumed_at'])
     assert (home/'hold-input').read_text().startswith('budget\tUse the small budget\t')
+    ingested_after(last_ok)
+    consumed_hold=sql("select * from decisions where task_id='origin-decision-budget' order by revision desc")[0]
+    assert consumed_hold['state']=='consumed' and consumed_hold['revision']==held['revision'],consumed_hold
     passed('backlog hold routes through fm-decision-hold answers')
+    passed('registration conflicts with an answered hold; ingest keeps running and never supersedes it')
     # An answer without a note delivers the option wording alone.
     decision('nonote')
     wait(lambda:any(d['task_id']=='nonote' for d in request()[1]['decisions']))

@@ -65,8 +65,9 @@
 # keeps the prior revision's or falls back to DEFAULT_CONSEQUENCE.
 # If an open actionable hold already owns the origin/key, registration resolves
 # to that hold identity and retires only an unanswered open duplicate at the
-# origin; a closed registered hold reopens with its registered content when it
-# becomes actionable again.
+# origin; a hold with a queued, sent, or failed answer rejects registration with
+# a conflict; a closed registered hold reopens with its registered content when
+# it becomes actionable again, and an answered hold is never superseded.
 #
 # SQLite: WAL, busy_timeout=5000, user_version=2 plus schema_version table.
 # v1 -> v2 adds decisions.description and rewrites registered questions to the
@@ -505,9 +506,13 @@ class Board:
             original_task = args.task
             holds = c.execute('''SELECT d.* FROM decisions d
                 WHERE d.home_id=? AND d.origin_id=? AND d.decision_key=? AND d.source='hold'
-                AND d.state='open' AND d.revision=(SELECT max(x.revision) FROM decisions x
+                AND d.revision=(SELECT max(x.revision) FROM decisions x
                     WHERE x.home_id=d.home_id AND x.task_id=d.task_id AND x.decision_key=d.decision_key)''',
                 (hid, original_task, args.key)).fetchall()
+            answered = [h for h in holds if h['state'] in ('queued', 'sent', 'failed')]
+            if answered:
+                raise Conflict('durable hold has a recorded or outstanding answer', self.decision_dict(answered[0]))
+            holds = [h for h in holds if h['state'] == 'open']
             if len(holds) > 1:
                 raise Conflict('multiple durable holds own this decision key')
             task = holds[0]['task_id'] if holds else original_task
@@ -786,12 +791,12 @@ class Board:
                 self.reproject_latest(c, changed, hid, tid, hold_project)
                 if b['captain_actionable']:
                     prior = self.latest(c, hid, tid, key)
+                    if prior and prior['state'] in ('queued', 'sent', 'consumed', 'failed'):
+                        continue
                     duplicate = self.latest(c, hid, origin, key) if sep else None
                     if duplicate and duplicate['registered'] and duplicate['state'] == 'open' \
                             and (not prior or not prior['registered'] or prior['state'] == 'closed'):
-                        if prior and prior['state'] in ('queued', 'sent', 'failed'):
-                            raise Conflict('durable hold has a recorded or outstanding answer', self.decision_dict(prior))
-                        rev = self.upsert_decision(c, changed, hid, tid, key, duplicate['question'],
+                        self.upsert_decision(c, changed, hid, tid, key, duplicate['question'],
                             duplicate['description'], json.loads(duplicate['options']), duplicate['recommendation'],
                             duplicate['why'], 'hold', hold_project, origin, True)
                         c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
