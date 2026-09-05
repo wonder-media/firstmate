@@ -30,18 +30,20 @@ if [ -n "${FM_TEST_LIB_SOURCED:-}" ]; then
 fi
 FM_TEST_LIB_SOURCED=1
 
-# Canonical runners establish this boundary before executing a test. Preserve
-# the same safety for direct invocations of tests that source this library.
+# Canonical runners establish this boundary before executing a test. A child
+# of an already isolated test keeps the fixtures its parent installed and only
+# revalidates that every effective path is still disposable. Direct invocations
+# establish the boundary here. Either failure ends the process.
 # shellcheck source=bin/fm-test-env-lib.sh
 . "$ROOT/bin/fm-test-env-lib.sh"
 FM_TEST_DIRECT_ENV_ROOT=
-if [ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] && fm_test_env_assert; then
-  :
+if [ "${FM_TEST_ENV_ISOLATED:-}" = 1 ]; then
+  fm_test_env_assert_inherited || exit 1
 else
-  FM_TEST_DIRECT_ENV_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-direct.XXXXXX") || return 1
+  FM_TEST_DIRECT_ENV_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-direct.XXXXXX") || exit 1
   fm_test_env_prepare "$FM_TEST_DIRECT_ENV_ROOT" || {
     rm -rf "$FM_TEST_DIRECT_ENV_ROOT"
-    return 1
+    exit 1
   }
 fi
 
