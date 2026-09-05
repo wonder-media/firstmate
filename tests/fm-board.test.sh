@@ -644,9 +644,11 @@ try:
         if hold:r[5],r[6]=hold
         set_backlog(full,note)
     gates=[['gate-decision-scope','queued','captain','wonderok','Scope approval','captain','Pick the scope','no','none'],
+           ['known','in_flight','ship','wonderok','Known worker','-','-','no','none'],
+           ['known-decision-go','queued','captain','wonderok','Go decision','captain','Go or wait','no','none'],
            ['orphan-decision-pick','queued','captain','wonderok','Pick a size','captain','Pick the size','no','none'],
            ['vendor','in_flight','ship','wonderok','Vendor window','external','Waiting for the vendor','no','none']]
-    meta(home,'vendor','working: fixture');set_backlog(json.loads((home/'rows.json').read_text())+gates,'fixture backlog with gates')
+    meta(home,'vendor','working: fixture');meta(home,'known','working: fixture');set_backlog(json.loads((home/'rows.json').read_text())+gates,'fixture backlog with gates')
     gate=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']=='gate-decision-scope'),None))
     assert gate['lifecycle_task_id']=='gate-decision-scope' and gate['question']=='Scope approval' and gate['description']=='Pick the scope',gate
     gate_hold='99999999-9999-4999-8999-999999999999'
@@ -674,6 +676,27 @@ try:
     assert backlog_row('gate-decision-scope')[1]=='done' and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['done','gate-decision-scope']]
     assert {r['state'] for r in sql("select state from decisions where task_id='gate-decision-scope'")}=={'closed'}
     assert not any(d['task_id']=='gate-decision-scope' for d in request()[1]['decisions']) and not any(t['task_id']=='gate-decision-scope' for t in request()[1]['archive'])
+    # A hold card whose origin is a listed worker shares the origin's lifecycle:
+    # one request archives both rows, and the hold task never resurfaces alone.
+    known_decision=next(d for d in request()[1]['decisions'] if d['task_id']=='known-decision-go')
+    assert known_decision['lifecycle_task_id']=='known',known_decision
+    known_tasks={t['task_id']:t['lifecycle_task_id'] for t in request()[1]['tasks'] if t['task_id'].startswith('known')}
+    assert known_tasks=={'known':'known','known-decision-go':'known'},known_tasks
+    known_hold='efefefef-efef-4fef-8fef-efefefefefef'
+    assert request('/lifecycle',lifecycle('Main','known',known_decision['lifecycle']['revision'],'hold',known_hold))[0]==200
+    same=request('/lifecycle',lifecycle('Main','known-decision-go',known_decision['lifecycle']['revision'],'hold','efefefef-efef-4fef-8fef-000000000000'))
+    assert same[0]==200 and same[1]['request']['request_id']==known_hold and same[1]['request']['task_id']=='known',same
+    lifecycle_done(known_hold)
+    held=request()[1]
+    assert not [t for t in held['tasks'] if t['task_id'].startswith('known')] and not [d for d in held['decisions'] if d['task_id']=='known-decision-go']
+    assert [t['task_id'] for t in held['archive'] if t['task_id'].startswith('known')]==['known']
+    assert sql("select task_id from task_lifecycle where task_id like 'known%'")==[{'task_id':'known'}]
+    assert backlog_row('known-decision-go')[5:7]==['captain','Go or wait'] and backlog_row('known')[5]=='parked'
+    known_resume='efefefef-efef-4fef-8fef-111111111111'
+    assert request('/lifecycle',lifecycle('Main','known',next(t for t in held['archive'] if t['task_id']=='known')['lifecycle']['revision'],'resume',known_resume))[0]==200
+    lifecycle_done(known_resume)
+    back=request()[1]
+    assert {t['task_id'] for t in back['tasks'] if t['task_id'].startswith('known')}=={'known','known-decision-go'} and any(d['task_id']=='known-decision-go' for d in back['decisions'])
     # A held hold-card whose origin has no task row keeps its ready answer
     # unrouted without spinning the routing handler, then routes it after Resume.
     orphan=next(d for d in request()[1]['decisions'] if d['task_id']=='orphan-decision-pick')
@@ -770,7 +793,14 @@ try:
     external('lifecycle','fixture backlog finished lifecycle',state='done',hold=('-','-'))
     wait(lambda:not sql("select 1 from task_lifecycle where task_id='lifecycle'"))
     assert not any(t['task_id']=='lifecycle' for t in request()[1]['archive'])
-    (home/'state/lifecycle.meta').unlink();(home/'state/lifecycle.status').unlink();(home/'state/vendor.meta').unlink();(home/'state/vendor.status').unlink()
+    assert any(t['task_id']=='lifecycle' for t in request()[1]['tasks'])
+    stale_hold='15151515-1515-4151-8151-151515151515';holds_before=len([c for c in calls(home,'tasks-axi') if c[1][:2]==['hold','lifecycle']])
+    finished=request('/lifecycle',lifecycle('Main','lifecycle',0,'hold',stale_hold))
+    assert finished[0]==409 and 'already complete' in finished[1]['error'],finished
+    time.sleep(1)
+    assert not sql('select 1 from lifecycle_requests where request_id=?',(stale_hold,)) and not sql("select 1 from task_lifecycle where task_id='lifecycle'")
+    assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['hold','lifecycle']])==holds_before and any(t['task_id']=='lifecycle' for t in request()[1]['tasks'])
+    for stale in ('lifecycle','vendor','known'):(home/f'state/{stale}.meta').unlink();(home/f'state/{stale}.status').unlink()
     set_backlog(rows,'fixture backlog after lifecycle')
     passed('ingest reconciles held and discarded work with tasks-axi, and a failed relaunch stays held until a retry succeeds')
     # Queue is durable before handler starts; restart does not lose or duplicate.
@@ -980,10 +1010,14 @@ for bad in (0,86401,'120',12.5):
     wait(lambda:request('/healthz')[1]['answers_armed'] is False and 'cursor' in (request('/healthz')[1]['answers_error'] or ''))
     _,broken,_=request()
     assert broken['answers_armed'] is False and 'cursor' in broken['answers_error']
-    pushed=b''
-    while b'\n\n' not in pushed:pushed+=source_stream.readline()
-    pulse=json.loads(next(line[6:] for line in pushed.splitlines() if line.startswith(b'data: ')))
-    assert pulse['answers_armed'] is False and 'cursor' in pulse['answers_error']
+    deadline=time.monotonic()+30
+    while True:
+        pushed=b''
+        while b'\n\n' not in pushed:pushed+=source_stream.readline()
+        data=next((line[6:] for line in pushed.splitlines() if line.startswith(b'data: ')),b'{}')
+        pulse=json.loads(data)
+        if pulse.get('answers_armed') is False and 'cursor' in (pulse.get('answers_error') or ''):break
+        assert time.monotonic()<deadline,pulse
     source_stream.close()
     mutate("update tasks set current_state='failed' where task_id='external'")
     chrome=next((p for p in (shutil.which('google-chrome'),shutil.which('google-chrome-stable'),shutil.which('chromium'),shutil.which('chromium-browser'),'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') if p and pathlib.Path(p).is_file()),None)
@@ -998,46 +1032,47 @@ for bad in (0,86401,'120',12.5):
         assert proof.exists(),'external browser proof timed out'
         passed('external browser proof completed against the synthetic fixture')
     elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1' and chrome:
-        browser_size=os.environ.get('FM_BOARD_BROWSER_SIZE','1440,1000')
-        assert re.fullmatch(r'[1-9][0-9]{1,3},[1-9][0-9]{1,3}',browser_size),browser_size
-        rendered=subprocess.run([chrome,'--headless=new','--disable-gpu','--no-sandbox','--timeout=8000','--virtual-time-budget=4000',
-            '--window-size='+browser_size,'--user-data-dir='+str(root/'chrome-profile'),'--dump-dom',f'http://localhost:{port}/?k={secret}&browser-test=1'],
-            stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
-        assert rendered.returncode==0,rendered.stderr.decode()[-1000:]
-        import html
-        match=re.search(rb'<pre id="bridge-test-result">(.*?)</pre>',rendered.stdout,re.S)
-        assert match,rendered.stdout[-2000:]
-        observed=json.loads(html.unescape(match.group(1).decode()))
-        assert observed.get('error') is None,observed
-        assert observed['horizontalOverflow'] is False,observed
-        assert observed['preselected'] is False,observed
-        assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed
-        assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'} and observed['draftLeftBehind'] is None,observed
-        migration=observed['migration']
-        assert migration['cards']==2 and len(set(migration['radioNames']))==2,observed
-        assert migration['selected']==['A','B'] and migration['confirm']==['Confirm: Ship it','Confirm: Wait'],observed
-        assert migration['checkedOpen']==2 and migration['batch'].startswith('Submit drafted (2 of '),observed
-        assert migration['records']==['A','B'] and migration['rebuilt']==[['A','A'],['B','B']],observed
-        assert observed['distinctDuplicateCards']==2 and observed['distinctRadioGroups']==2,observed
-        assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
-        assert observed['savedDraft'] is None,observed
-        assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
-        assert observed['description']=='This decides whether the change ships now or waits for another check.',observed
-        assert observed['descriptionSize']=='14px' and observed['descriptionWeight']=='400',observed
-        assert observed['registeredOptions'][0].startswith('Ship itRecommended · Small reversible change'),observed
-        assert observed['legacyOptions']==['Write my own answer','Ask firstmate for 2-3 concrete options'],observed
-        assert observed['legacyNotice']=='Concrete options and a recommendation are still being prepared.',observed
-        assert observed['factualPreselected'] is False,observed
-        assert observed['factualGuidance']=='Recommended next step · Verify the current schedule before choosing.',observed
-        assert observed['reviewState']=='Sent to firstmate to review',observed
-        assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
-        assert observed['decisionLifecycle']==['Hold','Discard'] and observed['taskLifecycle']==['Hold','Discard'],observed
-        assert observed['archiveLifecycle']==['Discard','Resume'] and observed['archiveTitle']=='Archive',observed
-        assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
-        assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
-        browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
-        assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
-        passed('rendered failed styling, source health, authoritative answer, and submitted draft clearing')
+        sizes=[('operator',os.environ['FM_BOARD_BROWSER_SIZE'])] if os.environ.get('FM_BOARD_BROWSER_SIZE') else [('desktop','1440,1000'),('phone','390,844')]
+        for label,browser_size in sizes:
+            assert re.fullmatch(r'[1-9][0-9]{1,3},[1-9][0-9]{1,3}',browser_size),browser_size
+            rendered=subprocess.run([chrome,'--headless=new','--disable-gpu','--no-sandbox','--timeout=8000','--virtual-time-budget=4000',
+                '--window-size='+browser_size,'--user-data-dir='+str(root/f'chrome-profile-{label}'),'--dump-dom',f'http://localhost:{port}/?k={secret}&browser-test=1'],
+                stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
+            assert rendered.returncode==0,rendered.stderr.decode()[-1000:]
+            import html
+            match=re.search(rb'<pre id="bridge-test-result">(.*?)</pre>',rendered.stdout,re.S)
+            assert match,rendered.stdout[-2000:]
+            observed=json.loads(html.unescape(match.group(1).decode()))
+            assert observed.get('error') is None,observed
+            assert observed['horizontalOverflow'] is False,observed
+            assert observed['preselected'] is False,observed
+            assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed
+            assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'} and observed['draftLeftBehind'] is None,observed
+            migration=observed['migration']
+            assert migration['cards']==2 and len(set(migration['radioNames']))==2,observed
+            assert migration['selected']==['A','B'] and migration['confirm']==['Confirm: Ship it','Confirm: Wait'],observed
+            assert migration['checkedOpen']==2 and migration['batch'].startswith('Submit drafted (2 of '),observed
+            assert migration['records']==['A','B'] and migration['rebuilt']==[['A','A'],['B','B']],observed
+            assert observed['distinctDuplicateCards']==2 and observed['distinctRadioGroups']==2,observed
+            assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
+            assert observed['savedDraft'] is None,observed
+            assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
+            assert observed['description']=='This decides whether the change ships now or waits for another check.',observed
+            assert observed['descriptionSize']=='14px' and observed['descriptionWeight']=='400',observed
+            assert observed['registeredOptions'][0].startswith('Ship itRecommended · Small reversible change'),observed
+            assert observed['legacyOptions']==['Write my own answer','Ask firstmate for 2-3 concrete options'],observed
+            assert observed['legacyNotice']=='Concrete options and a recommendation are still being prepared.',observed
+            assert observed['factualPreselected'] is False,observed
+            assert observed['factualGuidance']=='Recommended next step · Verify the current schedule before choosing.',observed
+            assert observed['reviewState']=='Sent to firstmate to review',observed
+            assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
+            assert observed['decisionLifecycle']==['Hold','Discard'] and observed['taskLifecycle']==['Hold','Discard'],observed
+            assert observed['archiveLifecycle']==['Discard','Resume'] and observed['archiveTitle']=='Archive',observed
+            assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
+            assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
+            browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
+            assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
+            passed(f'rendered {label} {browser_size}: failed styling, source health, authoritative answer, lifecycle actions, and submitted draft clearing')
     elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1':
         print('skip: no chrome',flush=True)
     else:

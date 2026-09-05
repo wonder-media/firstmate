@@ -42,8 +42,12 @@
 # queued and before its deadline. {action:"correction",answer_id,note} queues
 # a correction request for a consumed answer without reopening its decision.
 # POST /lifecycle -> {home,task,revision,action,request_id,device?}, where action
-# is hold, discard, or resume. A duplicate request id or same-task/action is
-# idempotent. A queued request may be undone for 15 s with
+# is hold, discard, or resume. A <origin>-decision-<key> task whose origin is a
+# known task or lifecycle row shares the origin's lifecycle (the same rule
+# decisions use), so requests, filtering, and Archive apply once per origin. A
+# hold on a task the stored backlog no longer lists as active is refused with
+# 409 rather than recorded and silently dropped. A duplicate request id or
+# same-task/action is idempotent. A queued request may be undone for 15 s with
 # {action:"undo",request_id}. Hold adds a parked tasks-axi hold only when the
 # task records no hold at all (hold_kind absent); an existing captain,
 # external, or dated hold, expired or not, is kept untouched and
@@ -508,6 +512,10 @@ class Board:
         d['ready_at'] = d.pop('request_ready_at', None)
         return d
 
+    def task_lifecycle_target(self, c, hid, tid):
+        origin, sep, _ = tid.rpartition('-decision-')
+        return self.decision_lifecycle_task(c, dict(home_id=hid, task_id=tid, source='hold' if sep else 'task', origin_id=origin if sep else ''))
+
     def decision_lifecycle_task(self, c, decision):
         return c.execute(f'SELECT {LIFECYCLE_TARGET_SQL} FROM (SELECT ? AS home_id,? AS task_id,? AS source,? AS origin_id) d',
             (decision['home_id'],decision['task_id'],decision['source'],decision['origin_id'] or '')).fetchone()[0]
@@ -534,6 +542,7 @@ class Board:
         if type(record.get('revision')) is not int:
             raise Invalid('lifecycle revision must be an integer')
         with self.write() as (c, changed):
+            tid = self.task_lifecycle_target(c, hid, tid)
             prior_request = c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?', (request_id,)).fetchone()
             if prior_request:
                 if (prior_request['home_id'], prior_request['task_id'], prior_request['action']) != (hid, tid, action):
@@ -559,6 +568,10 @@ class Board:
                 raise Conflict('only held work can be resumed', self.lifecycle_dict(current))
             if action == 'hold' and state == 'discarded':
                 raise Conflict('discarded work cannot be held', self.lifecycle_dict(current))
+            if action == 'hold':
+                listed = c.execute('SELECT payload FROM backlog WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
+                if not listed or json.loads(listed['payload'])['state'] == 'done':
+                    raise Conflict('task is already complete or no longer in the active backlog', self.lifecycle_dict(current))
             title = task['title'] if task else current['title']
             project = task['project'] if task else current['project']
             now = stamp()
@@ -1043,6 +1056,8 @@ class Board:
                 if d['answer']:
                     d['answer']['delivery_class'] = delivery_class(d['answer'])
                 d['lifecycle_task_id'] = self.decision_lifecycle_task(c, d)
+            for task in tasks:
+                task['lifecycle_task_id'] = self.task_lifecycle_target(c, task['home_id'], task['task_id'])
             events = [dict(r) for r in c.execute('SELECT * FROM events ORDER BY created_at DESC LIMIT 500')]
             runs = {r['home_id']: dict(r) for r in c.execute('SELECT * FROM ingest_runs')}
             lifecycle_rows = c.execute('''SELECT l.*,
@@ -1050,7 +1065,7 @@ class Board:
                 FROM task_lifecycle l LEFT JOIN lifecycle_requests r ON r.request_id=l.pending_request_id''').fetchall()
         lifecycle = {(r['home_id'],r['task_id']):self.lifecycle_dict(r) for r in lifecycle_rows}
         for task in tasks:
-            task['lifecycle'] = lifecycle.get((task['home_id'],task['task_id']), self.lifecycle_dict(None))
+            task['lifecycle'] = lifecycle.get((task['home_id'],task['lifecycle_task_id']), self.lifecycle_dict(None))
         for decision in decisions:
             decision['lifecycle'] = lifecycle.get((decision['home_id'],decision['lifecycle_task_id']), self.lifecycle_dict(None))
         tasks = [t for t in tasks if t['lifecycle']['state'] == 'active']
