@@ -1,0 +1,31 @@
+ok - every subcommand validates arguments and supports --help
+ok - qualified aliases, ambiguity, hold inheritance, canonical registration, and in-place project reconciliation
+ok - closed registered hold reopens with its content; registration never targets a closed hold
+ok - v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision
+ok - fixture homes, actionable holds, keyed decisions; no timestamp churn or hot snapshots
+ok - vanished meta tombstones once
+ok - decision CLI creates 2-3 options, description, and recommendation idempotently
+ok - single-flight and bounded subprocess failure keep last-good rows; a vanished origin meta is tolerated
+ok - health, Bearer authentication, Host/Origin boundary, explicit routes, ETag, stale revision
+ok - changed SSE carries rev, status arrives within ten seconds, registration pushes immediately
+ok - Hold/archive/resume and Discard persist across restart, preserve answers until discard, and dedupe stale multi-card actions
+ok - secondmate lifecycle routes to the owning home and exposes control failure until an idempotent retry succeeds
+ok - Hold and Resume preserve pre-existing holds, a changed worker record blocks Resume, and a failed Discard stop stays visible until a retry succeeds
+ok - an already-stopped worker is never relaunched by Resume, and a failed Hold keeps its error after the task finishes elsewhere
+ok - ingest reconciles held and discarded work with tasks-axi, and a failed relaunch stays held until a retry succeeds
+ok - authoritative queued payload, undo, dedupe, crash replay, routing, and consumption
+ok - keyed legacy note routes directly; concrete-options request is one exact fixed steer
+ok - batch exceptions produce one JSONL burst/source fire; publication crash replay is idempotent
+ok - backlog hold routes through fm-decision-hold answers
+ok - registration conflicts with an answered hold; ingest keeps running and never supersedes it
+ok - empty notes add no suffix and hold answers stay one field-safe line
+ok - answer exceptions distinguish firstmate review from a true worker delivery failure
+ok - daemon and runner subprocess environments reject inherited path overrides
+ok - re-arming backs off, a live external owner is armed, fresh boot reconciles, stale_after_s is validated and honored
+ok - verified live registration and VACUUM backup restore
+skip: browser check disabled; set FM_BOARD_BROWSER_TEST=1
+ok - source failure reaches API state and SSE without a captured result
+ok - legacy integer cursor and id-less lines migrate without losing or blocking answers
+ok - all cleanup uses only fixture FM_HOME; all three path overrides stripped; sentinel unchanged
+ok - dashboard integration suite
+exit=0
