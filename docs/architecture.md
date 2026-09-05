@@ -49,6 +49,10 @@ Only when no matching run exists does it consult semantic busy state; exact busy
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
 In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
 The semantic branch reports working only on an exact busy verdict and names the source that produced it; an unknown verdict never becomes working, never permits the status-log fallback, and never becomes a silent idle.
+For a direct secondmate coordinator, the reader instead requires three current proofs: a recovery-grade live endpoint, the lifecycle generation bound into that endpoint's metadata, and the matching adapter-owned semantic busy record.
+Busy reports `working`; idle plus a folded open blocker or decision reports `blocked` or `parked`; idle with no open item reports the distinct `idle` state.
+Missing, stale, unsupported, remote-unreachable, or unreadable proof reports `unknown`, and no historical status event is promoted to current state.
+This coordinator-process view complements rather than replaces the registered home's structured domain-work snapshot below.
 For whole-fleet read-only review, `bin/fm-fleet-snapshot.sh --json` emits schema `fm-fleet-snapshot.v1` from the backlog, task metadata, current crew state, endpoint probes, PR/report pointers, scout reports, bounded current summaries from registered secondmate homes, and secondmate return-channel guidance.
 `bin/fm-fleet-view.sh` renders that snapshot as Markdown for humans, while `bin/fm-bearings-snapshot.sh` provides the bounded bearings projection, so both views consume one structured contract instead of reparsing raw fleet files.
 The script header owns the exact JSON schema.
@@ -56,6 +60,7 @@ The script header owns the exact JSON schema.
 ### Registered secondmate current state
 
 A registered secondmate's validated home is the authority for bearings current state because it owns the child metadata inventory, each child's current-state result, endpoint observations, backlog holds and dependencies, keyed unresolved decisions, and recent Done baseline.
+The parent home's direct-report reader separately describes whether the coordinator agent itself is active, healthy idle, blocked on an open routed item, or unobservable; it never overrides this domain-work authority.
 The original cross-home projection instead treated the secondmate agent as an ordinary parent task, so an idle secondmate's `fm-crew-state` fallback selected the latest append-only parent status event even when structured state in the registered home contradicted it.
 The parent-status contract also required explicit keyed resolution for decisions and blockers but not for a material `working` phase, so a start event could remain unsuperseded after the corresponding home backlog had moved the work to Done.
 Generated secondmate charters reject generic receipt or start acknowledgements, key only supervisor-actionable material phase reports, and close an opened phase with a same-key later state or `resolved` event, while the structured home remains authoritative even if that closure is missing.

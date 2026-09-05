@@ -361,6 +361,14 @@ test_secondmate_status_signal_never_absorbed_classifier() {
     || fail "a working secondmate's status signal was treated as absorbable"
   signal_crew_provably_working "$state/sm.turn-ended" \
     || fail "a working secondmate's bare turn-end lost its ordinary absorb"
+  export FM_FAKE_CREW_STATE_sm='state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)'
+  signal_crew_provably_working "$state/sm.turn-ended" \
+    || fail "a healthy-idle secondmate's bare turn-end was surfaced as an alarm"
+  ! signal_crew_provably_working "$state/sm.status" \
+    || fail "a healthy-idle secondmate's routed status was incorrectly absorbed"
+  export FM_FAKE_CREW_STATE_sm='state: unknown · source: none · secondmate endpoint state unavailable (unreadable)'
+  ! signal_crew_provably_working "$state/sm.turn-ended" \
+    || fail "an unknown secondmate endpoint was treated as healthy idle"
   # An ordinary crewmate with the same verdict stays absorbable: the rule is
   # keyed on recorded kind, not on task naming or content guessing.
   export FM_FAKE_CREW_STATE_crew='state: working · source: run-step · running'

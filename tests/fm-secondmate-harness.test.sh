@@ -456,6 +456,16 @@ spawn_secondmate() {
   local world=$1 id=$2 home=$3 harness=${4:-} fakebin
   mkdir -p "$world/home/state" "$world/home/data"
   fakebin=$(make_noop_tmux "$world/tmux-$id")
+  case "$harness" in
+    pi|pi-signed)
+      cat > "$fakebin/$harness" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = --help ] && printf '%s\n' 'usage: pi --tui-mode MODE'
+exit 0
+SH
+      chmod +x "$fakebin/$harness"
+      ;;
+  esac
   # An empty harness must contribute zero args, not an empty positional; build the
   # arg list explicitly so the optional harness is omitted cleanly.
   local spawn_args=("$id" "$home")
@@ -559,7 +569,44 @@ test_spawn_explicit_harness_wins() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_harness "$meta")" = claude ] \
     || fail "explicit: launched on '$(meta_harness "$meta")', expected explicit claude over config codex"
+  grep -q '^busy_gen=' "$meta" 2>/dev/null \
+    || fail "explicit: a supported secondmate lifecycle source was not generation-bound in metadata"
+  [ -f "$sm/.claude/settings.local.json" ] \
+    || fail "explicit: Claude secondmate lifecycle hooks were not installed"
   pass "B5 spawn: an explicit per-spawn harness arg overrides config/secondmate-harness"
+}
+
+test_spawn_secondmate_semantic_lifecycle_wiring() {
+  local harness w sm meta gen
+  for harness in claude opencode pi pi-signed; do
+    w="$TMP_ROOT/spawn-lifecycle-$harness"
+    sm="$w/sm"
+    make_seeded_home "$sm" sm
+    spawn_secondmate "$w" sm "$sm" "$harness"
+    meta="$w/home/state/sm.meta"
+    gen=$(grep '^busy_gen=' "$meta" 2>/dev/null | cut -d= -f2-)
+    [ -n "$gen" ] || fail "$harness secondmate did not record a lifecycle generation"
+    [ "$(cat "$w/home/state/sm.busy-gen" 2>/dev/null)" = "$gen" ] \
+      || fail "$harness secondmate metadata generation does not match its sidecar"
+    assert_contains "$(cat "$w/home/state/sm.busy-state" 2>/dev/null)" "state=busy source=fm-spawn" \
+      "$harness secondmate did not seed its launch turn busy"
+    case "$harness" in
+      claude)
+        jq -e '.hooks.UserPromptSubmit and .hooks.Stop and .hooks.StopFailure and .hooks.SessionEnd' \
+          "$sm/.claude/settings.local.json" >/dev/null \
+          || fail "Claude secondmate lifecycle hook set is incomplete"
+        ;;
+      opencode)
+        assert_contains "$(cat "$sm/.opencode/plugins/fm-busy-state.js" 2>/dev/null)" "session.status" \
+          "OpenCode secondmate lifecycle plugin is missing"
+        ;;
+      pi|pi-signed)
+        assert_contains "$(cat "$w/home/state/sm.pi-ext.ts" 2>/dev/null)" 'agent_settled' \
+          "$harness secondmate lifecycle extension is missing"
+        ;;
+    esac
+  done
+  pass "B5a spawn: every push-lifecycle secondmate adapter gets generation-bound semantic wiring"
 }
 
 # The unverified-adapter guard holds on the resolved secondmate path: an unknown
@@ -2540,6 +2587,7 @@ test_spawn_split_and_inherit
 test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins
+test_spawn_secondmate_semantic_lifecycle_wiring
 test_spawn_unverified_secondmate_harness_refused
 test_spawn_cursor_secondmate_launches_with_its_primary_contract
 test_spawn_backend_precedence_over_inherited_config

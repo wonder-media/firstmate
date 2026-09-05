@@ -197,6 +197,19 @@ In this 2026-07-28 Codex 0.145.0 semantic-busy probe, Firstmate-written lifecycl
 Codex also exposes no `StopFailure` hook, so an API-error turn end would need separate coverage even after hook discovery works.
 The app-server protocol schema does define the required lifecycle (`turn/started`, plus a `turn/completed` status of `completed`, `interrupted`, `failed`, or `inProgress`), so the gate is a reachability problem rather than a protocol gap.
 
+Secondmate coordinator observability now reuses only the adapter sources already established by the real per-harness runs above: Claude hooks, OpenCode `session.status`, and the Pi extension shared by pi and pi-signed.
+The fresh portable matrix runs each supported harness through tmux and/or Herdr, then covers busy, healthy idle, open blocker, open decision, later informational notes, resolved decisions, stale generation, dead endpoint, remote-unavailable, unsupported harness, and unverified backend cases:
+
+```sh
+tests/fm-crew-state.test.sh
+tests/fm-secondmate-harness.test.sh
+tests/fm-watch-triage.test.sh
+```
+
+The reader requires a recovery-grade live endpoint plus metadata-bound lifecycle generation and matching structured record.
+Tmux and Herdr satisfy the endpoint proof.
+Zellij and other unclassified backends, Codex/Kimi/Grok/Cursor lifecycle sources, and remote coordinators without local generation proof stay `unknown`; the test does not generalize launch support into state support.
+
 Deterministic entry points:
 
 ```sh
@@ -217,6 +230,30 @@ The blocking and bounded-follow-up mechanisms were validated across six harnesse
 | Pi | 0.80.5 | Passive `agent_settled` callback | Exactly one guard follow-up ran for an unhealthy cycle, with no recursion across tool turns. |
 | Grok | 0.2.112 native and 0.2.73 pre-native | Running-payload adaptive `Stop` | Native false-to-true continuation stayed in one process with two model turns and zero resume launches; the field-absent pre-native process launched exactly one guarded resume. |
 | Cursor | 2026.08.11-e8db854 | Awaited `stop` hook park returning one `followup_message` | Exit 2 ended the turn normally, proving it cannot block; a returned follow-up ran a genuine second turn; a sleeping hook held the boundary open and the wake landed after it; `loop_limit` stopped the hook being invoked at its ceiling. |
+
+### Codex 0.153.3 Stop-hook and cadence follow-up
+
+The 2026-09-04 live probe used only a named non-default Herdr lab and isolated Codex/Firstmate homes.
+`codex queue --thread` delivered a native queued wake, but no awaited tokenless Stop park was exposed.
+A ten-case matrix compared `async: true` alone, async plus a noop synchronous hook, and async plus the real guard in both registration orders, with both a deliberate four-second owner startup gap and an identity-matched ready watcher.
+
+The real guard was not the source of the input hold: with a ready watcher it exited 0 in 0.102-0.109 seconds; during the forced startup gap it exited 2 in 3.594-4.330 seconds and returned the full `TURN WOULD END BLIND` payload.
+In an earlier no-delay pass it exited 0 in 0.107-0.264 seconds in every real-guard case while all user messages still remained in the composer until the async hook closed.
+Across the full matrix, pre-close user response varied with order and run even for the noop hook, and both responsive and held outcomes occurred.
+That is not a deterministic user-responsive composition, so no Codex auto-arm or background watcher was shipped and the guard was not weakened.
+
+The supported foreground checkpoint has a deterministic cadence tradeoff:
+
+| Seconds | Quiet model returns/hour | Reduction from 180s | Maximum newly visible user-message delay | Mean delay under uniform arrival |
+| ---: | ---: | ---: | ---: | ---: |
+| 180 | 20 | baseline | 180s | 90s |
+| 300 | 12 | 40% | 300s | 150s |
+| 600 | 6 | 70% | 600s | 300s |
+
+Firstmate selects 300 seconds as the smallest measured reduction: it removes eight recurring quiet returns per hour without accepting the 600-second bound.
+Actionable watcher events still close the foreground call as soon as they are detected, while captain input received during the call is serviced only when the bounded checkpoint returns.
+The existing `FM_CODEX_WATCH_CHECKPOINT` override remains authoritative, including `180` for a shorter captain-input bound; every checkpoint still drains before re-arm, and the synchronous Stop guard remains the final safeguard.
+Recurring model-turn cost is reduced, not eliminated.
 
 ### Cursor primary park, 2026-08-13
 

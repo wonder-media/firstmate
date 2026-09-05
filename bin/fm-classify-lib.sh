@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared wake classifier: the common source of truth for captain-relevant status
-# tests, declared-external-wait vocabulary, and the working/paused absorb
+# tests, declared-external-wait vocabulary, and the working/idle/paused absorb
 # classification that makes no-verb signal and stale-pane wakes safe to absorb.
 # Sourced by BOTH the always-on watcher
 # (bin/fm-watch.sh) and the away-mode daemon (bin/fm-supervise-daemon.sh) so the
@@ -17,7 +17,7 @@
 # (crew_absorb_class and its working/paused wrappers) is NOT a pure status-file
 # read: it reuses bin/fm-crew-state.sh, which may make a bounded no-mistakes call,
 # to decide whether a crew that just stopped its turn or went stale is working,
-# deliberately paused, or neither. Callers run it ONLY on no-verb signal handling
+# a healthy-idle secondmate, deliberately paused, or neither. Callers run it ONLY on no-verb signal handling
 # and first sighting of a stale hash, never on every wake, so the per-wake triage
 # stays cheap. status_open_decisions_incremental (see "incremental (cursor-backed)
 # open-decisions fold" below) also writes: it persists a per-status-file byte
@@ -1091,6 +1091,8 @@ signal_reason_is_actionable() {  # <file> ...
 #   working - an actively-running no-mistakes step (running/fixing/ci) or a busy
 #             pane; the crew is legitimately mid-work on a static-looking pane
 #             (e.g. waiting on CI);
+#   idle    - a secondmate coordinator has a live endpoint and current lifecycle
+#             proof that it is healthy and idle;
 #   paused  - the crew's authoritative current state is a declared external-wait
 #             pause (paused:), which is EXPECTED to idle;
 #   none    - neither, so the wake must surface (a stopped/finished/parked/failed/
@@ -1107,6 +1109,10 @@ crew_absorb_class() {  # <id>
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
+  if [ "$state" = idle ]; then
+    src=${line#*source: }; src=${src%% *}
+    [ "$src" = pane ] && { printf 'idle'; return; }
+  fi
   if [ "$state" = paused ]; then printf 'paused'; return; fi
   if [ "$state" = working ]; then
     src=${line#*source: }; src=${src%% *}
@@ -1143,9 +1149,10 @@ crew_is_paused() {  # <id>
 # is parent-directed content the supervisor must read (a routed reply, a newly
 # raised decision, a mirrored remote line), and a busy mate agent makes its note
 # more current, not less deliverable. Scoped to .status files - a mate's bare
-# turn-ended ping still uses the ordinary provably-working absorb.
+# turn-ended ping is also absorbable when the mate has positive healthy-idle
+# evidence, so informational coordinator stops do not become false alarms.
 signal_crew_provably_working() {  # <file> ...
-  local f base dir task seen=""
+  local f base dir task kind class seen=""
   for f in "$@"; do
     base=${f##*/}
     dir=${f%/*}
@@ -1156,16 +1163,19 @@ signal_crew_provably_working() {  # <file> ...
       *)            continue ;;
     esac
     [ -n "$task" ] || continue
+    kind=$(grep '^kind=' "$dir/$task.meta" 2>/dev/null | tail -1 | cut -d= -f2-)
     case "$base" in
       *.status)
-        if [ "$(grep '^kind=' "$dir/$task.meta" 2>/dev/null | tail -1 | cut -d= -f2-)" = secondmate ]; then
+        if [ "$kind" = secondmate ]; then
           return 1
         fi
         ;;
     esac
     case " $seen " in *" $task "*) continue ;; esac
     seen="$seen $task"
-    crew_is_provably_working "$task" || return 1
+    class=$(crew_absorb_class "$task")
+    [ "$class" = working ] || { [ "$kind" = secondmate ] && [ "$base" = "$task.turn-ended" ] && [ "$class" = idle ]; } \
+      || return 1
   done
   [ -n "$seen" ] || return 1
   return 0

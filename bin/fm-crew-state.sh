@@ -16,7 +16,7 @@
 # fixed mapping logic, no heuristics and no LLM. Output is one stable, parseable,
 # token-tight line firstmate can read every heartbeat:
 #
-#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|none> · <detail>
+#   state: <working|idle|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|none> · <detail>
 #
 # Logic, in order:
 #   1. Resolve worktree + backend target + kind from state/<id>.meta.
@@ -39,11 +39,16 @@
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
 #      agree, and are reported as parked.
-#   4. No run for this crew (pre-validation, or kind=scout): fall back to the
-#      recorded backend's pane busy state, then the status log's last line only
-#      when its verb maps to a recognized run-state. Decision-only events such as
-#      `resolved` never become current state or detail.
-#   5. Missing meta or torn-down worktree: report unknown · none. If no run is
+#   4. A secondmate has no run of its own. Require a recovery-grade live endpoint,
+#      a metadata-bound current lifecycle generation, and that generation's
+#      trusted semantic record. Busy means its coordinator is active; idle plus
+#      an open folded decision means parked/blocked; idle with no open decision
+#      is healthy idle. Any missing proof remains unknown.
+#   5. No run for an ordinary crew (pre-validation, or kind=scout): fall back to
+#      the recorded backend's pane busy state, then the status log's last line
+#      only when its verb maps to a recognized run-state. Decision-only events
+#      such as `resolved` never become current state or detail.
+#   6. Missing meta or torn-down worktree: report unknown · none. If no run is
 #      attributed to this crew, a dead endpoint also reports unknown · none rather
 #      than trusting a stale status log.
 #
@@ -537,21 +542,66 @@ fi
 # is no run to consult, so a dead/unreadable target means the crew is gone: report
 # unknown rather than trusting a possibly-stale status log as the current state.
 [ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
+
+# A secondmate is a long-lived coordinating primary, not an ordinary worker that
+# validates its own branch. Its parent-side status file is still only an event
+# ledger, so current state comes from the already-owned semantic busy lifecycle
+# plus recovery-grade endpoint identity. The metadata busy_gen binding is an
+# additional incarnation proof: the sidecar and record may agree with each other
+# after a torn metadata publication or stale relaunch, but they do not describe
+# this endpoint unless meta names that same generation.
+if [ "$KIND" = secondmate ]; then
+  REMOTE_HOST=$(meta_value remote_host)
+  [ -z "$REMOTE_HOST" ] \
+    || emit unknown none "remote secondmate current-state source unavailable"
+  ENDPOINT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")
+  [ "$ENDPOINT_STATE" = alive ] \
+    || emit unknown none "secondmate endpoint state unavailable ($ENDPOINT_STATE)"
+
+  META_BUSY_GEN=$(meta_value busy_gen)
+  CURRENT_BUSY_GEN=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
+  [ -n "$META_BUSY_GEN" ] && [ -n "$CURRENT_BUSY_GEN" ] \
+    || emit unknown pane "secondmate lifecycle generation unavailable"
+  [ "$META_BUSY_GEN" = "$CURRENT_BUSY_GEN" ] \
+    || emit unknown pane "secondmate lifecycle generation stale"
+
+  if ! BUSY_RECORD=$(fm_busy_record_read "$STATE" "$ID"); then
+    emit unknown pane "secondmate lifecycle record unavailable ($BUSY_RECORD)"
+  fi
+  BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
+  case "${BUSY_VERDICT%% *}" in
+    busy)
+      emit working pane "secondmate coordinator active (${BUSY_VERDICT#* })"
+      ;;
+    idle)
+      OPEN_DECISIONS=$(status_open_decisions "$LOG" || true)
+      if printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "needs-decision" { found=1 } END { exit !found }'; then
+        OPEN_NOTE=$(printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "needs-decision" { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }')
+        emit parked status-log "secondmate coordinator awaiting decision${OPEN_NOTE:+: $OPEN_NOTE}"
+      fi
+      if printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "blocked" { found=1 } END { exit !found }'; then
+        OPEN_NOTE=$(printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "blocked" { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }')
+        emit blocked status-log "secondmate coordinator blocked${OPEN_NOTE:+: $OPEN_NOTE}"
+      fi
+      emit idle pane "secondmate coordinator healthy idle (${BUSY_VERDICT#* })"
+      ;;
+    *)
+      emit unknown pane "secondmate lifecycle state unavailable ($BUSY_VERDICT)"
+      ;;
+  esac
+fi
+
 pane_readable "$BACKEND_TARGET" || emit unknown none "backend target gone: $BACKEND_TARGET"
 
-# Secondmates idle on their own watcher (idle pane = healthy), so the busy
-# state is not meaningful for them; read their state from the status log only.
 # Only an exact busy verdict reports working here, and only an exact idle
 # verdict permits the status-log fallback below. Missing, malformed, stale, or
 # unverified semantic state remains unknown.
-if [ "$KIND" != secondmate ]; then
-  BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
-  case "${BUSY_VERDICT%% *}" in
-    busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
-    idle) ;;
-    *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
-  esac
-fi
+BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
+case "${BUSY_VERDICT%% *}" in
+  busy) emit working pane "harness busy (${BUSY_VERDICT#* })" ;;
+  idle) ;;
+  *) emit unknown pane "harness state unavailable ($BUSY_VERDICT)" ;;
+esac
 
 # Fall back to the status log's last line, but ONLY when its verb maps to a real
 # run-state. A decision-closing event - resolved: (fm-classify-lib.sh's
