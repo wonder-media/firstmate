@@ -13,6 +13,7 @@ PYTHON="${FM_BOARD_PYTHON:-python3}"
 "$PYTHON" - <<'PY'
 import contextlib,csv,io,json,os,pathlib,re,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error
 root=pathlib.Path(os.environ['FM_BOARD_TEST_ROOT']).resolve()
+assert (root/'.fm-test-fixture').is_file(), 'fixture root is not newly created by fm_test_tmproot'
 code=pathlib.Path(os.environ['FM_BOARD_TEST_CODE']).resolve()
 fixture=root/'code'; (fixture/'bin').mkdir(parents=True)
 for path in (code/'bin').iterdir():
@@ -32,27 +33,51 @@ if(window.__bridgeTest){
   const node=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.querySelector('h3')?.textContent==='Choose for instant');
   const review=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='review-label');
   const delivery=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='delivery-fail');
+  const factual=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='factual-rate');
   const failed=[...document.querySelectorAll('#task-cards .card')].find(n=>n.data?.task_id==='external');
-  if(!node||!review||!delivery||!failed){if(++attempts>100){clearInterval(begin);finish({error:'cards did not render'})}return}
+  if(!node||!review||!delivery||!factual||!failed){if(++attempts>30){clearInterval(begin);finish({error:'cards did not render',missing:{node:!node,review:!review,delivery:!delivery,factual:!factual,failed:!failed}})}return}
   clearInterval(begin);
-  const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=radios[0].name;
+  const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=draftKey(node.data);
+  const preselected=[...radios].some(r=>r.checked);
   radios[0].click();note.value='Unsaved local draft';note.dispatchEvent(new Event('input',{bubbles:true}));
+  const origin=structuredClone(state.decisions.find(d=>d.task_id==='instant'));
+  const moved=structuredClone(state),moving=moved.decisions.find(d=>d.task_id==='instant');
+  moving.project='CES';moving.origin_id='instant';moving.task_id='instant-decision-choose';paint(moved);
+  const holdKey=draftKey(node.data),liveProject=node.querySelector('.badge').textContent,draftAfterMove=JSON.parse(localStorage.getItem(holdKey)),draftLeftBehind=localStorage.getItem(key);
+  document.querySelector('#projects button[data-tag="CES"]').click();
+  const visibleAfterMove=!node.hidden;
+  document.querySelector('#projects button[data-tag="All"]').click();
+  const coexist=structuredClone(state);coexist.decisions.push(origin);paint(coexist);
+  const originCard=cards.get(identity(origin)),holdRadios=[...node.querySelectorAll('input[type=radio]')],originRadios=[...originCard.querySelectorAll('input[type=radio]')];
+  originRadios[1].click();paint(structuredClone(coexist));
+  const migration={records:[record(node.data).choice,record(originCard.data).choice],rebuilt:[node.data,originCard.data].map(d=>{const fresh=buildDecision(d);return [fresh.querySelector('input:checked')?.value||null,record(fresh.data).choice]}),
+   cards:[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(origin)).length,radioNames:[holdRadios[0].name,originRadios[0].name],
+   selected:[holdRadios.find(r=>r.checked)?.value||null,originRadios.find(r=>r.checked)?.value||null],confirm:[node.querySelector('.confirm').textContent,originCard.querySelector('.confirm').textContent],
+   checkedOpen:[...cards.values()].filter(n=>!n.hidden&&n.data.state==='open'&&n.querySelector('input:checked')).length,batch:document.querySelector('#submit-drafted').textContent};
+  paint(moved);
+  await refresh(true);
   const secret=JSON.parse(localStorage.getItem('board-secret'));
   const response=await fetch('/answer',{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({home:node.data.home_id,task:node.data.task_id,key:node.data.decision_key,revision:node.data.revision,choice:'B',note:'Other device chose wait',device:'other-device'})});
   if(!response.ok){finish({error:'answer post '+response.status});return}
   await refresh(true);
   let polls=0;
   const observe=setInterval(()=>{
-   if(!node.querySelector('.decision-state').textContent.startsWith('Queued')){if(++polls>100){clearInterval(observe);finish({error:'queued state did not render'})}return}
+   if(node.querySelector('.decision-state').textContent==='Waiting on you'){if(++polls>30){clearInterval(observe);finish({error:'submitted state did not render',state:node.querySelector('.decision-state').textContent})}return}
    clearInterval(observe);
+   const conflicting=structuredClone(state),base=conflicting.decisions.find(d=>d.task_id==='instant');
+   conflicting.decisions.push({...base,task_id:'instant-decision-choose',origin_id:'instant'});paint(conflicting);
+   const duplicateCards=[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(base)),distinctDuplicateCards=duplicateCards.length;
+   const distinctRadioGroups=new Set(duplicateCards.map(n=>n.querySelector('input[type=radio]').name)).size;
    const style=getComputedStyle(failed),descriptionStyle=getComputedStyle(node.querySelector('.consequence')),saved=localStorage.getItem(key);
-   finish({selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
+   finish({viewport:[innerWidth,innerHeight],horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
+    preselected,liveProject,draftAfterMove,draftLeftBehind,visibleAfterMove,migration,distinctDuplicateCards,distinctRadioGroups,selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
     savedDraft:saved,health:document.querySelector('#answer-health').textContent,
     healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
     failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor,
     description:node.querySelector('.consequence').textContent,descriptionSize:descriptionStyle.fontSize,descriptionWeight:descriptionStyle.fontWeight,
     registeredOptions:[...node.querySelectorAll('.option')].map(o=>o.textContent),
-    legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),
+    legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),legacyNotice:review.querySelector('.options-needed')?.textContent,
+    factualPreselected:[...factual.querySelectorAll('input[type=radio]')].some(r=>r.checked),factualGuidance:factual.querySelector('.recommend')?.textContent,
     reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent});
   },100);
  },100);
@@ -131,13 +156,34 @@ for name in ('tasks-axi','fm-crew-state.sh','fm-fleet-snapshot.sh','fm-send.sh',
     dest.write_text(script);dest.chmod(0o755)
 with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
 secret='fixture-secret-24-characters-minimum'
-config=home/'config/board.json';config.write_text(json.dumps({'homes':[{'id':'Main','path':str(home)},{'id':'Second','path':str(second)}],'lan_host':'localhost','port':port,'secret':secret,'repo_tags':{'wonderok':'WOK','ces':'CES'}}))
-env=dict(os.environ,FM_HOME=str(home),FM_BOARD_CONFIG=str(config),FM_BOARD_PYTHON=sys.executable,
-         FM_PROCEVENT_CLAIM_ROOT=str(root/'claims'),PATH=str(fakebin)+os.pathsep+os.environ['PATH'])
+config=home/'config/board.json';config.write_text(json.dumps({'homes':[{'id':'Main','path':str(home)},{'id':'Second','path':str(second)}],'lan_host':'localhost','port':port,'secret':secret,'repo_tags':{'wonderok':'WOK','ces':'CES','vendor/qualified-only':'MF','org-a/shared':'WOK','org-b/shared':'MF'}}))
+env=dict(os.environ)
+for key in ('FM_HOME','FM_BOARD_CONFIG','FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'):
+    env.pop(key,None)
+env.update(FM_HOME=str(home),FM_BOARD_CONFIG=str(config),FM_BOARD_PYTHON=sys.executable,
+           FM_PROCEVENT_CLAIM_ROOT=str(root/'claims'),PATH=str(fakebin)+os.pathsep+os.environ['PATH'])
 for key in ('FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'):
     env[key]=str(sentinel/{'FM_STATE_OVERRIDE':'state','FM_DATA_OVERRIDE':'data','FM_PROJECTS_OVERRIDE':'projects'}[key])
 cli=fixture/'bin/fm-board.sh';daemon=None;out=(root/'daemon.log').open('wb')
+def fixture_boundary(candidate_env=env,candidate_config=config):
+    def descendant(path,label):
+        resolved=pathlib.Path(path).resolve()
+        try:relative=resolved.relative_to(root)
+        except ValueError:raise AssertionError(f'{label} escaped fixture root: {resolved}')
+        assert relative.parts, f'{label} must be a strict fixture-root descendant'
+        return resolved
+    fixture_home=descendant(candidate_env['FM_HOME'],'FM_HOME')
+    fixture_config=descendant(candidate_config,'config')
+    fixture_db=descendant(fixture_home/'state/board.sqlite','database')
+    assert fixture_config==pathlib.Path(candidate_env['FM_BOARD_CONFIG']).resolve()
+    configured=json.loads(fixture_config.read_text())
+    for source in configured['homes']:
+        descendant(source['path'],f"configured home {source['id']}")
+    assert fixture_db==home.resolve()/'state/board.sqlite'
+    return fixture_home,fixture_config,fixture_db
+fixture_boundary()
 def command(*args,ok=True,timeout=30):
+    fixture_boundary()
     p=subprocess.run([str(cli),*map(str,args)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
     if ok and p.returncode:raise AssertionError(p.stderr.decode()+p.stdout.decode())
     if not ok:assert p.returncode!=0,(args,p.stdout)
@@ -173,6 +219,7 @@ def wait(test,seconds=15):
 
 def start():
     global daemon
+    fixture_boundary()
     daemon=subprocess.Popen([str(cli),'serve'],env=env,stdout=out,stderr=out)
     wait(lambda:request('/healthz')[1].get('ok') and request('/healthz')[1]['last_snapshot_ms'].get('Main') is not None,20)
 
@@ -183,8 +230,8 @@ def stop(kill=False):
         daemon.wait(timeout=30)
     daemon=None
 
-def meta(h,tid,status='working: fixture'):
-    (h/f'state/{tid}.meta').write_text('kind=task\nproject=wonderok\n')
+def meta(h,tid,status='working: fixture',repo='wonderok'):
+    (h/f'state/{tid}.meta').write_text('kind=task\nproject='+repo+'\n')
     (h/f'state/{tid}.status').write_text(status+'\n')
 def decision(tid,key='choose',project='WOK'):
     return json.loads(command('decision','Main',tid,key,'--project',project,'--title','Choose for '+tid,
@@ -233,16 +280,24 @@ try:
                 'with enough additional context to exceed one hundred and sixty characters while remaining understandable')
     marker=f'\\n... (truncated, {len(long_title)} chars total - use show long-decision --full to see complete text)'
     long_body='This is the complete plain-English body for the long decision. '+('More context. '*20)
-    rows=[['alpha','in_flight','ship','wonderok','Release alpha','-','-','no','none'],
-          ['origin-decision-budget','queued','captain','ces','Budget approval','captain','Set the budget','no','none'],
+    rows=[['alpha','in_flight','ship','wonder-media/wonderok','Release alpha','-','-','no','none'],
+          ['origin-decision-budget','queued','captain','example/ces','Budget approval','captain','Set the budget','no','none'],
           ['long-decision','queued','captain','wonderok',long_title[:78]+marker,'captain','Choose where the database will live.','no','none'],
           ['blocked-decision-no','queued','captain','ces','Blocked hold','captain','Wait','yes','missing'],
-          ['external','in_flight','ship','ces','External wait','external','Supplier','no','none']]
+          ['external','in_flight','ship','ces','External wait','external','Supplier','no','none'],
+          ['inherit-origin','in_flight','ship','wonderok','Origin work','-','-','no','none'],
+          ['inherit-origin-decision-scope','queued','captain','','Choose scope','captain','Choose the bounded scope.','no','none'],
+          ['qualified-leaf','in_flight','ship','qualified-only','Qualified alias leaf','-','-','no','none'],
+          ['ambiguous-exact','in_flight','ship','org-a/shared','Exact shared alias','-','-','no','none'],
+          ['ambiguous-unlisted','in_flight','ship','org-c/shared','Ambiguous shared leaf','-','-','no','none'],
+          ['ambiguous-unlisted-decision-pick','queued','captain','','Pick a vendor','captain','Pick the vendor for the shared work.','no','none'],
+          ['stale-origin','in_flight','ship','wonderok','Stale origin work','-','-','no','none'],
+          ['stale-origin-decision-merge','queued','captain','','Merge now?','captain','Choose whether to merge now.','no','none']]
     (home/'rows.json').write_text(json.dumps(rows))
     (home/'full-rows.json').write_text(json.dumps({'long-decision':{'title':long_title,'body':long_body,'hold_reason':'Choose where the database will live.'}}))
     command('ingest','--once');before=rev()
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
-    assert len(sql("select * from decisions where source='hold'"))==2
+    assert len(sql("select * from decisions where source='hold'"))==5
     assert sql("select * from decisions where task_id='alpha'")[0]['decision_key']=='choose'
     shows=[call[1] for call in calls(home,'tasks-axi') if call[1][:1]==['show']]
     assert shows==[['show','long-decision','--full']],shows
@@ -258,9 +313,84 @@ try:
     long_row=sql("select * from decisions where task_id='long-decision'")[0]
     assert long_row['question']=='Wonderok Postgres to Vultr Managed (EWR)' and long_row['description']=='Choose where the database will live.',long_row
     assert 'truncated' not in json.dumps(sql("select payload from backlog"))
+    projects={row['task_id']:row['project'] for row in sql('select task_id,project from tasks')}
+    assert projects['alpha']=='WOK' and projects['origin-decision-budget']=='CES',projects
+    assert projects['qualified-leaf']=='MF' and projects['ambiguous-exact']=='WOK' and projects['ambiguous-unlisted']=='FM',projects
+    inherited=sql("select * from decisions where task_id='inherit-origin-decision-scope'")[0]
+    assert inherited['project']=='WOK' and inherited['origin_id']=='inherit-origin',inherited
+    assert projects['inherit-origin-decision-scope']=='WOK',projects
+    legacy_hold=sql("select * from decisions where task_id='stale-origin-decision-merge'")[0]
+    assert legacy_hold['state']=='open' and legacy_hold['options']=='[]',legacy_hold
+    mutate('''insert into decisions(home_id,task_id,decision_key,revision,question,description,options,recommendation,why,
+        source,state,asked_at,closed_at,project,origin_id,registered) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        ('Main','stale-origin','merge',1,'Merge now?','This decides whether the branch lands today.',
+         json.dumps([{'value':'A','label':'Merge now'},{'value':'B','label':'Wait for review'}]),'B','Review lowers the risk.',
+         'firstmate','open',legacy_asked,None,'WOK','',1))
+    command('ingest','--once')
+    merged=sql("select * from decisions where task_id='stale-origin-decision-merge' order by revision desc")
+    assert merged[0]['state']=='open' and merged[0]['registered']==1 and merged[0]['recommendation']=='B' and merged[0]['origin_id']=='stale-origin',merged[0]
+    assert merged[0]['revision']==2 and merged[1]['state']=='closed' and merged[1]['revision']==1,merged
+    assert sql("select state from decisions where task_id='stale-origin'")==[{'state':'closed'}]
+    before=rev();command('ingest','--once');assert rev()==before
+    assert {e['project'] for e in sql("select project from events where task_id='inherit-origin-decision-scope'")}=={'WOK'}
+    assert projects['ambiguous-unlisted-decision-pick']=='FM' and sql("select project from decisions where task_id='ambiguous-unlisted-decision-pick'")[0]['project']=='FM'
+    picked=json.loads(command('decision','Main','ambiguous-unlisted','pick','--project','WOK','--title','Pick a vendor',
+        '--option','A: Vendor one','--option','B: Vendor two','--rec','A','--why','Vendor one is already approved.').stdout)
+    assert picked['task']=='ambiguous-unlisted-decision-pick',picked
+    command('ingest','--once')
+    explicit=sql("select * from decisions where task_id='ambiguous-unlisted-decision-pick' order by revision desc")[0]
+    assert explicit['project']=='WOK' and explicit['state']=='open' and explicit['revision']==picked['revision'],explicit
+    projects={row['task_id']:row['project'] for row in sql('select task_id,project from tasks')}
+    assert projects['ambiguous-unlisted-decision-pick']=='WOK' and projects['ambiguous-unlisted']=='WOK',projects
+    assert {e['project'] for e in sql("select project from events where task_id in ('ambiguous-unlisted','ambiguous-unlisted-decision-pick')")}=={'WOK'}
+    canonical=json.loads(command('decision','Main','inherit-origin','scope','--project','FM','--title','Choose scope',
+        '--description','This decides the bounded scope.','--option','A: Small scope','--option','B: Broad scope',
+        '--rec','A','--why','The smaller scope is easier to verify.').stdout)
+    assert canonical['task']=='inherit-origin-decision-scope',canonical
+    assert not sql("select * from decisions where task_id='inherit-origin'")
+    canonical_row=sql("select * from decisions where task_id='inherit-origin-decision-scope' order by revision desc")[0]
+    assert canonical_row['project']=='FM'
+    command('ingest','--once')
+    reconciled=sql("select * from decisions where task_id='inherit-origin-decision-scope' order by revision desc")[0]
+    assert reconciled['project']=='WOK' and reconciled['revision']==canonical_row['revision'] and reconciled['state']=='open',reconciled
+    late=json.loads(command('decision','Main','late-origin','route','--project','WOK','--title','Choose the route',
+        '--description','This decides which route is used.','--option','A: Direct','--option','B: Staged',
+        '--rec','B','--why','The staged route is easier to verify.').stdout)
+    assert late['task']=='late-origin',late
+    rows.append(['late-origin-decision-route','queued','captain','wonder-media/wonderok','Choose the route',
+        'captain','This decides which route is used.','no','none'])
+    (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog with late hold')
+    command('ingest','--once')
+    late_hold=sql("select * from decisions where task_id='late-origin-decision-route' order by revision desc")[0]
+    late_origin=sql("select * from decisions where task_id='late-origin' order by revision desc")[0]
+    assert late_hold['registered']==1 and late_hold['origin_id']=='late-origin' and late_hold['state']=='open',late_hold
+    assert late_origin['state']=='closed' and late_origin['revision']==late['revision'],late_origin
+    def late_actionable(actionable):
+        rows[-1][7:9]=['no','none'] if actionable else ['yes','missing']
+        (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog late hold actionable '+str(actionable))
+        command('ingest','--once')
+        return sql("select * from decisions where task_id='late-origin-decision-route' order by revision desc")[0]
+    blocked_hold=late_actionable(False)
+    assert blocked_hold['state']=='closed' and blocked_hold['revision']==late_hold['revision'],blocked_hold
+    rerouted=json.loads(command('decision','Main','late-origin','route','--project','WOK','--title','Choose the route',
+        '--option','A: Direct','--option','B: Staged','--option','C: Manual','--rec','C','--why','Manual routing is reversible.').stdout)
+    assert rerouted['task']=='late-origin',rerouted
+    assert late_actionable(False)['state']=='closed'
+    absorbed=late_actionable(True)
+    assert absorbed['state']=='open' and absorbed['registered']==1 and absorbed['recommendation']=='C',absorbed
+    assert absorbed['revision']==blocked_hold['revision']+1 and len(json.loads(absorbed['options']))==3,absorbed
+    assert sql("select state from decisions where task_id='late-origin' order by revision desc")[0]['state']=='closed'
+    assert late_actionable(False)['state']=='closed'
+    reopened=late_actionable(True)
+    assert reopened['state']=='open' and reopened['revision']==absorbed['revision']+1,reopened
+    assert (reopened['question'],reopened['options'],reopened['recommendation'],reopened['why'])==(absorbed['question'],absorbed['options'],absorbed['recommendation'],absorbed['why']),reopened
+    assert len(sql("select * from decisions where task_id='late-origin-decision-route'"))==reopened['revision']
+    passed('qualified aliases, ambiguity, hold inheritance, canonical registration, and in-place project reconciliation')
+    passed('closed registered hold reopens with its content; registration never targets a closed hold')
     passed('v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision')
+    before=rev()
     assert sql("select * from tasks where home_id='Second' and task_id='beta'")
-    assert not calls(home,'fm-fleet-snapshot.sh')
+    assert not calls(home,'fm-fleet-snapshot.sh'),calls(home,'fm-fleet-snapshot.sh')
     command('ingest','--once');assert rev()==before
     (home/'state/alpha.status').touch();command('ingest','--once');assert rev()==before
     (home/'state/.last-watcher-beat').touch();command('ingest','--once');assert rev()==before
@@ -276,21 +406,40 @@ try:
     decision('alpha');assert rev()==before+1
     command('decision','Main','bad-options','few','--project','WOK','--title','Too few',
             '--description','This should be rejected.','--option','A: Alone',ok=False)
-    passed('decision CLI creates 2-4 options, description, and recommendation idempotently')
+    factual=json.loads(command('decision','Main','factual-rate','rate','--project','MF','--title','Confirm the current rate',
+            '--description','This records the factual rate after checking the source.','--option','A: 2.5%',
+            '--option','B: 2.9%','--option','C: Another rate','--why','Verify the current schedule before choosing.').stdout)
+    factual_row=sql("select * from decisions where task_id='factual-rate' and revision=?",(factual['revision'],))[0]
+    assert factual_row['recommendation']=='' and factual_row['why']=='Verify the current schedule before choosing.',factual_row
+    passed('decision CLI creates 2-3 options, description, and recommendation idempotently')
     # Single flight across CLI processes, preserving last-good state on timeout.
+    # A hold whose origin meta vanishes after the manifest snapshot must not abort the home.
+    meta(home,'vanish',repo='');rows.append(['vanish-decision-keep','queued','captain','','Keep the branch?','captain','Choose whether to keep it.','no','none'])
+    (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog with vanishing origin')
+    command('ingest','--once')
+    assert sql("select project from decisions where task_id='vanish-decision-keep'")==[{'project':'FM'}]
     (home/'delay').write_text('12');(home/'state/alpha.status').touch()
+    fixture_boundary()
     slow=subprocess.Popen([str(cli),'ingest','--once','--home','Main'],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
-    time.sleep(.5);n=len(calls(home,'fm-crew-state.sh'))
+    time.sleep(.5);n=len(calls(home,'fm-crew-state.sh'));(home/'state/vanish.meta').unlink()
     command('ingest','--once','--home','Main');assert len(calls(home,'fm-crew-state.sh'))==n
     _,err=slow.communicate(timeout=20);assert slow.returncode!=0 and b'timeout' in err
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
     assert 'timeout' in sql("select last_error from ingest_runs where home_id='Main'")[0]['last_error']
-    (home/'delay').unlink();command('ingest','--once');passed('single-flight and bounded subprocess failure keep last-good rows')
+    assert sql("select state from decisions where task_id='vanish-decision-keep'")==[{'state':'open'}]
+    (home/'delay').unlink();rows.pop()
+    (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog without vanishing origin')
+    command('ingest','--once')
+    assert sql("select state from decisions where task_id='vanish-decision-keep'")==[{'state':'closed'}]
+    assert sql("select deleted_at from tasks where task_id='vanish'")[0]['deleted_at']
+    passed('single-flight and bounded subprocess failure keep last-good rows; a vanished origin meta is tolerated')
     start();assert calls(home,'fm-fleet-snapshot.sh')
     status,health,_=request('/healthz');assert status==200 and health['answers_armed']
     assert set(('ok','ingest_age_s','last_snapshot_ms','sse_clients','db_ok','outbox_backlog','answers_armed','answers_error'))<=health.keys()
     assert health['answers_error'] is None
     _,payload,h=request();assert request(extra={'If-None-Match':h['ETag']})[0]==304
+    visible_route=[d for d in payload['decisions'] if d['home_id']=='Main' and d['decision_key']=='route']
+    assert [(d['task_id'],d['origin_id']) for d in visible_route]==[('late-origin-decision-route','late-origin')],visible_route
     long_card=next(d for d in payload['decisions'] if d['task_id']=='long-decision')
     assert long_card['question']=='Wonderok Postgres to Vultr Managed (EWR)',long_card
     assert long_card['description']=='Choose where the database will live.'
@@ -356,7 +505,7 @@ try:
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(oid,))[0]['consumed_at'])
     deliveries=list(map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()))
     assert deliveries[-2]==['keyed-legacy','--resolve-key','reason','Keep the current copy'],deliveries[-2]
-    assert deliveries[-1]==['options-please',"Captain requested structured options for decision alternatives: register 2-4 distinct alternatives with `bin/fm-board.sh decision Main options-please alternatives --option '...'` and stop."]
+    assert deliveries[-1]==['options-please',"Captain requested structured options for decision alternatives: register 2-3 distinct alternatives with `bin/fm-board.sh decision Main options-please alternatives --option '...' --rec VALUE --why '...'` and stop; for an unknown factual input, omit --rec and use --why for the recommended verification step."]
     passed('keyed legacy note routes directly; concrete-options request is one exact fixed steer')
     # Three legacy answers are exceptions: one atomic JSONL burst, one source fire.
     for i in range(3):meta(home,f'legacy{i}',f'needs-decision: Explain choice {i}')
@@ -382,10 +531,27 @@ try:
     held=next(d for d in request()[1]['decisions'] if d['task_id']=='origin-decision-budget')
     r=request('/answer',answer(held['task_id'],key='budget',choice='custom',note='Use the small budget',revision=held['revision']))
     assert r[0]==200,r
-    hid=r[1]['answers'][0]['answer_id'];accelerate([hid])
+    hid=r[1]['answers'][0]['answer_id']
+    def ingested_after(previous):
+        wait(lambda:sql("select last_ok from ingest_runs where home_id='Main'")[0]['last_ok']!=previous)
+        run_=sql("select last_ok,last_error from ingest_runs where home_id='Main'")[0]
+        assert run_['last_error'] is None,run_
+        return run_['last_ok']
+    last_ok=sql("select last_ok from ingest_runs where home_id='Main'")[0]['last_ok']
+    blocked=command('decision','Main','origin','budget','--project','CES','--title','Budget approval',
+            '--option','A: Approve','--option','B: Reject','--rec','A','--why','Approval unblocks the work.',ok=False)
+    assert b'outstanding answer' in blocked.stderr+blocked.stdout,blocked.stderr
+    assert not sql("select * from decisions where task_id='origin'")
+    last_ok=ingested_after(last_ok)
+    assert sql("select state from decisions where task_id='origin-decision-budget' order by revision desc")[0]['state']=='queued'
+    accelerate([hid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(hid,))[0]['consumed_at'])
     assert (home/'hold-input').read_text().startswith('budget\tUse the small budget\t')
+    ingested_after(last_ok)
+    consumed_hold=sql("select * from decisions where task_id='origin-decision-budget' order by revision desc")[0]
+    assert consumed_hold['state']=='consumed' and consumed_hold['revision']==held['revision'],consumed_hold
     passed('backlog hold routes through fm-decision-hold answers')
+    passed('registration conflicts with an answered hold; ingest keeps running and never supersedes it')
     # An answer without a note delivers the option wording alone.
     decision('nonote')
     wait(lambda:any(d['task_id']=='nonote' for d in request()[1]['decisions']))
@@ -397,7 +563,7 @@ try:
     assert sent==['nonote','--resolve-key','choose','Ship it'],sent
     # A registered option may hold newlines or tabs; the hold intake needs one line.
     command('decision','Main',held['task_id'],'budget','--project','CES','--title','Budget approval',
-            '--option','A: Approve\nwith\tconditions','--option','B: Reject')
+            '--option','A: Approve\nwith\tconditions','--option','B: Reject','--rec','A','--why','Conditions preserve the safety boundary.')
     fresh=next(d for d in request()[1]['decisions'] if d['task_id']==held['task_id'])
     lines=len((home/'hold-input').read_text().splitlines())
     r=request('/answer',answer(held['task_id'],key='budget',choice='A',note='',revision=fresh['revision']))
@@ -487,6 +653,7 @@ for bad in (0,86401,'120',12.5):
     finally:
         os.unlink(f.name)
 '''
+    fixture_boundary()
     check=subprocess.run([sys.executable,'-c',guard],env=dict(env,FM_BOARD_CHECK_MODULE=str(fixture/'bin/fm-board.py')),
                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
     assert check.returncode==0,check.stderr.decode()
@@ -521,9 +688,21 @@ for bad in (0,86401,'120',12.5):
     source_stream.close()
     mutate("update tasks set current_state='failed' where task_id='external'")
     chrome=next((p for p in (shutil.which('google-chrome'),shutil.which('google-chrome-stable'),shutil.which('chromium'),shutil.which('chromium-browser'),'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') if p and pathlib.Path(p).is_file()),None)
-    if os.environ.get('FM_BOARD_BROWSER_TEST')=='1' and chrome:
+    if os.environ.get('FM_BOARD_EXTERNAL_BROWSER')=='1':
+        proof=root/'external-browser-complete'
+        print('external-browser-fixture '+json.dumps({'url':f'http://localhost:{port}/?k={secret}',
+            'root':str(root),'complete':str(proof)}),flush=True)
+        deadline=time.monotonic()+900
+        while not proof.exists() and time.monotonic()<deadline:
+            assert daemon.poll() is None,'synthetic browser daemon exited'
+            time.sleep(.2)
+        assert proof.exists(),'external browser proof timed out'
+        passed('external browser proof completed against the synthetic fixture')
+    elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1' and chrome:
+        browser_size=os.environ.get('FM_BOARD_BROWSER_SIZE','1440,1000')
+        assert re.fullmatch(r'[1-9][0-9]{1,3},[1-9][0-9]{1,3}',browser_size),browser_size
         rendered=subprocess.run([chrome,'--headless=new','--disable-gpu','--no-sandbox','--timeout=8000','--virtual-time-budget=4000',
-            '--user-data-dir='+str(root/'chrome-profile'),'--dump-dom',f'http://localhost:{port}/?k={secret}&browser-test=1'],
+            '--window-size='+browser_size,'--user-data-dir='+str(root/'chrome-profile'),'--dump-dom',f'http://localhost:{port}/?k={secret}&browser-test=1'],
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
         assert rendered.returncode==0,rendered.stderr.decode()[-1000:]
         import html
@@ -531,13 +710,26 @@ for bad in (0,86401,'120',12.5):
         assert match,rendered.stdout[-2000:]
         observed=json.loads(html.unescape(match.group(1).decode()))
         assert observed.get('error') is None,observed
+        assert observed['horizontalOverflow'] is False,observed
+        assert observed['preselected'] is False,observed
+        assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed
+        assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'} and observed['draftLeftBehind'] is None,observed
+        migration=observed['migration']
+        assert migration['cards']==2 and len(set(migration['radioNames']))==2,observed
+        assert migration['selected']==['A','B'] and migration['confirm']==['Confirm: Ship it','Confirm: Wait'],observed
+        assert migration['checkedOpen']==2 and migration['batch'].startswith('Submit drafted (2 of '),observed
+        assert migration['records']==['A','B'] and migration['rebuilt']==[['A','A'],['B','B']],observed
+        assert observed['distinctDuplicateCards']==2 and observed['distinctRadioGroups']==2,observed
         assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
         assert observed['savedDraft'] is None,observed
         assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
         assert observed['description']=='This decides whether the change ships now or waits for another check.',observed
         assert observed['descriptionSize']=='14px' and observed['descriptionWeight']=='400',observed
         assert observed['registeredOptions'][0].startswith('Ship itRecommended · Small reversible change'),observed
-        assert observed['legacyOptions']==['Ask firstmate for 2-3 concrete options (recommended)','Send a custom answer'],observed
+        assert observed['legacyOptions']==['Write my own answer','Ask firstmate for 2-3 concrete options'],observed
+        assert observed['legacyNotice']=='Concrete options and a recommendation are still being prepared.',observed
+        assert observed['factualPreselected'] is False,observed
+        assert observed['factualGuidance']=='Recommended next step · Verify the current schedule before choosing.',observed
         assert observed['reviewState']=='Sent to firstmate to review',observed
         assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
         assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed

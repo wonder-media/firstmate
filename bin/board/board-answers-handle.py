@@ -98,8 +98,9 @@ def route(config):
                         answer_text = note
                     if a['choice'] == 'request-options':
                         answer_text = (f'Captain requested structured options for decision {a["decision_key"]}: '
-                            f'register 2-4 distinct alternatives with `bin/fm-board.sh decision {a["home_id"]} '
-                            f'{a["task_id"]} {a["decision_key"]} --option \'...\'` and stop.')
+                            f'register 2-3 distinct alternatives with `bin/fm-board.sh decision {a["home_id"]} '
+                            f'{a["task_id"]} {a["decision_key"]} --option \'...\' --rec VALUE --why \'...\'` and stop; '
+                            'for an unknown factual input, omit --rec and use --why for the recommended verification step.')
                 if d['source'] == 'hold' and a['choice'] != 'request-options':
                     argv = [m.ROOT/'bin/fm-decision-hold.sh','answers',d['origin_id'],'--source',f'board:{aid}']
                     stdin = f'{a["decision_key"]}\t{answer_text}\tCaptain dashboard\n'
