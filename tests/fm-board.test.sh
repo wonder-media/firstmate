@@ -641,11 +641,29 @@ try:
     vendor_archive=next(t for t in request()[1]['archive'] if t['task_id']=='vendor')
     vendor_resume='dddddddd-dddd-4ddd-8ddd-dddddddddddd'
     assert request('/lifecycle',lifecycle('Main','vendor',vendor_archive['lifecycle']['revision'],'resume',vendor_resume))[0]==200
-    lifecycle_done(vendor_resume)
-    assert next(t for t in request()[1]['tasks'] if t['task_id']=='vendor')['lifecycle']['state']=='active'
+    lifecycle_done(vendor_resume,'failed')
+    vendor_archive=next(t for t in request()[1]['archive'] if t['task_id']=='vendor')
+    assert vendor_archive['lifecycle']['state']=='held' and 'changed since Bridge stopped it' in vendor_archive['lifecycle']['error'],vendor_archive
+    assert not any(t['task_id']=='vendor' for t in request()[1]['tasks'])
     assert not [c for c in calls(home,'fm-control.sh') if c[1][:2]==['vendor','relaunch']]
     assert backlog_row('vendor')[5:7]==['external','Waiting for the vendor'] and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['unhold','vendor']]
-    passed('Hold and Resume preserve pre-existing holds, never relaunch a superseded worker, and Discard declines captain holds through fm-decision-hold')
+    (home/'fail-control').write_text('1')
+    vendor_discard='dddddddd-dddd-4ddd-8ddd-eeeeeeeeeeee'
+    assert request('/lifecycle',lifecycle('Main','vendor',vendor_archive['lifecycle']['revision'],'discard',vendor_discard))[0]==200
+    lifecycle_done(vendor_discard,'failed')
+    stuck_discard=next(t for t in request()[1]['archive'] if t['task_id']=='vendor')
+    assert stuck_discard['lifecycle']['state']=='discarded' and 'fm-control.sh' in stuck_discard['lifecycle']['error'] and backlog_row('vendor')[1]=='done',stuck_discard
+    external('vendor','fixture backlog after failed vendor discard')
+    time.sleep(6)
+    stuck_discard=next(t for t in request()[1]['archive'] if t['task_id']=='vendor')
+    assert 'fm-control.sh' in stuck_discard['lifecycle']['error'],stuck_discard
+    (home/'fail-control').unlink()
+    vendor_retry='dddddddd-dddd-4ddd-8ddd-ffffffffffff'
+    assert request('/lifecycle',lifecycle('Main','vendor',stuck_discard['lifecycle']['revision'],'discard',vendor_retry))[0]==200
+    lifecycle_done(vendor_retry)
+    assert not any(t['task_id']=='vendor' for t in request()[1]['archive']+request()[1]['tasks'])
+    assert len([c for c in calls(home,'fm-control.sh') if c[1]==['vendor','exit']])==3
+    passed('Hold and Resume preserve pre-existing holds, a changed worker record blocks Resume, and a failed Discard stop stays visible until a retry succeeds')
     # tasks-axi stays authoritative: external reopen, release, and completion
     # reconcile the Archive on ingest, and a failed relaunch never claims active.
     assert backlog_row('lifecycle')[1]=='done' and sql("select state from task_lifecycle where task_id='lifecycle'")==[{'state':'discarded'}]

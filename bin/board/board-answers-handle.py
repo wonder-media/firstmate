@@ -88,6 +88,13 @@ def bridge_hold_active(hold):
     return hold['held'] == 'yes' and hold['hold_kind'] == 'parked' and hold['hold_reason'] == m.BRIDGE_HOLD_REASON
 
 
+def agent_state(home, task):
+    return m.run(['bash','-c','source "$1"; fm_backend_validate_task_endpoint "$2" "$3" >/dev/null 2>&1 '
+                  '|| { printf unreadable; exit 0; }; fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" '
+                  '"$FM_BACKEND_VALIDATED_TARGET" 2>/dev/null || printf unreadable',
+                  'board',m.ROOT/'bin/fm-backend.sh',home/f'state/{task}.meta',task],home,30).strip()
+
+
 def worker_record(b, home, task):
     meta = home / f'state/{task}.meta'
     if not meta.is_file() or b.read_meta(home, task).get('kind') == 'secondmate':
@@ -147,7 +154,7 @@ def route_lifecycle(b):
             if action == 'hold':
                 hold = task_hold(target_home, task)
                 own = bridge_hold_active(hold)
-                if hold['held'] != 'yes':
+                if hold['hold_kind'] in ('', '-'):
                     m.run(['tasks-axi','hold',task,'--reason',m.BRIDGE_HOLD_REASON,'--kind','parked','--json'],target_home)
                     own = True
                 actual_state = 'held'
@@ -173,9 +180,16 @@ def route_lifecycle(b):
                     m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60)
             elif action == 'resume':
                 if lifecycle['stopped_meta']:
-                    if worker_record(b, target_home, task) == lifecycle['stopped_meta']:
+                    current = worker_record(b, target_home, task)
+                    if current == lifecycle['stopped_meta']:
                         m.run([m.ROOT/'bin/fm-control.sh',task,'relaunch','--note',
                                f'Resumed from Bridge Archive by the captain (request {rid}); continue from the recorded checkpoint.'],target_home,300)
+                    elif current is None:
+                        raise m.Invalid(f'worker record for {task} is gone since Bridge stopped it; ask its owner to confirm the worker before resuming')
+                    else:
+                        state = agent_state(target_home, task)
+                        if state != 'alive':
+                            raise m.Invalid(f'worker record for {task} changed since Bridge stopped it and its agent state is {state}; ask its owner to confirm the worker before resuming')
                     record(stopped_meta=None)
                 if lifecycle['bridge_hold']:
                     if bridge_hold_active(task_hold(target_home, task)):
