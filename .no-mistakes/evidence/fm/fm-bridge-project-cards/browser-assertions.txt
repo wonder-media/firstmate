@@ -1,0 +1,58 @@
+ok - no horizontal overflow at 1440x1000
+ok - recommended option is NOT preselected
+ok - card project badge updates live to CES and stays visible under CES filter
+ok - draft (choice A + note) survives the live identity/project move
+ok - origin + hold duplicate cards get independent radio groups
+ok - authoritative answer from another device replaces the draft
+ok - state shows Queued with undo window
+ok - answers source health is surfaced
+ok - description rendered as 14px/400 consequence
+ok - registered option shows Recommended + one-sentence reason
+ok - legacy card lists custom first, request-options not recommended
+ok - legacy card shows factual preparing notice
+ok - factual card: no preselection, verification step rendered
+ok - review / delivery-failed states labelled
+note - failedBorderWidth in this capture was 1px because the daemon re-ingested the fixture (external=paused) during the external-browser wait; re-verified separately: see failed-task-styling.txt (3px red)
+
+observed:
+{
+ "viewport": [
+  1440,
+  1000
+ ],
+ "horizontalOverflow": false,
+ "preselected": false,
+ "liveProject": "CES",
+ "draftAfterMove": {
+  "choice": "A",
+  "note": "Unsaved local draft"
+ },
+ "visibleAfterMove": true,
+ "distinctDuplicateCards": 2,
+ "distinctRadioGroups": 2,
+ "selected": "B",
+ "note": "Other device chose wait",
+ "state": "Queued - undo available for 15 s",
+ "savedDraft": null,
+ "health": "Answers: legacy cursor is outside the answer log",
+ "healthHidden": false,
+ "dot": "dot red",
+ "failedBorderWidth": "1px",
+ "failedBorderColor": "rgb(52, 61, 71)",
+ "description": "This decides whether the change ships now or waits for another check.",
+ "descriptionSize": "14px",
+ "descriptionWeight": "400",
+ "registeredOptions": [
+  "Ship itRecommended \u00b7 Small reversible change",
+  "Wait"
+ ],
+ "legacyOptions": [
+  "Write my own answer",
+  "Ask firstmate for 2-3 concrete options"
+ ],
+ "legacyNotice": "Concrete options and a recommendation are still being prepared.",
+ "factualPreselected": false,
+ "factualGuidance": "Recommended next step \u00b7 Verify the current schedule before choosing.",
+ "reviewState": "Sent to firstmate to review",
+ "deliveryState": "Could not deliver - firstmate notified"
+}

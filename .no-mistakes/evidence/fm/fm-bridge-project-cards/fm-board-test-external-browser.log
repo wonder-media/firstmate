@@ -1,0 +1,27 @@
+ok - every subcommand validates arguments and supports --help
+ok - qualified aliases, ambiguity, hold inheritance, canonical registration, and in-place project reconciliation
+ok - closed registered hold reopens with its content; registration never targets a closed hold
+ok - v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision
+ok - fixture homes, actionable holds, keyed decisions; no timestamp churn or hot snapshots
+ok - vanished meta tombstones once
+ok - decision CLI creates 2-3 options, description, and recommendation idempotently
+ok - single-flight and bounded subprocess failure keep last-good rows; a vanished origin meta is tolerated
+ok - health, Bearer authentication, Host/Origin boundary, explicit routes, ETag, stale revision
+ok - changed SSE carries rev, status arrives within ten seconds, registration pushes immediately
+ok - authoritative queued payload, undo, dedupe, crash replay, routing, and consumption
+ok - keyed legacy note routes directly; concrete-options request is one exact fixed steer
+ok - batch exceptions produce one JSONL burst/source fire; publication crash replay is idempotent
+ok - backlog hold routes through fm-decision-hold answers
+ok - registration conflicts with an answered hold; ingest keeps running and never supersedes it
+ok - empty notes add no suffix and hold answers stay one field-safe line
+ok - answer exceptions distinguish firstmate review from a true worker delivery failure
+ok - daemon and runner subprocess environments reject inherited path overrides
+ok - re-arming backs off, a live external owner is armed, fresh boot reconciles, stale_after_s is validated and honored
+ok - verified live registration and VACUUM backup restore
+external-browser-fixture {"url": "http://localhost:57339/?k=fixture-secret-24-characters-minimum", "root": "/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-board.RdEobz", "complete": "/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-board.RdEobz/external-browser-complete"}
+ok - external browser proof completed against the synthetic fixture
+ok - source failure reaches API state and SSE without a captured result
+ok - legacy integer cursor and id-less lines migrate without losing or blocking answers
+ok - all cleanup uses only fixture FM_HOME; all three path overrides stripped; sentinel unchanged
+ok - dashboard integration suite
+EXIT=0

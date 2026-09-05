@@ -1,0 +1,1 @@
+result: "\"{\\\"state\\\":\\\"failed\\\",\\\"label\\\":\\\"Confirmed failure\\\",\\\"borderTop\\\":\\\"3px rgb(218, 54, 51)\\\"}\""
