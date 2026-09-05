@@ -13,6 +13,7 @@ PYTHON="${FM_BOARD_PYTHON:-python3}"
 "$PYTHON" - <<'PY'
 import contextlib,csv,io,json,os,pathlib,re,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error
 root=pathlib.Path(os.environ['FM_BOARD_TEST_ROOT']).resolve()
+assert (root/'.fm-test-fixture').is_file(), 'fixture root is not newly created by fm_test_tmproot'
 code=pathlib.Path(os.environ['FM_BOARD_TEST_CODE']).resolve()
 fixture=root/'code'; (fixture/'bin').mkdir(parents=True)
 for path in (code/'bin').iterdir():
@@ -32,27 +33,41 @@ if(window.__bridgeTest){
   const node=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.querySelector('h3')?.textContent==='Choose for instant');
   const review=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='review-label');
   const delivery=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='delivery-fail');
+  const factual=[...document.querySelectorAll('#decision-cards .card')].find(n=>n.data?.task_id==='factual-rate');
   const failed=[...document.querySelectorAll('#task-cards .card')].find(n=>n.data?.task_id==='external');
-  if(!node||!review||!delivery||!failed){if(++attempts>100){clearInterval(begin);finish({error:'cards did not render'})}return}
+  if(!node||!review||!delivery||!factual||!failed){if(++attempts>30){clearInterval(begin);finish({error:'cards did not render',missing:{node:!node,review:!review,delivery:!delivery,factual:!factual,failed:!failed}})}return}
   clearInterval(begin);
   const radios=node.querySelectorAll('input[type=radio]'),note=node.querySelector('textarea'),key=radios[0].name;
+  const preselected=[...radios].some(r=>r.checked);
   radios[0].click();note.value='Unsaved local draft';note.dispatchEvent(new Event('input',{bubbles:true}));
+  const moved=structuredClone(state),moving=moved.decisions.find(d=>d.task_id==='instant');
+  moving.project='CES';moving.origin_id='instant';moving.task_id='instant-decision-choose';paint(moved);
+  const liveProject=node.querySelector('.badge').textContent,draftAfterMove=JSON.parse(localStorage.getItem(key));
+  document.querySelector('#projects button[data-tag="CES"]').click();
+  const visibleAfterMove=!node.hidden;
+  document.querySelector('#projects button[data-tag="All"]').click();
+  await refresh(true);
   const secret=JSON.parse(localStorage.getItem('board-secret'));
   const response=await fetch('/answer',{method:'POST',headers:{Authorization:'Bearer '+secret,'Content-Type':'application/json'},body:JSON.stringify({home:node.data.home_id,task:node.data.task_id,key:node.data.decision_key,revision:node.data.revision,choice:'B',note:'Other device chose wait',device:'other-device'})});
   if(!response.ok){finish({error:'answer post '+response.status});return}
   await refresh(true);
   let polls=0;
   const observe=setInterval(()=>{
-   if(!node.querySelector('.decision-state').textContent.startsWith('Queued')){if(++polls>100){clearInterval(observe);finish({error:'queued state did not render'})}return}
+   if(node.querySelector('.decision-state').textContent==='Waiting on you'){if(++polls>30){clearInterval(observe);finish({error:'submitted state did not render',state:node.querySelector('.decision-state').textContent})}return}
    clearInterval(observe);
+   const conflicting=structuredClone(state),base=conflicting.decisions.find(d=>d.task_id==='instant');
+   conflicting.decisions.push({...base,task_id:'instant-decision-choose',origin_id:'instant'});paint(conflicting);
+   const distinctDuplicateCards=[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(base)).length;
    const style=getComputedStyle(failed),descriptionStyle=getComputedStyle(node.querySelector('.consequence')),saved=localStorage.getItem(key);
-   finish({selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
+   finish({viewport:[innerWidth,innerHeight],horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
+    preselected,liveProject,draftAfterMove,visibleAfterMove,distinctDuplicateCards,selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
     savedDraft:saved,health:document.querySelector('#answer-health').textContent,
     healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
     failedBorderWidth:style.borderTopWidth,failedBorderColor:style.borderTopColor,
     description:node.querySelector('.consequence').textContent,descriptionSize:descriptionStyle.fontSize,descriptionWeight:descriptionStyle.fontWeight,
     registeredOptions:[...node.querySelectorAll('.option')].map(o=>o.textContent),
-    legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),
+    legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),legacyNotice:review.querySelector('.options-needed')?.textContent,
+    factualPreselected:[...factual.querySelectorAll('input[type=radio]')].some(r=>r.checked),factualGuidance:factual.querySelector('.recommend')?.textContent,
     reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent});
   },100);
  },100);
@@ -131,13 +146,34 @@ for name in ('tasks-axi','fm-crew-state.sh','fm-fleet-snapshot.sh','fm-send.sh',
     dest.write_text(script);dest.chmod(0o755)
 with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
 secret='fixture-secret-24-characters-minimum'
-config=home/'config/board.json';config.write_text(json.dumps({'homes':[{'id':'Main','path':str(home)},{'id':'Second','path':str(second)}],'lan_host':'localhost','port':port,'secret':secret,'repo_tags':{'wonderok':'WOK','ces':'CES'}}))
-env=dict(os.environ,FM_HOME=str(home),FM_BOARD_CONFIG=str(config),FM_BOARD_PYTHON=sys.executable,
-         FM_PROCEVENT_CLAIM_ROOT=str(root/'claims'),PATH=str(fakebin)+os.pathsep+os.environ['PATH'])
+config=home/'config/board.json';config.write_text(json.dumps({'homes':[{'id':'Main','path':str(home)},{'id':'Second','path':str(second)}],'lan_host':'localhost','port':port,'secret':secret,'repo_tags':{'wonderok':'WOK','ces':'CES','vendor/qualified-only':'MF','org-a/shared':'WOK','org-b/shared':'MF'}}))
+env=dict(os.environ)
+for key in ('FM_HOME','FM_BOARD_CONFIG','FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'):
+    env.pop(key,None)
+env.update(FM_HOME=str(home),FM_BOARD_CONFIG=str(config),FM_BOARD_PYTHON=sys.executable,
+           FM_PROCEVENT_CLAIM_ROOT=str(root/'claims'),PATH=str(fakebin)+os.pathsep+os.environ['PATH'])
 for key in ('FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'):
     env[key]=str(sentinel/{'FM_STATE_OVERRIDE':'state','FM_DATA_OVERRIDE':'data','FM_PROJECTS_OVERRIDE':'projects'}[key])
 cli=fixture/'bin/fm-board.sh';daemon=None;out=(root/'daemon.log').open('wb')
+def fixture_boundary(candidate_env=env,candidate_config=config):
+    def descendant(path,label):
+        resolved=pathlib.Path(path).resolve()
+        try:relative=resolved.relative_to(root)
+        except ValueError:raise AssertionError(f'{label} escaped fixture root: {resolved}')
+        assert relative.parts, f'{label} must be a strict fixture-root descendant'
+        return resolved
+    fixture_home=descendant(candidate_env['FM_HOME'],'FM_HOME')
+    fixture_config=descendant(candidate_config,'config')
+    fixture_db=descendant(fixture_home/'state/board.sqlite','database')
+    assert fixture_config==pathlib.Path(candidate_env['FM_BOARD_CONFIG']).resolve()
+    configured=json.loads(fixture_config.read_text())
+    for source in configured['homes']:
+        descendant(source['path'],f"configured home {source['id']}")
+    assert fixture_db==home.resolve()/'state/board.sqlite'
+    return fixture_home,fixture_config,fixture_db
+fixture_boundary()
 def command(*args,ok=True,timeout=30):
+    fixture_boundary()
     p=subprocess.run([str(cli),*map(str,args)],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
     if ok and p.returncode:raise AssertionError(p.stderr.decode()+p.stdout.decode())
     if not ok:assert p.returncode!=0,(args,p.stdout)
@@ -173,6 +209,7 @@ def wait(test,seconds=15):
 
 def start():
     global daemon
+    fixture_boundary()
     daemon=subprocess.Popen([str(cli),'serve'],env=env,stdout=out,stderr=out)
     wait(lambda:request('/healthz')[1].get('ok') and request('/healthz')[1]['last_snapshot_ms'].get('Main') is not None,20)
 
@@ -183,8 +220,8 @@ def stop(kill=False):
         daemon.wait(timeout=30)
     daemon=None
 
-def meta(h,tid,status='working: fixture'):
-    (h/f'state/{tid}.meta').write_text('kind=task\nproject=wonderok\n')
+def meta(h,tid,status='working: fixture',repo='wonderok'):
+    (h/f'state/{tid}.meta').write_text('kind=task\nproject='+repo+'\n')
     (h/f'state/{tid}.status').write_text(status+'\n')
 def decision(tid,key='choose',project='WOK'):
     return json.loads(command('decision','Main',tid,key,'--project',project,'--title','Choose for '+tid,
@@ -233,16 +270,21 @@ try:
                 'with enough additional context to exceed one hundred and sixty characters while remaining understandable')
     marker=f'\\n... (truncated, {len(long_title)} chars total - use show long-decision --full to see complete text)'
     long_body='This is the complete plain-English body for the long decision. '+('More context. '*20)
-    rows=[['alpha','in_flight','ship','wonderok','Release alpha','-','-','no','none'],
-          ['origin-decision-budget','queued','captain','ces','Budget approval','captain','Set the budget','no','none'],
+    rows=[['alpha','in_flight','ship','wonder-media/wonderok','Release alpha','-','-','no','none'],
+          ['origin-decision-budget','queued','captain','example/ces','Budget approval','captain','Set the budget','no','none'],
           ['long-decision','queued','captain','wonderok',long_title[:78]+marker,'captain','Choose where the database will live.','no','none'],
           ['blocked-decision-no','queued','captain','ces','Blocked hold','captain','Wait','yes','missing'],
-          ['external','in_flight','ship','ces','External wait','external','Supplier','no','none']]
+          ['external','in_flight','ship','ces','External wait','external','Supplier','no','none'],
+          ['inherit-origin','in_flight','ship','wonderok','Origin work','-','-','no','none'],
+          ['inherit-origin-decision-scope','queued','captain','','Choose scope','captain','Choose the bounded scope.','no','none'],
+          ['qualified-leaf','in_flight','ship','qualified-only','Qualified alias leaf','-','-','no','none'],
+          ['ambiguous-exact','in_flight','ship','org-a/shared','Exact shared alias','-','-','no','none'],
+          ['ambiguous-unlisted','in_flight','ship','org-c/shared','Ambiguous shared leaf','-','-','no','none']]
     (home/'rows.json').write_text(json.dumps(rows))
     (home/'full-rows.json').write_text(json.dumps({'long-decision':{'title':long_title,'body':long_body,'hold_reason':'Choose where the database will live.'}}))
     command('ingest','--once');before=rev()
     assert sql("select title from tasks where task_id='alpha'")[0]['title']=='Release alpha'
-    assert len(sql("select * from decisions where source='hold'"))==2
+    assert len(sql("select * from decisions where source='hold'"))==3
     assert sql("select * from decisions where task_id='alpha'")[0]['decision_key']=='choose'
     shows=[call[1] for call in calls(home,'tasks-axi') if call[1][:1]==['show']]
     assert shows==[['show','long-decision','--full']],shows
@@ -258,9 +300,38 @@ try:
     long_row=sql("select * from decisions where task_id='long-decision'")[0]
     assert long_row['question']=='Wonderok Postgres to Vultr Managed (EWR)' and long_row['description']=='Choose where the database will live.',long_row
     assert 'truncated' not in json.dumps(sql("select payload from backlog"))
+    projects={row['task_id']:row['project'] for row in sql('select task_id,project from tasks')}
+    assert projects['alpha']=='WOK' and projects['origin-decision-budget']=='CES',projects
+    assert projects['qualified-leaf']=='MF' and projects['ambiguous-exact']=='WOK' and projects['ambiguous-unlisted']=='FM',projects
+    inherited=sql("select * from decisions where task_id='inherit-origin-decision-scope'")[0]
+    assert inherited['project']=='WOK' and inherited['origin_id']=='inherit-origin',inherited
+    canonical=json.loads(command('decision','Main','inherit-origin','scope','--project','FM','--title','Choose scope',
+        '--description','This decides the bounded scope.','--option','A: Small scope','--option','B: Broad scope',
+        '--rec','A','--why','The smaller scope is easier to verify.').stdout)
+    assert canonical['task']=='inherit-origin-decision-scope',canonical
+    assert not sql("select * from decisions where task_id='inherit-origin'")
+    canonical_row=sql("select * from decisions where task_id='inherit-origin-decision-scope' order by revision desc")[0]
+    assert canonical_row['project']=='FM'
+    command('ingest','--once')
+    reconciled=sql("select * from decisions where task_id='inherit-origin-decision-scope' order by revision desc")[0]
+    assert reconciled['project']=='WOK' and reconciled['revision']==canonical_row['revision'] and reconciled['state']=='open',reconciled
+    late=json.loads(command('decision','Main','late-origin','route','--project','WOK','--title','Choose the route',
+        '--description','This decides which route is used.','--option','A: Direct','--option','B: Staged',
+        '--rec','B','--why','The staged route is easier to verify.').stdout)
+    assert late['task']=='late-origin',late
+    rows.append(['late-origin-decision-route','queued','captain','wonder-media/wonderok','Choose the route',
+        'captain','This decides which route is used.','no','none'])
+    (home/'rows.json').write_text(json.dumps(rows));(home/'data/backlog.md').write_text('fixture backlog with late hold')
+    command('ingest','--once')
+    late_hold=sql("select * from decisions where task_id='late-origin-decision-route' order by revision desc")[0]
+    late_origin=sql("select * from decisions where task_id='late-origin' order by revision desc")[0]
+    assert late_hold['registered']==1 and late_hold['origin_id']=='late-origin' and late_hold['state']=='open',late_hold
+    assert late_origin['state']=='closed' and late_origin['revision']==late['revision'],late_origin
+    passed('qualified aliases, ambiguity, hold inheritance, canonical registration, and in-place project reconciliation')
     passed('v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision')
+    before=rev()
     assert sql("select * from tasks where home_id='Second' and task_id='beta'")
-    assert not calls(home,'fm-fleet-snapshot.sh')
+    assert not calls(home,'fm-fleet-snapshot.sh'),calls(home,'fm-fleet-snapshot.sh')
     command('ingest','--once');assert rev()==before
     (home/'state/alpha.status').touch();command('ingest','--once');assert rev()==before
     (home/'state/.last-watcher-beat').touch();command('ingest','--once');assert rev()==before
@@ -276,9 +347,15 @@ try:
     decision('alpha');assert rev()==before+1
     command('decision','Main','bad-options','few','--project','WOK','--title','Too few',
             '--description','This should be rejected.','--option','A: Alone',ok=False)
-    passed('decision CLI creates 2-4 options, description, and recommendation idempotently')
+    factual=json.loads(command('decision','Main','factual-rate','rate','--project','MF','--title','Confirm the current rate',
+            '--description','This records the factual rate after checking the source.','--option','A: 2.5%',
+            '--option','B: 2.9%','--option','C: Another rate','--why','Verify the current schedule before choosing.').stdout)
+    factual_row=sql("select * from decisions where task_id='factual-rate' and revision=?",(factual['revision'],))[0]
+    assert factual_row['recommendation']=='' and factual_row['why']=='Verify the current schedule before choosing.',factual_row
+    passed('decision CLI creates 2-3 options, description, and recommendation idempotently')
     # Single flight across CLI processes, preserving last-good state on timeout.
     (home/'delay').write_text('12');(home/'state/alpha.status').touch()
+    fixture_boundary()
     slow=subprocess.Popen([str(cli),'ingest','--once','--home','Main'],env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     time.sleep(.5);n=len(calls(home,'fm-crew-state.sh'))
     command('ingest','--once','--home','Main');assert len(calls(home,'fm-crew-state.sh'))==n
@@ -291,6 +368,8 @@ try:
     assert set(('ok','ingest_age_s','last_snapshot_ms','sse_clients','db_ok','outbox_backlog','answers_armed','answers_error'))<=health.keys()
     assert health['answers_error'] is None
     _,payload,h=request();assert request(extra={'If-None-Match':h['ETag']})[0]==304
+    visible_route=[d for d in payload['decisions'] if d['home_id']=='Main' and d['decision_key']=='route']
+    assert [(d['task_id'],d['origin_id']) for d in visible_route]==[('late-origin-decision-route','late-origin')],visible_route
     long_card=next(d for d in payload['decisions'] if d['task_id']=='long-decision')
     assert long_card['question']=='Wonderok Postgres to Vultr Managed (EWR)',long_card
     assert long_card['description']=='Choose where the database will live.'
@@ -356,7 +435,7 @@ try:
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(oid,))[0]['consumed_at'])
     deliveries=list(map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()))
     assert deliveries[-2]==['keyed-legacy','--resolve-key','reason','Keep the current copy'],deliveries[-2]
-    assert deliveries[-1]==['options-please',"Captain requested structured options for decision alternatives: register 2-4 distinct alternatives with `bin/fm-board.sh decision Main options-please alternatives --option '...'` and stop."]
+    assert deliveries[-1]==['options-please',"Captain requested structured options for decision alternatives: register 2-3 distinct alternatives with `bin/fm-board.sh decision Main options-please alternatives --option '...' --rec VALUE --why '...'` and stop; for an unknown factual input, omit --rec and use --why for the recommended verification step."]
     passed('keyed legacy note routes directly; concrete-options request is one exact fixed steer')
     # Three legacy answers are exceptions: one atomic JSONL burst, one source fire.
     for i in range(3):meta(home,f'legacy{i}',f'needs-decision: Explain choice {i}')
@@ -397,7 +476,7 @@ try:
     assert sent==['nonote','--resolve-key','choose','Ship it'],sent
     # A registered option may hold newlines or tabs; the hold intake needs one line.
     command('decision','Main',held['task_id'],'budget','--project','CES','--title','Budget approval',
-            '--option','A: Approve\nwith\tconditions','--option','B: Reject')
+            '--option','A: Approve\nwith\tconditions','--option','B: Reject','--rec','A','--why','Conditions preserve the safety boundary.')
     fresh=next(d for d in request()[1]['decisions'] if d['task_id']==held['task_id'])
     lines=len((home/'hold-input').read_text().splitlines())
     r=request('/answer',answer(held['task_id'],key='budget',choice='A',note='',revision=fresh['revision']))
@@ -487,6 +566,7 @@ for bad in (0,86401,'120',12.5):
     finally:
         os.unlink(f.name)
 '''
+    fixture_boundary()
     check=subprocess.run([sys.executable,'-c',guard],env=dict(env,FM_BOARD_CHECK_MODULE=str(fixture/'bin/fm-board.py')),
                          stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
     assert check.returncode==0,check.stderr.decode()
@@ -521,9 +601,21 @@ for bad in (0,86401,'120',12.5):
     source_stream.close()
     mutate("update tasks set current_state='failed' where task_id='external'")
     chrome=next((p for p in (shutil.which('google-chrome'),shutil.which('google-chrome-stable'),shutil.which('chromium'),shutil.which('chromium-browser'),'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome') if p and pathlib.Path(p).is_file()),None)
-    if os.environ.get('FM_BOARD_BROWSER_TEST')=='1' and chrome:
+    if os.environ.get('FM_BOARD_EXTERNAL_BROWSER')=='1':
+        proof=root/'external-browser-complete'
+        print('external-browser-fixture '+json.dumps({'url':f'http://localhost:{port}/?k={secret}',
+            'root':str(root),'complete':str(proof)}),flush=True)
+        deadline=time.monotonic()+900
+        while not proof.exists() and time.monotonic()<deadline:
+            assert daemon.poll() is None,'synthetic browser daemon exited'
+            time.sleep(.2)
+        assert proof.exists(),'external browser proof timed out'
+        passed('external browser proof completed against the synthetic fixture')
+    elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1' and chrome:
+        browser_size=os.environ.get('FM_BOARD_BROWSER_SIZE','1440,1000')
+        assert re.fullmatch(r'[1-9][0-9]{1,3},[1-9][0-9]{1,3}',browser_size),browser_size
         rendered=subprocess.run([chrome,'--headless=new','--disable-gpu','--no-sandbox','--timeout=8000','--virtual-time-budget=4000',
-            '--user-data-dir='+str(root/'chrome-profile'),'--dump-dom',f'http://localhost:{port}/?k={secret}&browser-test=1'],
+            '--window-size='+browser_size,'--user-data-dir='+str(root/'chrome-profile'),'--dump-dom',f'http://localhost:{port}/?k={secret}&browser-test=1'],
             stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60)
         assert rendered.returncode==0,rendered.stderr.decode()[-1000:]
         import html
@@ -531,19 +623,29 @@ for bad in (0,86401,'120',12.5):
         assert match,rendered.stdout[-2000:]
         observed=json.loads(html.unescape(match.group(1).decode()))
         assert observed.get('error') is None,observed
+        assert observed['horizontalOverflow'] is False,observed
+        assert observed['preselected'] is False,observed
+        assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed
+        assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'},observed
+        assert observed['distinctDuplicateCards']==2,observed
         assert observed['selected']=='B' and observed['note']=='Other device chose wait',observed
         assert observed['savedDraft'] is None,observed
-        assert observed['state'].startswith('Queued') and observed['health'].startswith('Answers: '),observed
+        assert observed['state'] in ('Queued - undo available for 15 s','Sent - awaiting consumption','Consumed'),observed
+        assert observed['health'].startswith('Answers: '),observed
         assert observed['description']=='This decides whether the change ships now or waits for another check.',observed
         assert observed['descriptionSize']=='14px' and observed['descriptionWeight']=='400',observed
         assert observed['registeredOptions'][0].startswith('Ship itRecommended · Small reversible change'),observed
-        assert observed['legacyOptions']==['Ask firstmate for 2-3 concrete options (recommended)','Send a custom answer'],observed
+        assert observed['legacyOptions']==['Write my own answer'],observed
+        assert observed['legacyNotice']=='Concrete options and a recommendation are still being prepared.',observed
+        assert observed['factualPreselected'] is False,observed
+        assert observed['factualGuidance']=='Recommended next step · Verify the current schedule before choosing.',observed
         assert observed['reviewState']=='Sent to firstmate to review',observed
         assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
         assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed
         assert observed['failedBorderWidth']=='3px' and observed['failedBorderColor']!='rgba(0, 0, 0, 0)',observed
-        browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
-        assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
+        if observed['state'].startswith('Queued'):
+            browser_answer=sql("select answer_id from answers where task_id='instant' and cancelled_at IS NULL")[0]['answer_id']
+            assert request('/answer',{'action':'undo','answer_id':browser_answer})[0]==200
         passed('rendered failed styling, source health, authoritative answer, and submitted draft clearing')
     elif os.environ.get('FM_BOARD_BROWSER_TEST')=='1':
         print('skip: no chrome',flush=True)

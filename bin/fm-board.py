@@ -4,12 +4,15 @@
 # Config owner: config/board.json (or --config /absolute/file, FM_BOARD_CONFIG).
 # Required: homes=[{"id":"Main","path":"/absolute/home"}, ...], lan_host
 # (one DNS name or IP, no scheme/port), port (1..65535), secret (>=24 characters),
-# repo_tags={"repository-name":"WOK", ...}. Optional: stale_after_s (integer
+# repo_tags={"repository-name":"WOK", ...}. Exact aliases win; a bare alias
+# also matches the leaf of an owner-qualified repository, and qualified aliases
+# provide a bare leaf only when every configured use of that leaf has one tag.
+# Unknown or ambiguous repositories display as FM. Optional: stale_after_s (integer
 # seconds 1..86400, default 120, above the 90 s snapshot budget plus one tick):
 # a home whose last successful ingest is older is reported stale and turns
 # /healthz ok false; github_boards={} (reserved, never queried in phase 1). FM_HOME is the absolute owning home; source homes
 # are read-only. Paths are canonicalized; ids are unique path-safe slugs.
-# Tags: WOK,CES,MF,CSLS-OG,JVP,WM,FM,Charlier. Unknown repos display as FM.
+# Tags: WOK,CES,MF,CSLS-OG,JVP,WM,FM,Charlier.
 # Config is private: chmod 600. HTTP is plaintext on the trusted private LAN.
 # Bind only lan_host; Host must equal lan_host:port (port optional only at 80).
 # Origin, when supplied, must equal http://lan_host:port. No CORS is granted.
@@ -52,10 +55,14 @@
 #
 # CLI decision <home> <task> <key> --project TAG --title ELI5 --option 'A: ...'
 # (2..4, each 'L: wording' with a distinct one-character label L)
-# [--description|--consequence TEXT]
-# [--rec VALUE] [--why TEXT] registers options; --rec must match an option and
-# is shown inline as Recommended, never preselected. An omitted description
+# [--description|--consequence TEXT] [--rec VALUE] --why TEXT registers 2..3
+# options. --rec must match an option and is shown inline as Recommended with
+# its reason, never preselected. For factual inputs whose value is not yet
+# known, omit --rec and use --why for the recommended verification step; the UI
+# shows that guidance without falsely recommending an answer. An omitted description
 # keeps the prior revision's or falls back to DEFAULT_CONSEQUENCE.
+# If a durable hold already owns the origin/key, registration resolves to that
+# hold identity and retires only an unanswered open duplicate at the origin.
 #
 # SQLite: WAL, busy_timeout=5000, user_version=2 plus schema_version table.
 # v1 -> v2 adds decisions.description and rewrites registered questions to the
@@ -317,6 +324,14 @@ class Board:
         self.repo_tags = c.get('repo_tags', {})
         if not isinstance(self.repo_tags, dict) or any(not k or v not in TAGS for k, v in self.repo_tags.items()):
             raise Invalid('repo_tags must map repositories to known project tags')
+        leaf_tags = {}
+        for repo, tag in self.repo_tags.items():
+            leaf = repo.rstrip('/').rsplit('/', 1)[-1]
+            if leaf not in leaf_tags:
+                leaf_tags[leaf] = tag
+            elif leaf_tags[leaf] != tag:
+                leaf_tags[leaf] = None
+        self.repo_leaf_tags = leaf_tags
         self.state = self.home / 'state'
         self.state.mkdir(mode=0o700, exist_ok=True)
         for directory in ('board-inbox', 'backups', 'logs'):
@@ -478,19 +493,35 @@ class Board:
             if any(o['value'] == label for o in options):
                 raise Invalid('duplicate option value')
             options.append({'value': label, 'label': wording})
-        if not 2 <= len(options) <= 4 or (args.rec and args.rec not in [o['value'] for o in options]):
-            raise Invalid('need 2..4 options and a matching recommendation')
+        if not 2 <= len(options) <= 3 or (args.rec and args.rec not in [o['value'] for o in options]):
+            raise Invalid('need 2..3 options and any recommendation must match an option')
         text(args.title, 'title', 1000); text(args.description, 'description', 2000, empty=True)
-        text(args.why, 'why', empty=True)
+        text(args.why, 'why')
         with self.write() as (c, changed):
-            prior = self.latest(c, hid, args.task, args.key)
+            original_task = args.task
+            holds = c.execute('''SELECT d.* FROM decisions d
+                WHERE d.home_id=? AND d.origin_id=? AND d.decision_key=? AND d.source='hold'
+                AND d.state!='closed' AND d.revision=(SELECT max(x.revision) FROM decisions x
+                    WHERE x.home_id=d.home_id AND x.task_id=d.task_id AND x.decision_key=d.decision_key)''',
+                (hid, original_task, args.key)).fetchall()
+            if len(holds) > 1:
+                raise Conflict('multiple durable holds own this decision key')
+            task = holds[0]['task_id'] if holds else original_task
+            prior = self.latest(c, hid, task, args.key)
             source = prior['source'] if prior else 'firstmate'
             origin = prior['origin_id'] if prior else ''
             description = args.description or (prior['description'] if prior else '') or DEFAULT_CONSEQUENCE
-            rev = self.upsert_decision(c, changed, hid, args.task, args.key, args.title, description, options,
+            duplicate = self.latest(c, hid, original_task, args.key) if task != original_task else None
+            if duplicate and duplicate['state'] in ('queued', 'sent', 'failed'):
+                raise Conflict('origin duplicate has a recorded or outstanding answer', self.decision_dict(duplicate))
+            rev = self.upsert_decision(c, changed, hid, task, args.key, args.title, description, options,
                                        args.rec, args.why, source, args.project, origin, True)
+            if duplicate and duplicate['registered'] and duplicate['state'] == 'open':
+                c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
+                          (stamp(), hid, original_task, args.key, duplicate['revision']))
+                changed[0] = True
         self.reload()
-        return {'revision': rev}
+        return {'revision': rev, 'task': task}
 
     def reload(self):
         request = urllib.request.Request(f'http://127.0.0.1:{self.port}/internal/reload',
@@ -501,8 +532,41 @@ class Board:
         except (OSError,urllib.error.URLError):
             pass  # CLI writes remain valid while the daemon is stopped.
 
+    def mapped_project(self, repo):
+        if not repo:
+            return None
+        if repo in self.repo_tags:
+            return self.repo_tags[repo]
+        leaf = repo.rstrip('/').rsplit('/', 1)[-1]
+        return self.repo_leaf_tags.get(leaf)
+
     def project(self, repo):
-        return self.repo_tags.get(repo, 'FM')
+        return self.mapped_project(repo) or 'FM'
+
+    @staticmethod
+    def reproject_latest(c, changed, hid, task, project):
+        c.execute('''UPDATE decisions SET project=? WHERE home_id=? AND task_id=? AND project!=?
+            AND revision=(SELECT max(x.revision) FROM decisions x WHERE x.home_id=decisions.home_id
+                AND x.task_id=decisions.task_id AND x.decision_key=decisions.decision_key)''',
+                  (project, hid, task, project))
+        if c.execute('SELECT changes()').fetchone()[0]:
+            changed[0] = True
+
+    def hold_project(self, c, hid, task, origin, backlog):
+        for candidate in (backlog.get(task, {}).get('repo'), backlog.get(origin, {}).get('repo')):
+            project = self.mapped_project(candidate)
+            if project:
+                return project
+        inherited = c.execute('SELECT project FROM tasks WHERE home_id=? AND task_id=? AND deleted_at IS NULL',
+                              (hid, origin)).fetchone()
+        if inherited:
+            return inherited['project']
+        for candidate in (task, origin):
+            registered = c.execute('''SELECT project FROM decisions WHERE home_id=? AND task_id=? AND registered=1
+                ORDER BY revision DESC LIMIT 1''', (hid, candidate)).fetchone()
+            if registered:
+                return registered['project']
+        return 'FM'
 
     def manifest(self, home):
         paths = [home / 'data/backlog.md']
@@ -570,7 +634,7 @@ class Board:
                 k, v = line.split('=', 1)
                 meta[k] = v.strip()
         if meta.get('kind') == 'secondmate':
-            return None, []
+            return None, [], None
         status = home / f'state/{task}.status'
         last = ''
         if status.exists():
@@ -597,9 +661,10 @@ class Board:
             decisions.append((key, summary))
         b = backlog.get(task, {})
         repo = b.get('repo') or meta.get('project', '')
+        source_project = self.mapped_project(repo)
         return dict(home_id=hid, task_id=task, title=b.get('title') or task, kind=meta.get('kind', 'task'),
                     current_state=current, worker=' '.join(filter(None, [meta.get('harness'), meta.get('model')])),
-                    pr_url=meta.get('pr', ''), project=self.project(repo), last_status=last, meta_present=1), decisions
+                    pr_url=meta.get('pr', ''), project=source_project or 'FM', last_status=last, meta_present=1), decisions, source_project
 
     def update_task(self, c, changed, row):
         old = c.execute('SELECT * FROM tasks WHERE home_id=? AND task_id=?', (row['home_id'], row['task_id'])).fetchone()
@@ -608,6 +673,9 @@ class Board:
         columns = list(row) + ['updated_at', 'deleted_at']
         values = list(row.values()) + [stamp(), None]
         c.execute(f'INSERT OR REPLACE INTO tasks ({",".join(columns)}) VALUES ({",".join("?" for _ in columns)})', values)
+        if old and old['project'] != row['project']:
+            c.execute('UPDATE events SET project=? WHERE home_id=? AND task_id=?',
+                      (row['project'], row['home_id'], row['task_id']))
         changed[0] = True
         last = row['last_status']
         if last and (not old or old['last_status'] != last):
@@ -676,10 +744,12 @@ class Board:
             except (OSError, Invalid, ValueError, KeyError) as e:
                 error = str(e)
         with self.write() as (c, changed):
-            for tid, row, decisions in updates:
+            for tid, row, decisions, source_project in updates:
                 if row is None:
                     continue
                 self.update_task(c, changed, row)
+                if source_project:
+                    self.reproject_latest(c, changed, hid, tid, source_project)
                 open_keys = set()
                 for key, summary in decisions:
                     open_keys.add(key)
@@ -702,15 +772,29 @@ class Board:
                     self.update_task(c, changed, dict(home_id=hid, task_id=tid, title=b['title'], kind=b['kind'],
                         current_state='paused' if b['hold_kind'] not in ('', '-') else b['state'], worker='',
                         pr_url='', project=self.project(b['repo']), last_status=b['reason'] if b['reason'] != '-' else '', meta_present=0))
+                origin, sep, key = tid.rpartition('-decision-')
+                if not sep:
+                    origin, key = tid, 'default'
+                hold_project = self.hold_project(c, hid, tid, origin, backlog)
+                self.reproject_latest(c, changed, hid, tid, hold_project)
                 if b['captain_actionable']:
-                    origin, sep, key = tid.rpartition('-decision-')
-                    if not sep:
-                        origin, key = tid, 'default'
                     prior = self.latest(c, hid, tid, key)
+                    duplicate = self.latest(c, hid, origin, key) if sep else None
+                    if duplicate and duplicate['registered'] and duplicate['state'] == 'open' \
+                            and (not prior or not prior['registered']):
+                        if prior and prior['state'] in ('queued', 'sent', 'failed'):
+                            raise Conflict('durable hold has a recorded or outstanding answer', self.decision_dict(prior))
+                        rev = self.upsert_decision(c, changed, hid, tid, key, duplicate['question'],
+                            duplicate['description'], json.loads(duplicate['options']), duplicate['recommendation'],
+                            duplicate['why'], 'hold', hold_project, origin, True)
+                        c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
+                                  (stamp(), hid, origin, key, duplicate['revision']))
+                        changed[0] = True
+                        prior = self.latest(c, hid, tid, key)
                     if prior and prior['registered'] and not (prior['description'] is None and prior['options'] == '[]'):
                         continue
                     self.upsert_decision(c, changed, hid, tid, key, b['title'], b['reason'], [], '', '',
-                                         'hold', self.project(b['repo']), origin, bool(sep),
+                                         'hold', hold_project, origin, bool(sep),
                                          legacy=b['title'] + ': ' + b['reason'])
             if not error:
                 for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND source='hold' AND state='open'", (hid,)).fetchall():
@@ -1315,7 +1399,7 @@ def parser():
             cmd.add_argument('--description','--consequence',default='')
             cmd.add_argument('--option',action='append',required=True)
             cmd.add_argument('--rec',default='')
-            cmd.add_argument('--why',default='')
+            cmd.add_argument('--why',required=True)
         elif name == 'live':
             cmd.add_argument('home'); cmd.add_argument('task')
             cmd.add_argument('--url',required=True); cmd.add_argument('--env',required=True)
