@@ -22,6 +22,8 @@ This skill owns the conversational walk only; it does not change Bearings, Ahoy,
    Reveal truncated decision and home surfaces through the supported bounds or targeted owning-home snapshot reads; do not mistake a bounded page for the whole inventory.
    Use the canonical snapshot for fields dropped by the compact projection, including project and task identities.
    Read the configured Bridge's authenticated state API for registered question details, options, revisions, project tags, pending answers, and lifecycle/archive state; [`bin/fm-board.py`](../../../bin/fm-board.py)'s header owns that interface and configuration.
+   Its config file is private and holds the bearer secret: read only the non-secret fields you need (such as `lan_host`, `port`, and `repo_tags`) with a targeted query, never by printing the whole file.
+   Pass the secret to `curl` only through a restricted temporary header or config file created with `umask 077` and removed after use, as [`bin/fm-x-lib.sh`](../../../bin/fm-x-lib.sh)'s `fmx_auth_header_file` does for Relay; never place it in a command argument, echo it, or record it in transcripts or reports.
    Do not print authentication secrets or bypass the API by editing its database.
    Reconcile Bridge freshness with the owning home's current structured records; a cached card, parent escalation, raw status tail, old report, or chat recollection cannot override readable owner state.
    Disclose inaccessible, stale, partial, or unexpanded sources briefly, and continue only with independently verified items; never call the overall inventory complete while coverage is uncertain.
@@ -30,7 +32,7 @@ This skill owns the conversational walk only; it does not change Bearings, Ahoy,
    `wok` means Wonderok/WOK, never every project managed by the MF second mate.
    Match each item's project, not its owning home's name or charter.
    An unknown, ambiguous, conflicting, or unverifiable selector needs clarification before presenting or acting on any item; never fall back to the whole fleet or a guessed substring match.
-   Without a selector, include all projects in the registered fleet.
+   Without a selector, include every verified item from the root and each registered home regardless of its project tag, including Firstmate-owned `FM`-tagged work and repositories absent from the registry; registry membership is a selector-matching aid, not a default inclusion gate.
 4. Keep actual open decisions and approvals, requests for captain review, and prerequisites that require the captain personally.
    A recorded PR alone is not a review request, and ordinary running work, automatic waits, and action-free integrity warnings are not feedback items.
    Exclude resolved/completed feedback, already accepted answers awaiting delivery, and archived or explicitly do-not-resurface work unless the captain explicitly asks to revisit it.
