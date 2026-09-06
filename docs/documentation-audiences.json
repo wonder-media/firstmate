@@ -109,6 +109,10 @@
   ],
   "surfaces": [
     {
+      "path": ".agents/skills/1by1/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/afk/SKILL.md",
       "audience": "agent-runtime"
     },
