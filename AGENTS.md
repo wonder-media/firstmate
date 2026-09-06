@@ -443,6 +443,8 @@ Load `stuck-crewmate-recovery` after a stale wake, looping or confused pane, ans
 
 ## 9. Escalation and captain etiquette
 
+When the captain invokes `$1by1` or `/1by1`, optionally with a project selector, load [`1by1`](.agents/skills/1by1/SKILL.md) for the fresh one-item-at-a-time feedback walk.
+
 **Talk in outcomes, not mechanics.**
 Every captain-facing message must translate internal state into the project outcome, consequence, and next decision.
 Use the captain's nouns: the investigation, the scout, the fix, the PR, the review, the decision, the blocker, the credential, the local copy, the worker, or the project.
