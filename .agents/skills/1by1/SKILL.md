@@ -46,12 +46,30 @@ This skill owns the conversational walk only; it does not change Bearings, Ahoy,
 6. Choose one eligible item by practical impact and urgency, using oldest unanswered first when otherwise tied.
    Keep selection and skipped identities in conversation only; do not persist a queue, cursor, copied decision ledger, or new walk-state file.
 
+## Item reference and walk progress
+
+Give every presented item a compact deterministic **Ref** derived from its existing canonical owning-home/task/key identity, never from its display position or current sort order.
+Use the existing decision key with stable owner/task qualifiers needed to make it unique, for example `mf:receipt-cta/passes-vs-token`; for unkeyed items use the exact existing source identity from the gathering step.
+Keep that same reference for the same identity across reordering and question revisions, retaining the revision separately for answer validation.
+Never recycle a reference for another item, collapse distinct owners, or omit a qualifier merely because a competing item closed or left the selected scope.
+References are readable aliases for existing identities, not a new registry or permission to act.
+
+Show **Progress** as the distinct item's position in this conversational walk, such as `2/10`, not the number of answers accepted or implementation tasks completed.
+Assign the next position only when first presenting a different eligible item; a clarification, repeated card, referenced return to an earlier item, or pending answer keeps that item's original position.
+Skip allows the next distinct item to be presented; an accepted answer allows it only after the existing durable recording/routing requirement is met.
+Compute the total as the distinct items already presented in this scoped walk plus the refreshed eligible items not yet presented, deduplicated by canonical identity.
+Thus answered or skipped positions remain part of walk history, while new eligible arrivals increase the total and unpresented items that close or leave scope decrease it; briefly explain a changed total.
+Count only items that passed this skill's eligibility and selector filters when presented or included as pending, never raw rows, duplicate projections, or ordinary running work.
+Refresh eligibility before each selection rather than freezing a queue; use `2 of at least 10 (partial)` when ten distinct items are verified but coverage is incomplete, or `2/?` when no reliable total is available.
+Keep the reference bindings, presented positions, and count history in conversation only.
+After context loss, recover positions only from visible conversational evidence; otherwise say the count is restarting from refreshed records and start at `1`, preserving the existing selector and answer-binding clarification rules.
+
 ## Present one item and wait
 
 Present exactly one feedback item per response, without an inventory dump or previews of later items.
 Use this compact shape in plain language, with enough context to decide without opening an internal record:
 
-> Captain, **Project: [project]**
+> Captain, **Project: [project] | Ref: [stable reference] | Progress: [position/total]**
 >
 > **Title:** [short ELI5 title]
 >
@@ -69,6 +87,7 @@ Use this compact shape in plain language, with enough context to decide without 
 >
 > Reply with your choice or your own answer, and add any free-text notes.
 
+Example header: `Captain, Project: Wonderok | Ref: mf:receipt-cta/passes-vs-token | Progress: 2/10`.
 Keep the source's 2-3 registered options and their meaning when available; otherwise offer 2-3 relevant choices supported by the request, without registering invented factual answers.
 Recommend a supported course of action with a brief reason, never a guessed fact.
 For factual unknowns preserve the factual alternatives and recommend verification before answering, without marking an unknown value as recommended.
@@ -82,6 +101,7 @@ For an empty inventory say no verified pending items remain in the selected scop
 ## Apply the answer through its owner
 
 1. Bind the response to the presented owning home, task/origin, key or exact source identity, and decision revision where supported.
+   If the captain names a reference, resolve it to that exact existing identity and its presented question/revision, not whichever item now occupies its old position; clarify an unknown or ambiguous reference instead of guessing.
    Preserve the captain's wording and notes, not just the option letter; ambiguous notes or competing choices require clarification on this same item.
    Refresh the owner record and Bridge decision/lifecycle state immediately before mutation, verifying identity, open status, question/options, scope, and revision.
    If anything material changed or closed, do not apply the old answer to the new revision or another item; explain the change and obtain a fresh answer if still needed.
