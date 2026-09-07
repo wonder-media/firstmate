@@ -3098,7 +3098,14 @@ LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__AUTOCOMPACTFLAG__/$AUTOCOMPACTFLAG}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
-LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
+# The state-resident lifecycle extension is written only when the semantic wiring
+# is armed, so a launch that is not armed must not name a path Pi would be told to
+# load and firstmate never created: drop the flag instead of substituting it.
+if [ -f "$STATE/$ID.pi-ext.ts" ]; then
+  LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
+else
+  LAUNCH=${LAUNCH// -e __PIEXT__/}
+fi
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}

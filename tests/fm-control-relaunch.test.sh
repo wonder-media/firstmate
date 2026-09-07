@@ -549,6 +549,27 @@ test_claude_wiring_retirement_is_ownership_aware() {
     > "$settings"
   fm_control_claude_shared_settings_mergeable "$settings" \
     || fail "a well-formed captain settings file must stay mergeable"
+
+  # A guest never deletes or reformats a captain file it wrote nothing into, and
+  # never removes one whose firstmate entries were its whole content.
+  printf '%s' '{"permissions":{"allow":["x"]}}' > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring shared wiring over a file with no firstmate entry must succeed"
+  [ "$(cat "$settings")" = '{"permissions":{"allow":["x"]}}' ] \
+    || fail "a captain file holding no firstmate entry must not be rewritten"
+
+  printf '%s' '{}' > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring shared wiring over an empty captain object must succeed"
+  [ -e "$settings" ] || fail "a guest retirement deleted a captain-owned settings file"
+
+  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring a firstmate-only shared file must succeed"
+  [ -e "$settings" ] || fail "a guest retirement deleted the captain-owned file it emptied"
+  [ "$(jq -r 'has("hooks")' "$settings")" = false ] \
+    || fail "the firstmate hook entry outlived its retirement"
   pass "fm-control relaunch: claude settings retirement is ownership-aware, jq stays optional, and only one merged object is ever written"
 }
 

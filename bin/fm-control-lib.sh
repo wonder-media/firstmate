@@ -266,7 +266,8 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
 # caller decides whether to arm instead of discovering a missing jq or an
 # unusable captain file mid-write and refusing the launch. When it cannot run,
 # the captain's file is left exactly as it was.
-# The file is deleted only when nothing else was left in it.
+# Only the owned mode ever deletes the file: a guest never removes a path it did
+# not create, and never rewrites one holding no firstmate entry at all.
 FM_CONTROL_CLAUDE_HOOK_MARKER='bin/fm-busy-event.sh'
 
 # 0 when stdin is exactly one JSON object. jq exits 0 while printing nothing for
@@ -329,16 +330,15 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
   [ -n "$file" ] || return 1
   [ -e "$file" ] || return 0
   if [ "$mode" = shared ] && [ -s "$file" ]; then
+    grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$file" 2>/dev/null || return 0
     fm_control_claude_shared_settings_mergeable "$file" || return 0
     pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
       "$_fm_control_claude_prune_program"'
         | if (.hooks | length) == 0 then del(.hooks) else . end
       ' "$file") || return 1
-    if [ "$pruned" != '{}' ]; then
-      printf '%s\n' "$pruned" | _fm_control_claude_settings_is_one_object || return 1
-      _fm_control_claude_settings_replace "$file" "$pruned" || return 1
-      return 0
-    fi
+    printf '%s\n' "$pruned" | _fm_control_claude_settings_is_one_object || return 1
+    _fm_control_claude_settings_replace "$file" "$pruned" || return 1
+    return 0
   fi
   rm -f -- "$file" || return 1
 }

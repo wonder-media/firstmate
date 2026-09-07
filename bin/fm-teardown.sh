@@ -2086,10 +2086,19 @@ EOF
   printf '%s\n' "$abs_home_path"
 }
 
-retire_secondmate_claude_hooks() {  # <home> <task-id>
+retire_secondmate_claude_hooks() {  # <home> <task-id> <harness>
   local settings=$1/.claude/settings.local.json
-  fm_control_claude_hooks_clear "$settings" shared && return 0
-  echo "warning: could not retire firstmate lifecycle hooks from $settings for $2; remove them by hand so a re-leased home cannot signal for a retired task" >&2
+  case "${3-}" in claude*) ;; *) return 0 ;; esac
+  [ -f "$settings" ] || return 0
+  grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$settings" 2>/dev/null || return 0
+  # The prune reports success both when it ran and when it safely declined (no
+  # jq, or a file it cannot walk), so the surviving marker - not the exit code -
+  # is what proves whether this task's hooks are really gone.
+  if fm_control_claude_hooks_clear "$settings" shared \
+    && ! grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$settings" 2>/dev/null; then
+    return 0
+  fi
+  echo "warning: firstmate lifecycle hooks are still in $settings after retiring $2; remove them by hand, or a re-leased home will keep signalling for a retired task" >&2
 }
 
 remove_firstmate_home() {
@@ -2588,7 +2597,7 @@ cleanup_firstmate_home_children() {
       [ -n "$child_home" ] || child_home=$child_wt
       if [ -n "$child_home" ] && [ -d "$child_home" ]; then
         cleanup_firstmate_home_children "$child_home" || return $?
-        retire_secondmate_claude_hooks "$child_home" "$child_id"
+        retire_secondmate_claude_hooks "$child_home" "$child_id" "$(meta_value "$child_meta" harness)"
         remove_firstmate_home "$child_home" "child firstmate home" "$child_id" || return $?
       fi
     elif [ "$child_backend" = orca ]; then
@@ -2935,7 +2944,7 @@ if [ "$KIND" = secondmate ]; then
   # (see the crew branch above). Retire only firstmate's own lifecycle entries,
   # or a re-leased home keeps firing this retired task's turn-end signal
   # (bin/fm-control-lib.sh owns the prune and what it leaves behind).
-  retire_secondmate_claude_hooks "$HOME_PATH" "$ID"
+  retire_secondmate_claude_hooks "$HOME_PATH" "$ID" "$(meta_value "$META" harness)"
   remove_firstmate_home "$HOME_PATH" "secondmate home" "$ID" || exit $?
   remove_secondmate_registry_entry "$ID"
 fi
