@@ -1,0 +1,25 @@
+### Two independent repositories: primary + standalone secondmate clone
+step: primary advances by one LOCAL commit (never pushed anywhere)
+primary tip = 01d7cbd552aef1ad67f3851ed8732e092b6248d5
+step: does the standalone clone have that object?
+NO - missing object (the reported case)
+
+### BEFORE the fix (bin/fm-ff-lib.sh from base commit 72ae92c)
+secondmate sm: skipped: 01d7cbd552aef1ad67f3851ed8732e092b6248d5 does not exist
+FF_STATUS=skipped
+clone HEAD now: caa0a667d90884d836648f34c75e6f6a89115a28
+
+### AFTER the fix (bin/fm-ff-lib.sh at 9667d2e), git shimmed to log every fetch
+secondmate sm: updated caa0a66..01d7cbd (instructions changed: AGENTS.md)
+FF_STATUS=updated
+clone HEAD now: 01d7cbd552aef1ad67f3851ed8732e092b6248d5  (primary tip = 01d7cbd552aef1ad67f3851ed8732e092b6248d5)
+fetch calls recorded (source must be the local primary path, never origin):
+git -C /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-demo.u40upx/sm fetch --no-tags --quiet --no-write-fetch-head /private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-demo.u40upx/main refs/heads/main
+origin remote of the clone was never consulted; its refs are unchanged:
+caa0a667d90884d836648f34c75e6f6a89115a28 commit	refs/remotes/origin/HEAD
+caa0a667d90884d836648f34c75e6f6a89115a28 commit	refs/remotes/origin/main
+
+### Linked worktree secondmate: no fetch at all
+secondmate wt: updated caa0a66..01d7cbd (instructions changed: AGENTS.md)
+FF_STATUS=updated
+fetch.log absent: zero fetch invocations

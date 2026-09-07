@@ -1,0 +1,5 @@
+### normalize_version: greedy regex (base 72ae92c) vs anchored regex (9667d2e)
+tool 12.3.4                  old=2.3.4    new=12.3.4
+no-mistakes v10.0.0          old=0.0.0    new=10.0.0
+"version": "1.64.0"          old=1.64.0   new=1.64.0
+herdr 0.8.2 (abc)            old=0.8.2    new=0.8.2

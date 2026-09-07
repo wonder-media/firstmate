@@ -1,0 +1,33 @@
+### Shared test boundary: inherited production FM_* values vs. what a suite process sees
+Inherited by the parent shell:
+  FM_HOME=/Users/real/firstmate  FM_STATE_OVERRIDE=/Users/real/state  FM_BACKEND=herdr  FM_WEDGE_ALARM_LOG=/Users/real/alerts.log
+  FM_TEST_KEEP=1 (test control)  FM_CMUX_CLAUDE_COMPOSER_LIVE=0 (documented live switch, off)
+
+$ env FM_HOME=... FM_STATE_OVERRIDE=... FM_BACKEND=... FM_WEDGE_ALARM_LOG=... FM_TEST_KEEP=1 FM_CMUX_CLAUDE_COMPOSER_LIVE=0 \
+    bash -c ". bin/fm-test-env-lib.sh; fm_test_env_run <private-root> bash -c 'compgen -e FM_ | sort; echo HOME=\$HOME; echo FM_HOME=\$FM_HOME'"
+  FM_CMUX_CLAUDE_COMPOSER_LIVE=0
+  FM_HOME=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-iso.NfzEWl/fm-home
+  FM_TEST_ENV_ISOLATED=1
+  FM_TEST_ENV_ROOT=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-iso.NfzEWl
+  FM_TEST_ENV_TMP=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T
+  FM_TEST_KEEP=1
+  HOME=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-iso.NfzEWl/user-home
+exit=0
+
+### Enabled live lane (switch=1) keeps HOME for existing logins; FM_HOME and production FM_* still synthetic
+  FM_CMUX_CLAUDE_COMPOSER_LIVE=1
+  FM_HOME=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-iso.NfzEWl/fm-home
+  FM_TEST_ENV_ISOLATED=1
+  FM_TEST_ENV_ROOT=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-iso.NfzEWl
+  FM_TEST_ENV_TMP=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T
+  HOME=<real-home>
+exit=0
+
+### Nested child of an isolated test keeps a fixture set after isolation (FM_WEDGE_ALARM_LOG under the temp root)
+  child sees FM_WEDGE_ALARM_LOG=/private<tmp>fixture-alerts.log
+  child FM_HOME=/private<tmp>fm-iso.NfzEWl/fm-home
+exit=0
+
+### Nested child with a fixture pointing OUTSIDE the disposable roots is refused
+fm-test-env: effective data path escapes the isolated fixture roots: /Users/real/firstmate/data
+  child exit=1

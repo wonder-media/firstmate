@@ -1,0 +1,26 @@
+FM_TEST_BEGIN 2026-09-05T03:58:04Z tests/fm-lint.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm-lint.sh --list-files reports the complete shell inventory
+ok - fm-lint.sh pins an explicit ShellCheck version (0.11.0)
+ok - ShellCheck installer retries a transient download failure
+ok - ShellCheck installer selects the official archive, URL, and checksum per OS/arch
+ok - ShellCheck installer rejects a wrong checksum
+ok - ShellCheck installer falls back to shasum -a 256 when sha256sum is absent
+ok - ShellCheck installer prefers sha256sum when both hashers are present
+ok - ShellCheck installer rejects an unsupported OS or architecture
+ok - fm-lint.sh refuses to lint under a non-pinned ShellCheck version
+ok - SKIP (ShellCheck 0.11.0 not resolved): lint-defect regression check
+ok - SKIP (ShellCheck 0.11.0 not resolved): ambient options regression check
+ok - SKIP (ShellCheck 0.11.0 not resolved): clean fixture check
+ok - SKIP (ShellCheck 0.11.0 not resolved): deterministic bounded jobs check
+ok - jobs=1 and jobs=2 stop complete worker trees with and without telemetry
+ok - SKIP (ShellCheck 0.11.0 not resolved): seeded source-boundary parity check
+ok - fm-lint.sh changed mode lints only the changed canonical file
+ok - fm-lint.sh forces a full lint in CI even when the local diff would be empty
+ok - fm-lint.sh forces a full lint when HEAD is on main
+ok - fm-lint.sh explicit paths bypass changed-file mode selection
+ok - fm-lint.sh exits 0 with a note when the local branch has no changed lint targets
+ok - fm-lint.sh --list-files reports the would-be changed set in changed mode
+FM_TEST_END 2026-09-05T03:58:12Z tests/fm-lint.test.sh exit=0 duration_ms=8362 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=8418
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=1 duration_ms=8362 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-lint.test.sh duration_ms=8362
