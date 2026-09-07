@@ -358,6 +358,7 @@ fi
 [ "${FM_HARNESS_LIVENESS_DRIFT:-}" = 1 ] || exit 43
 [ "${FM_PI_LIVE_E2E:-}" = 1 ] || exit 44
 [ "${FM_MUSE_SIGNALS_LIVE:-}" = 0 ] || exit 45
+[ "${FM_BOARD_BROWSER_TEST:-}" = 1 ] || exit 52
 [ -z "${FM_UNLISTED_LIVE_E2E+x}" ] || exit 46
 [ -z "${FM_ROOT_OVERRIDE+x}" ] || exit 47
 [ -z "${FM_BACKEND+x}" ] || exit 48
@@ -377,6 +378,7 @@ SH
     FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
     FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
     FM_BACKEND=herdr \
+    FM_BOARD_BROWSER_TEST=1 \
     FM_CMUX_CLAUDE_COMPOSER_LIVE=1 \
     FM_HARNESS_LIVENESS_DRIFT=1 \
     FM_PI_LIVE_E2E=1 \
@@ -394,6 +396,7 @@ SH
     FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
     FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
     FM_BACKEND=herdr \
+    FM_BOARD_BROWSER_TEST=1 \
     FM_CMUX_CLAUDE_COMPOSER_LIVE=1 \
     FM_HARNESS_LIVENESS_DRIFT=1 \
     FM_PI_LIVE_E2E=1 \
