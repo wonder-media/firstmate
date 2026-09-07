@@ -604,6 +604,15 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$(jq -r '.hooks.PreToolUse[0].matcher' "$settings")" = Bash ] \
     || fail "retirement discarded an unrelated captain entry that declares no hooks"
 
+  printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}],"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring wiring beside a captain entry declaring an empty hook list must succeed"
+  [ "$(jq -r '.hooks.PreToolUse[0].matcher' "$settings")" = Bash ] \
+    || fail "retirement discarded a captain entry that declares an empty hook list"
+  [ "$(jq -r 'has("hooks") and (.hooks | has("Stop"))' "$settings")" = false ] \
+    || fail "the event firstmate emptied outlived its retirement"
+
   printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"},{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G1"}]}]}}' \
     > "$settings"
   fm_control_claude_hooks_write "$settings" \

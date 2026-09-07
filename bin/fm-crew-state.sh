@@ -39,18 +39,23 @@
 #      the run-step shows the run moved on, the log is deterministically stale and
 #      is flagged superseded. A genuinely parked run plus a needs-decision log
 #      agree, and are reported as parked.
-#   4. A secondmate has no run of its own. Require a recovery-grade live endpoint,
-#      a metadata-bound current lifecycle generation, and that generation's
-#      trusted semantic record. Busy means its coordinator is active; idle plus
-#      an open folded decision means parked/blocked; idle with no open decision
-#      is healthy idle. Any missing proof remains unknown.
+#   4. A secondmate has no run of its own. A trailing declared paused:/blocked:/
+#      failed: status line is the coordinator's own statement about itself, so it
+#      is current truth: it outranks every unknown reason and healthy idle, and
+#      only a live busy verdict outranks it. Everything else needs full proof - a
+#      recovery-grade live endpoint, a metadata-bound current lifecycle
+#      generation, and that generation's trusted semantic record. Busy means its
+#      coordinator is active; idle plus an open folded decision means
+#      parked/blocked; idle with no open decision is healthy idle. Missing proof
+#      with no such declaration remains unknown.
 #   5. No run for an ordinary crew (pre-validation, or kind=scout): fall back to
 #      the recorded backend's pane busy state, then the status log's last line
 #      only when its verb maps to a recognized run-state. Decision-only events
 #      such as `resolved` never become current state or detail.
-#   6. Missing meta or torn-down worktree: report unknown · none. If no run is
-#      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log.
+#   6. Missing meta or torn-down worktree: report unknown · none. For an ORDINARY
+#      crew with no attributed run, a dead endpoint also reports unknown · none
+#      rather than trusting a stale status log; a secondmate instead keeps its own
+#      declared paused/blocked/failed line, per item 4.
 #
 # Read-only and side-effect free. Always exits 0 on a successful read regardless
 # of state; exit 2 only on a usage error (no id).

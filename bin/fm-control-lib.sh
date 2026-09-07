@@ -290,14 +290,16 @@ _fm_control_claude_owned_hook_program='
 # its Stop entry carries no matcher, so a captain hand-editing that event adds
 # their command beside firstmate's rather than in an entry of their own.
 # Retirement therefore drops matching commands, and drops the entry and the
-# event only once firstmate's own removal is what emptied them.
+# event only when firstmate's own removal is what emptied them: an entry that
+# already declared no commands is the captain's and is left exactly as it is.
 _fm_control_claude_prune_program='
-  def fm_strip:
-    if has("hooks")
-    then .hooks = ((.hooks // []) | map(select((.command // "") | contains($marker) | not)))
-    else . end;
-  def fm_kept: (has("hooks") | not) or ((.hooks | length) > 0);
-  .hooks = ((.hooks // {}) | with_entries(.value |= (map(fm_strip) | map(select(fm_kept)))))
+  def fm_entry:
+    if (has("hooks") | not) or ((.hooks | length) == 0)
+    then .
+    else .hooks = (.hooks | map(select((.command // "") | contains($marker) | not)))
+      | if (.hooks | length) == 0 then empty else . end
+    end;
+  .hooks = ((.hooks // {}) | with_entries(.value |= map(fm_entry)))
   | .hooks |= with_entries(select((.value | length) > 0))
 '
 
