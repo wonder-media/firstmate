@@ -252,14 +252,17 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
 
 # --- claude settings.local.json wiring (merge in, prune out) ----------------
 #
-# Claude's per-project settings file is NOT firstmate-owned. An ephemeral crew
-# worktree happens to have no other content in it, but a secondmate's worktree
-# IS a long-lived, captain-owned firstmate home whose settings.local.json can
-# already carry the captain's own permissions and hooks. So the lifecycle hooks
-# are merged into whatever is there and retired by removing only the entries
-# firstmate wrote, identified by the busy-event command every one of them runs.
-# The file is deleted only when nothing but firstmate wiring was ever in it, so
-# a crew worktree still ends a relaunch with no file at all.
+# Who owns <worktree>/.claude/settings.local.json depends on the worktree. In an
+# ephemeral crew worktree firstmate creates and removes the whole file, so both
+# helpers below stay a plain write and a plain rm ("owned") and need no jq -
+# jq is optional for a tmux-only install (bin/fm-backend.sh's required tools).
+# A secondmate's worktree IS a long-lived, captain-owned firstmate home whose
+# settings can already carry the captain's own permissions and hooks, so there
+# firstmate is a guest ("shared"): the lifecycle hooks are merged into whatever
+# is present and retired by removing only the entries firstmate wrote,
+# identified by the busy-event command every one of them runs. That mode needs
+# jq and fails closed without it rather than discarding captain-owned settings;
+# the file is deleted only when nothing else was left in it.
 FM_CONTROL_CLAUDE_HOOK_MARKER='bin/fm-busy-event.sh'
 
 _fm_control_claude_prune_program='
@@ -268,11 +271,11 @@ _fm_control_claude_prune_program='
   | .hooks |= with_entries(select((.value | length) > 0))
 '
 
-fm_control_claude_hooks_write() {  # <settings-file> <hooks-json>
-  local file=${1-} add=${2-} merged
+fm_control_claude_hooks_write() {  # <settings-file> <hooks-json> [owned|shared]
+  local file=${1-} add=${2-} mode=${3:-owned} merged
   [ -n "$file" ] && [ -n "$add" ] || return 1
   mkdir -p "$(dirname "$file")" || return 1
-  if [ ! -s "$file" ]; then
+  if [ "$mode" != shared ] || [ ! -s "$file" ]; then
     printf '%s\n' "$add" > "$file" || return 1
     return 0
   fi
@@ -285,11 +288,12 @@ fm_control_claude_hooks_write() {  # <settings-file> <hooks-json>
   printf '%s\n' "$merged" > "$file" || return 1
 }
 
-fm_control_claude_hooks_clear() {  # <settings-file>
-  local file=${1-} pruned
+fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
+  local file=${1-} mode=${2:-owned} pruned
   [ -n "$file" ] || return 1
   [ -e "$file" ] || return 0
-  if [ -s "$file" ] && command -v jq >/dev/null 2>&1; then
+  if [ "$mode" = shared ] && [ -s "$file" ]; then
+    command -v jq >/dev/null 2>&1 || return 1
     pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
       "$_fm_control_claude_prune_program"'
         | if (.hooks | length) == 0 then del(.hooks) else . end
@@ -298,8 +302,6 @@ fm_control_claude_hooks_clear() {  # <settings-file>
       printf '%s\n' "$pruned" > "$file" || return 1
       return 0
     fi
-  elif [ -s "$file" ]; then
-    return 1
   fi
   rm -f -- "$file" || return 1
 }

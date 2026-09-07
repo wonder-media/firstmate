@@ -609,6 +609,57 @@ test_spawn_secondmate_semantic_lifecycle_wiring() {
   pass "B5a spawn: every push-lifecycle secondmate adapter gets generation-bound semantic wiring"
 }
 
+# The secondmate reader can only prove lifecycle state where the recovery-grade
+# endpoint classifier also works. On any other backend the wiring would emit a
+# turn-end notification no state could ever absorb, so it is not armed at all.
+test_spawn_secondmate_skips_wiring_on_an_unprovable_backend() {
+  local w sm meta fakebin
+  w="$TMP_ROOT/spawn-unprovable-backend"
+  sm="$w/sm"
+  make_seeded_home "$sm" sm
+  # Enough of the zellij CLI for one tab+pane creation, so the spawn reaches
+  # the arming decision on a backend with no recovery-grade agent classifier.
+  fakebin="$w/tmux-sm/fakebin"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/zellij" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  --version) printf 'zellij 0.44.0\n'; exit 0 ;;
+  list-sessions) printf 'firstmate\n'; exit 0 ;;
+esac
+sub=
+for a in "$@"; do
+  case "$a" in
+    list-tabs|new-tab|list-panes) sub=$a; break ;;
+  esac
+done
+case "$sub" in
+  list-tabs) printf '[]\n' ;;
+  new-tab) printf '7\n' ;;
+  list-panes) printf '[{"id":11,"tab_id":7,"is_plugin":false}]\n' ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/zellij"
+
+  FM_BACKEND=zellij spawn_secondmate "$w" sm "$sm" claude
+
+  meta="$w/home/state/sm.meta"
+  [ -f "$meta" ] || fail "unprovable-backend: no meta written"
+  [ "$(meta_harness "$meta")" = claude ] \
+    || fail "unprovable-backend: secondmate launched on '$(meta_harness "$meta")', expected claude"
+  grep -q '^backend=zellij$' "$meta" \
+    || fail "unprovable-backend: the fixture did not land on the unprovable backend"
+  grep -q '^busy_gen=' "$meta" 2>/dev/null \
+    && fail "unprovable-backend: a lifecycle generation was bound where no reader can prove it"
+  [ -e "$w/home/state/sm.busy-gen" ] \
+    && fail "unprovable-backend: a lifecycle generation sidecar was armed"
+  [ -e "$sm/.claude/settings.local.json" ] \
+    && fail "unprovable-backend: turn-end wiring was installed with no way to absorb its events"
+  pass "B5e spawn: a secondmate on a backend without recovery-grade state arms no lifecycle wiring"
+}
+
 # A secondmate home is persistent and captain-owned, so arming its Claude
 # lifecycle hooks must merge into the settings already there - on the first
 # spawn and on every recovery respawn - never replace them.
@@ -2626,6 +2677,7 @@ test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins
 test_spawn_secondmate_semantic_lifecycle_wiring
+test_spawn_secondmate_skips_wiring_on_an_unprovable_backend
 test_spawn_secondmate_claude_settings_are_merged_not_replaced
 test_spawn_unverified_secondmate_harness_refused
 test_spawn_cursor_secondmate_launches_with_its_primary_contract

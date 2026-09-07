@@ -796,7 +796,7 @@ spawn_abort_cleanup() {
         "$RELAUNCH_REPLACEMENT_HARNESS" \
         "$RELAUNCH_REPLACEMENT_WT" \
         "$RELAUNCH_REPLACEMENT_STATE" \
-        "$ID"; then
+        "$ID" "$KIND"; then
       echo "warning: could not remove replacement wiring after aborted relaunch of $ID" >&2
     fi
     if [ -n "$RELAUNCH_REPLACEMENT_BUSY_GEN" ]; then
@@ -911,7 +911,9 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 kind=${5:-ship}
+  local token_path token auth_path path claude_ownership=owned
+  [ "$kind" != secondmate ] || claude_ownership=shared
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -935,7 +937,7 @@ clear_relaunch_harness_wiring() {
     # home: retire only the entries firstmate wrote, and drop the file only
     # when it held nothing else.
     if [ "$harness" = claude ] && [ "$path" = "$wt/.claude/settings.local.json" ]; then
-      fm_control_claude_hooks_clear "$path" || return 1
+      fm_control_claude_hooks_clear "$path" "$claude_ownership" || return 1
       continue
     fi
     rm -f -- "$path" || return 1
@@ -2621,7 +2623,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # files and turn-end token registry entries behind, and even a same-harness
   # relaunch would orphan the retired busy generation's token
   # (bin/fm-control-lib.sh owns where those artifacts live).
-  clear_relaunch_harness_wiring "$RELAUNCH_PRIOR_HARNESS" "$WT" "$STATE_REAL" "$ID" || {
+  clear_relaunch_harness_wiring "$RELAUNCH_PRIOR_HARNESS" "$WT" "$STATE_REAL" "$ID" "$KIND" || {
     echo "error: could not retire $RELAUNCH_PRIOR_HARNESS wiring for task $ID; refusing to arm the replacement" >&2
     exit 1
   }
@@ -2634,6 +2636,14 @@ SEMANTIC_BUSY_WIRING=0
 case "$HARNESS" in
   claude*|opencode*|pi|pi-signed) SEMANTIC_BUSY_WIRING=1 ;;
 esac
+# A secondmate's lifecycle state is only ever readable where the recovery-grade
+# endpoint classifier can prove the endpoint too (bin/fm-control-lib.sh owns
+# that table). Arming it on a backend the reader cannot classify would emit a
+# turn-end notification that no state can ever absorb, waking the captain on
+# every quiet turn.
+if [ "$KIND" = secondmate ] && ! fm_control_backend_state_verified "$BACKEND"; then
+  SEMANTIC_BUSY_WIRING=0
+fi
 if [ "$KIND" != secondmate ] || [ "$SEMANTIC_BUSY_WIRING" -eq 1 ]; then
   # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every
   # adapter with a verified semantic source. The launch brief sent below IS a
@@ -2695,7 +2705,10 @@ EOF
       # A secondmate's worktree is its persistent captain-owned home, so the
       # hooks are merged into any settings already there rather than replacing
       # them (bin/fm-control-lib.sh owns the merge and its retirement).
-      fm_control_claude_hooks_write "$WT/.claude/settings.local.json" "$claude_hooks_json" || {
+      claude_settings_ownership=owned
+      [ "$KIND" != secondmate ] || claude_settings_ownership=shared
+      fm_control_claude_hooks_write "$WT/.claude/settings.local.json" "$claude_hooks_json" \
+        "$claude_settings_ownership" || {
         echo "error: could not install the claude lifecycle hooks for task $ID without discarding existing settings" >&2
         exit 1
       }

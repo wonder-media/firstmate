@@ -464,28 +464,58 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
   pass "fm-control relaunch: switching harness is one ordinary relaunch, and the old wiring goes with the old agent"
 }
 
-# Retiring claude wiring must remove only what firstmate wrote: a secondmate's
-# worktree is its captain-owned home, whose settings file can carry the
-# captain's own hooks and permissions.
-test_harness_switch_keeps_foreign_claude_settings() {
-  local dir out rc settings
-  dir=$(new_case switch-foreign rl4b)
-  add_ship_task "$dir" rl4b claude
-  settings="$dir/wt/.claude/settings.local.json"
-  mkdir -p "${settings%/*}"
-  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s rl4b idle"}]}]}}' \
-    > "$settings"
-  printf 'codex' > "$dir/fake/becomes"
-  out=$(run_control "$dir" rl4b relaunch --harness codex --note "switching runtime"); rc=$?
-  expect_code 0 "$rc" "a harness switch should succeed"$'\n'"$out"
-  [ -e "$settings" ] || fail "retiring wiring must not delete a settings file with foreign content"
+# Retiring claude wiring is ownership-aware. In a crew worktree firstmate owns
+# the whole settings file and removes it (jq is optional there, so a tmux-only
+# install must still relaunch). In a secondmate home firstmate is a guest, so
+# only its own entries go and a missing jq fails closed rather than discarding
+# captain-owned settings.
+test_claude_wiring_retirement_is_ownership_aware() {
+  local dir settings foreign rc nojq t
+  dir="$TMP_ROOT/claude-ownership-$RANDOM"
+  nojq="$dir/nojq-bin"
+  mkdir -p "$dir" "$nojq"
+  # A PATH that has everything the helpers shell out to EXCEPT jq, so the
+  # jq-optional contract is exercised rather than a broken environment.
+  for t in mkdir dirname rm; do ln -sf "$(command -v "$t")" "$nojq/$t"; done
+  settings="$dir/settings.local.json"
+  foreign='{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}'
+
+  printf '%s\n' "$foreign" > "$settings"
+  fm_control_claude_hooks_clear "$settings" owned \
+    || fail "an owned crew settings file should retire without error"
+  [ ! -e "$settings" ] || fail "an owned crew settings file should be removed outright"
+
+  printf '%s\n' "$foreign" > "$settings"
+  ( PATH="$nojq" fm_control_claude_hooks_clear "$settings" owned ) \
+    || fail "retiring owned crew wiring must not require jq"
+  [ ! -e "$settings" ] || fail "retiring owned crew wiring without jq should still remove the file"
+
+  printf '%s\n' "$foreign" > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "a shared secondmate settings file should retire without error"
+  [ -e "$settings" ] || fail "retiring shared wiring must not delete a file with foreign content"
   [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
-    || fail "retiring wiring discarded the captain's permissions"
+    || fail "retiring shared wiring discarded the captain's permissions"
   [ "$(jq '.hooks.Stop | length' "$settings")" = 1 ] \
-    || fail "retiring wiring did not remove exactly the firstmate hook entry"
+    || fail "retiring shared wiring did not remove exactly the firstmate hook entry"
   [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
-    || fail "retiring wiring removed the captain's own hook"
-  pass "fm-control relaunch: retiring claude wiring prunes firstmate's entries and keeps foreign settings"
+    || fail "retiring shared wiring removed the captain's own hook"
+
+  printf '%s\n' "$foreign" > "$settings"
+  rc=0
+  ( PATH="$nojq" fm_control_claude_hooks_clear "$settings" shared ) || rc=$?
+  [ "$rc" -ne 0 ] || fail "retiring shared wiring without jq must fail closed"
+  [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
+    || fail "a failed-closed retirement must leave the captain's settings untouched"
+
+  printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}\n' > "$settings"
+  rc=0
+  ( PATH="$nojq" \
+    fm_control_claude_hooks_write "$settings" '{"hooks":{"Stop":[]}}' shared ) || rc=$?
+  [ "$rc" -ne 0 ] || fail "arming shared wiring without jq must fail closed"
+  [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
+    || fail "a failed-closed arming must not overwrite captain-owned settings"
+  pass "fm-control relaunch: claude settings retirement is ownership-aware and jq stays optional for crew worktrees"
 }
 
 test_harness_switch_does_not_carry_the_old_profile_axes() {
@@ -1492,7 +1522,7 @@ test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_requires_a_note_for_a_ship_task
 test_harness_switch_moves_the_record_and_clears_prior_wiring
-test_harness_switch_keeps_foreign_claude_settings
+test_claude_wiring_retirement_is_ownership_aware
 test_harness_switch_does_not_carry_the_old_profile_axes
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement

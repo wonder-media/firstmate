@@ -565,9 +565,6 @@ if [ "$KIND" = secondmate ]; then
   [ "$META_BUSY_GEN" = "$CURRENT_BUSY_GEN" ] \
     || emit unknown pane "secondmate lifecycle generation stale"
 
-  if ! BUSY_RECORD=$(fm_busy_record_read "$STATE" "$ID"); then
-    emit unknown pane "secondmate lifecycle record unavailable ($BUSY_RECORD)"
-  fi
   BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
   case "${BUSY_VERDICT%% *}" in
     busy)
