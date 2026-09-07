@@ -33,5 +33,5 @@ bin/fm-version-inventory.sh
 ```
 
 Its current machine-specific output belongs in the maintenance report or PR evidence rather than this tracked behavioral record, because installed and published versions can change independently of Firstmate code.
-`--offline` retains installed and compatibility fields while reporting every stable version and freshness verdict as `unknown/offline`.
+When a release channel is absent, unreachable, or slower than the bound, that tool keeps its installed and compatibility fields while its stable version and freshness verdict read `unknown/offline`.
 The command never queries a live Herdr server; it reports Herdr's protocol floor and leaves compatibility unknown until an independently authorized live protocol check exists.

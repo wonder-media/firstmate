@@ -6,8 +6,9 @@
 # installs a synthetic HOME and operational home, and verifies that all
 # effective writable paths are inside the private root. FM_TEST_* values are
 # test-runner controls rather than production overrides and remain available,
-# as are the exact documented opt-in live-lane switches enumerated in
-# FM_TEST_ENV_LIVE_SWITCHES; every other FM_* value is removed.
+# as are the exact documented opt-in switches enumerated in
+# FM_TEST_ENV_LIVE_SWITCHES and FM_TEST_ENV_RETAINED_SWITCHES; every other FM_*
+# value is removed.
 #
 # A live lane that is explicitly enabled (switch value 1) keeps the inherited
 # HOME so the real harness binaries it launches find their existing logins; its
@@ -30,10 +31,10 @@ fm_test_env_canonical_dir() {
 
 # Exact enumeration of the documented opt-in live-lane switches. Each defaults
 # to off and is consulted only by its own test; nothing here is read by
-# production code.
+# production code. Enabling one keeps the inherited HOME, so a switch belongs
+# here only when its lane launches a real harness binary that needs its login.
 FM_TEST_ENV_LIVE_SWITCHES='
   FM_AFK_PI_HERDR_E2E
-  FM_BOARD_BROWSER_TEST
   FM_CLAUDE_LIVE_E2E
   FM_CMUX_CLAUDE_COMPOSER_LIVE
   FM_CODEX_LIVE_E2E
@@ -53,14 +54,21 @@ FM_TEST_ENV_LIVE_SWITCHES='
   FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E
 '
 
-# Retained across the boundary: test controls, the live switches above, and the
+# Exact enumeration of documented opt-ins that only a test reads and that need
+# no login home. They survive the boundary but never grant the inherited HOME.
+FM_TEST_ENV_RETAINED_SWITCHES='
+  FM_BOARD_BROWSER_SIZE
+  FM_BOARD_BROWSER_TEST
+'
+
+# Retained across the boundary: test controls, both enumerations above, and the
 # two executable-path inputs the grok stop lane documents beside its switch.
 fm_test_env_retained_name() {
   local switch
   case "$1" in
     FM_TEST_*|FM_GROK_NATIVE_BIN|FM_GROK_LEGACY_BIN) return 0 ;;
   esac
-  for switch in $FM_TEST_ENV_LIVE_SWITCHES; do
+  for switch in $FM_TEST_ENV_LIVE_SWITCHES $FM_TEST_ENV_RETAINED_SWITCHES; do
     [ "$1" = "$switch" ] && return 0
   done
   return 1

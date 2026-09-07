@@ -412,6 +412,54 @@ SH
   pass "documented opt-in live gates survive the runner boundary while production values are stripped"
 }
 
+test_board_browser_opt_ins_survive_without_a_login_home() {
+  local tmp fixture login_home mode
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-board.XXXXXX")
+  fixture="$tmp/board.test.sh"
+  login_home="$tmp/login-home"
+  mkdir -p "$login_home"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_TEST_SOURCE_LIB:-0}" = 1 ]; then
+  # shellcheck source=/dev/null
+  . "$FM_TEST_LIB_PATH"
+fi
+
+[ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] || exit 71
+[ "${FM_BOARD_BROWSER_TEST:-}" = 1 ] || exit 72
+[ "${FM_BOARD_BROWSER_SIZE:-}" = 390,844 ] || exit 73
+[ -z "${FM_ROOT_OVERRIDE+x}${FM_STATE_OVERRIDE+x}${FM_BACKEND+x}" ] || exit 74
+[ "$HOME" != "$FM_TEST_LOGIN_HOME" ] || exit 75
+case "$HOME" in
+  "$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 76 ;;
+esac
+case "$FM_HOME" in
+  "$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 77 ;;
+esac
+printf 'ok - board browser opt-ins survive inside the synthetic home\n'
+SH
+  chmod +x "$fixture"
+
+  for mode in runner direct; do
+    HOME="$login_home" FM_TEST_LOGIN_HOME="$login_home" \
+      FM_HOME=/Users/patrick/firstmate \
+      FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+      FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+      FM_BACKEND=herdr \
+      FM_BOARD_BROWSER_TEST=1 \
+      FM_BOARD_BROWSER_SIZE=390,844 \
+      FM_TEST_SOURCE_LIB=$([ "$mode" = direct ] && echo 1 || echo 0) FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+      "$([ "$mode" = runner ] && echo "$RUNNER" || echo direct_invoke)" "$fixture" >"$tmp/$mode.out" 2>"$tmp/$mode.err" \
+      || { rm -rf "$tmp"; fail "$mode: board browser opt-ins did not survive inside the synthetic home: $(cat "$tmp/$mode.out" "$tmp/$mode.err")"; }
+  done
+
+  rm -rf "$tmp"
+  pass "documented board browser opt-ins survive isolation without granting the login home"
+}
+
 test_nested_children_keep_fixtures_inside_the_boundary() {
   local tmp fixture runner_capture direct_capture
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-nested.XXXXXX")
@@ -988,6 +1036,7 @@ test_empty_selection_emits_summary
 test_timing_markers_and_json
 test_inherited_fm_environment_is_sanitized
 test_documented_live_gates_survive_isolation
+test_board_browser_opt_ins_survive_without_a_login_home
 test_nested_children_keep_fixtures_inside_the_boundary
 test_enabled_live_lane_keeps_its_login_home
 test_aggregate_exit_behavior

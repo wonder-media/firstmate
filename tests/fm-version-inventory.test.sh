@@ -3,7 +3,8 @@
 #
 # Every release lookup is served by deterministic local fakes. The suite proves
 # exact owning channels, compatibility/freshness separation, intentional CI pins,
-# offline behavior, and hard request bounds without contacting a real network.
+# unknown/offline degradation, and hard request bounds without contacting a
+# real network.
 set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
@@ -108,25 +109,6 @@ test_inventory_separates_compatibility_freshness_and_pins() {
   pass "version inventory separates compatibility, stable freshness, and intentional pins"
 }
 
-test_offline_inventory_never_calls_release_channels() {
-  local dir fakebin github_log npm_log out
-  dir="$TMP_ROOT/offline"
-  mkdir -p "$dir"
-  github_log="$dir/github.log"
-  npm_log="$dir/npm.log"
-  : > "$github_log"
-  : > "$npm_log"
-  fakebin=$(make_fake_tools "$dir")
-  out=$(PATH="$fakebin:$BASE_PATH" FM_FAKE_GITHUB_LOG="$github_log" FM_FAKE_NPM_LOG="$npm_log" \
-    "$ROOT/bin/fm-version-inventory.sh" --offline)
-
-  [ ! -s "$github_log" ] || fail "offline inventory called a GitHub release channel"
-  [ ! -s "$npm_log" ] || fail "offline inventory called npm"
-  [ "$(printf '%s\n' "$out" | grep -c $'\tunknown/offline\t')" -eq 8 ] \
-    || fail "offline inventory did not distinguish every unavailable stable version"
-  pass "offline inventory reports unknown/offline without any release request"
-}
-
 test_release_request_is_hard_bounded() {
   local dir fakebin github_log npm_log out started ended elapsed
   dir="$TMP_ROOT/bounded"
@@ -194,7 +176,6 @@ SH
 }
 
 test_inventory_separates_compatibility_freshness_and_pins
-test_offline_inventory_never_calls_release_channels
 test_release_request_is_hard_bounded
 test_multi_digit_versions_parse_whole
 

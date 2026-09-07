@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Print an explicit read-only maintenance inventory for Firstmate-owned tools.
 #
-# Usage: fm-version-inventory.sh [--offline]
+# Usage: fm-version-inventory.sh
 #
 # This command is deliberately separate from bootstrap. Bootstrap performs only
 # offline presence, feature, and compatibility-floor checks; it never asks a
 # release channel what is newest. This opt-in command reads installed versions
-# and, unless --offline is given, makes one hard-bounded request per owning
-# release channel. It never installs, upgrades, starts, stops, or configures a
-# tool. Herdr is limited to `--version`; its live protocol is not queried.
+# and makes one hard-bounded request per owning release channel. It never
+# installs, upgrades, starts, stops, or configures a tool. Herdr is limited to `--version`; its live protocol is not queried.
 #
 # Output is tab-separated with distinct installed, minimum-supported,
 # available-stable, compatibility, freshness, intentionally-pinned, and channel
@@ -27,13 +26,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/fm-tool-versions-lib.sh"
 
 usage() {
-  printf 'usage: fm-version-inventory.sh [--offline]\n' >&2
+  printf 'usage: fm-version-inventory.sh\n' >&2
 }
 
-OFFLINE=0
 case "${1:-}" in
   "") ;;
-  --offline) OFFLINE=1 ;;
   --help|-h) usage; exit 0 ;;
   *) usage; exit 2 ;;
 esac
@@ -68,7 +65,6 @@ installed_version() {
 
 github_stable() {
   local repo=$1 output version
-  [ "$OFFLINE" -eq 0 ] || { printf 'unknown/offline\n'; return 0; }
   command -v gh-axi >/dev/null 2>&1 || { printf 'unknown/offline\n'; return 0; }
   output=$(fm_run_timed "$TIMEOUT" env GH_REPO="$repo" gh-axi release list \
     --exclude-drafts --exclude-pre-releases --limit 1 </dev/null 2>/dev/null) \
@@ -81,7 +77,6 @@ github_stable() {
 
 npm_stable() {
   local package=$1 output version
-  [ "$OFFLINE" -eq 0 ] || { printf 'unknown/offline\n'; return 0; }
   command -v npm >/dev/null 2>&1 || { printf 'unknown/offline\n'; return 0; }
   output=$(fm_run_timed "$TIMEOUT" npm view "$package" version </dev/null 2>/dev/null) \
     || { printf 'unknown/offline\n'; return 0; }
