@@ -593,6 +593,27 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$(settings_mode "$settings")" = 600 ] \
     || fail "the captain's file mode was widened to $(settings_mode "$settings") by the atomic replacement"
 
+  # A captain hand-editing the Stop event adds their command beside firstmate's,
+  # in the same matcher entry: retirement must take only firstmate's command.
+  printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"Bash"}],"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"},{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G1"}]}]}}' \
+    > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring wiring that shares a matcher entry must succeed"
+  [ "$(jq -r '[.hooks.Stop[].hooks[].command] | join(",")' "$settings")" = captain-own-stop ] \
+    || fail "retirement removed the captain's command from the entry it shared with firstmate"
+  [ "$(jq -r '.hooks.PreToolUse[0].matcher' "$settings")" = Bash ] \
+    || fail "retirement discarded an unrelated captain entry that declares no hooks"
+
+  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"},{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G1"}]}]}}' \
+    > "$settings"
+  fm_control_claude_hooks_write "$settings" \
+    '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G2"}]}]}}' shared \
+    || fail "re-arming over a shared matcher entry must succeed"
+  jq -e '[.hooks.Stop[].hooks[].command] | index("captain-own-stop")' "$settings" >/dev/null \
+    || fail "a re-arm removed the captain's command from the entry it shared with firstmate"
+  [ "$(jq '[.hooks.Stop[].hooks[].command | select(contains("fm-busy-event.sh"))] | length' "$settings")" = 1 ] \
+    || fail "a re-arm did not retire exactly the previous generation's own command"
+
   # A file firstmate cannot inspect at all is reported apart from one whose
   # prune ran and left an owned hook behind: only the second is the captain's
   # to repair by hand.
