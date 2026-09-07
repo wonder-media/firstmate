@@ -300,7 +300,9 @@ _fm_control_claude_prune_program='
       | if (.hooks | length) == 0 then empty else . end
     end;
   .hooks = ((.hooks // {}) | with_entries(.value |= (
-      if length == 0 then . else (map(fm_entry) | if length == 0 then null else . end) end)))
+      if type != "array" then error("hook event is not an array")
+      elif length == 0 then .
+      else (map(fm_entry) | if length == 0 then null else . end) end)))
   | .hooks |= with_entries(select(.value != null))
 '
 

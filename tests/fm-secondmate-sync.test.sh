@@ -293,13 +293,13 @@ test_shipped_ignores_keep_both_home_shapes_clean() {
     printf '// firstmate\n' > "$home/.opencode/plugins/fm-turn-end.js"
     printf 'token=g\n' > "$home/.fm-grok-turnend"
     printf 'token=k\n' > "$home/.fm-kimi-turnend"
-    dirt=$(git -C "$home" status --porcelain)
+    dirt=$(git -C "$home" -c core.excludesFile=/dev/null status --porcelain)
     [ -z "$dirt" ] \
       || fail "firstmate's own lifecycle wiring dirties a $shape home: $dirt"
   done
 
   printf 'captain edit\n' >> "$w/clone/AGENTS.md"
-  dirt=$(git -C "$w/clone" status --porcelain)
+  dirt=$(git -C "$w/clone" -c core.excludesFile=/dev/null status --porcelain)
   assert_contains "$dirt" "AGENTS.md" "a real captain edit must still read as dirty"
   pass "T3d shipped ignores: a wired clone and a wired linked worktree are both clean to git"
 }

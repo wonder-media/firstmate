@@ -540,7 +540,8 @@ test_claude_wiring_retirement_is_ownership_aware() {
   # A file that IS one JSON object but whose `hooks` value has an inner shape the
   # prune program cannot walk must be reported unmergeable UP FRONT, so a caller
   # disarms instead of discovering the failure mid-write and refusing to launch.
-  for body in '{"hooks":{"Stop":["x"]}}' '{"hooks":{"Stop":[{"hooks":"str"}]}}'; do
+  for body in '{"hooks":{"Stop":["x"]}}' '{"hooks":{"Stop":[{"hooks":"str"}]}}' \
+              '{"hooks":{"Stop":{}}}' '{"hooks":{"Stop":""}}' '{"hooks":{"Stop":0}}'; do
     printf '%s\n' "$body" > "$settings"
     ! fm_control_claude_shared_settings_mergeable "$settings" \
       || fail "an unwalkable hooks value was reported mergeable: $body"
@@ -549,6 +550,20 @@ test_claude_wiring_retirement_is_ownership_aware() {
     [ "$(cat "$settings")" = "$body" ] \
       || fail "a skipped retirement must leave the captain's file untouched: $body"
   done
+  # The gate is the single owner of "can this merge run at all", so every file it
+  # accepts the merge must actually complete on: a gate proving less than the
+  # write needs turns a captain's odd settings file into a refused launch.
+  for body in '{}' '{"permissions":{"allow":["x"]}}' '{"hooks":{}}' '{"hooks":{"Stop":[]}}' \
+              '{"hooks":{"Stop":{}}}' '{"hooks":{"Stop":""}}' '{"hooks":{"Stop":0}}' \
+              '{"hooks":{"PreToolUse":{}}}'; do
+    printf '%s\n' "$body" > "$settings"
+    fm_control_claude_shared_settings_mergeable "$settings" || continue
+    fm_control_claude_hooks_write "$settings" \
+      '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t idle"}]}]}}' \
+      shared \
+      || fail "the gate accepted a file the merge then failed on, refusing the launch: $body"
+  done
+
   printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}' \
     > "$settings"
   fm_control_claude_shared_settings_mergeable "$settings" \
