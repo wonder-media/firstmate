@@ -188,7 +188,8 @@ Set `FM_SECONDMATE_CHARTER` to seed from inline charter text when no filled char
 The seeded home's `data/charter.md` owns the standard secondmate lifecycle and escalation contract; the route file points to it through the existing `home:` field instead of adding another pointer.
 Each seed writes an `.fm-secondmate-home` identity marker at the home root, alongside a durable `.fm-secondmate-parent` record of the home's route to its parent (see "Provision a route" in [`docs/remote-secondmates.md`](remote-secondmates.md)).
 The tracked root `.gitignore` ignores both markers, so validation can read them without making a freshly seeded home appear dirty to porcelain-based safety checks.
-This does not relax protection for any other untracked file.
+This does not relax protection for the captain's own untracked files.
+The only other exemption is the fixed set of lifecycle wiring files Firstmate itself writes into a live secondmate home, which the shared local and remote guarded sync skips so a wired home is still fast-forwarded instead of being stranded on a stale checkout; [`bin/fm-ff-lib.sh`](../bin/fm-ff-lib.sh) owns that exact path set.
 An existing linked-worktree home that predates this rule advances through its marker-only state during its next bootstrap or spawn local sync, after which Git ignores the marker normally.
 A standalone-clone home cannot receive a primary-local commit through that no-fetch sync, so it receives the rule through `/updatefirstmate`'s origin refresh instead.
 
@@ -221,6 +222,7 @@ The verified adapter evidence - each harness's busy-state source, interrupt and 
 Direct secondmate coordinator state is currently supported only for Claude, OpenCode, Pi, and pi-signed, whose existing structured lifecycle sources are wired into secondmate launches.
 It additionally requires the recovery-grade tmux or Herdr endpoint classifier, and a Claude secondmate also requires `jq`, because its hooks are merged into the captain-owned home settings rather than replacing them.
 `jq` stays optional, and so does a settings file firstmate can parse: when either is missing the mate launches with no wiring and reports `unknown`, the captain's file is left exactly as it was, and a warning names it, rather than the spawn or relaunch refusing to run.
+Retiring that wiring - on a relaunch, on a spawn that arms none, and on teardown of the home - removes only the hook commands and adapter files firstmate itself installed, never the captain's settings file, and warns by name when one artifact could not be retired.
 Every other harness or backend, and every remote secondmate whose generation cannot be proved locally, remains explicitly `unknown`; launch support alone is not a current-state claim.
 A trailing declared `paused:`, `blocked:` or `failed:` status line is the exception on every harness and backend: it is the coordinator's own statement about now, so it is reported instead of `unknown` or healthy idle, and only live `busy` proof outranks it.
 The executable interrupt and exit mechanics live in [`bin/fm-control-lib.sh`](../bin/fm-control-lib.sh), and [`docs/agent-control.md`](agent-control.md) owns their lifecycle-control architecture.
