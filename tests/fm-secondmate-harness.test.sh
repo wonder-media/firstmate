@@ -456,6 +456,16 @@ spawn_secondmate() {
   local world=$1 id=$2 home=$3 harness=${4:-} fakebin
   mkdir -p "$world/home/state" "$world/home/data"
   fakebin=$(make_noop_tmux "$world/tmux-$id")
+  case "$harness" in
+    pi|pi-signed)
+      cat > "$fakebin/$harness" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-}" = --help ] && printf '%s\n' 'usage: pi --tui-mode MODE'
+exit 0
+SH
+      chmod +x "$fakebin/$harness"
+      ;;
+  esac
   # An empty harness must contribute zero args, not an empty positional; build the
   # arg list explicitly so the optional harness is omitted cleanly.
   local spawn_args=("$id" "$home")
@@ -559,7 +569,203 @@ test_spawn_explicit_harness_wins() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_harness "$meta")" = claude ] \
     || fail "explicit: launched on '$(meta_harness "$meta")', expected explicit claude over config codex"
+  grep -q '^busy_gen=' "$meta" 2>/dev/null \
+    || fail "explicit: a supported secondmate lifecycle source was not generation-bound in metadata"
+  [ -f "$sm/.claude/settings.local.json" ] \
+    || fail "explicit: Claude secondmate lifecycle hooks were not installed"
   pass "B5 spawn: an explicit per-spawn harness arg overrides config/secondmate-harness"
+}
+
+test_spawn_secondmate_semantic_lifecycle_wiring() {
+  local harness w sm meta gen
+  for harness in claude opencode pi pi-signed; do
+    w="$TMP_ROOT/spawn-lifecycle-$harness"
+    sm="$w/sm"
+    make_seeded_home "$sm" sm
+    spawn_secondmate "$w" sm "$sm" "$harness"
+    meta="$w/home/state/sm.meta"
+    gen=$(grep '^busy_gen=' "$meta" 2>/dev/null | cut -d= -f2-)
+    [ -n "$gen" ] || fail "$harness secondmate did not record a lifecycle generation"
+    [ "$(cat "$w/home/state/sm.busy-gen" 2>/dev/null)" = "$gen" ] \
+      || fail "$harness secondmate metadata generation does not match its sidecar"
+    assert_contains "$(cat "$w/home/state/sm.busy-state" 2>/dev/null)" "state=busy source=fm-spawn" \
+      "$harness secondmate did not seed its launch turn busy"
+    case "$harness" in
+      claude)
+        jq -e '.hooks.UserPromptSubmit and .hooks.Stop and .hooks.StopFailure and .hooks.SessionEnd' \
+          "$sm/.claude/settings.local.json" >/dev/null \
+          || fail "Claude secondmate lifecycle hook set is incomplete"
+        ;;
+      opencode)
+        [ -f "$sm/.opencode/plugins/fm-busy-state.js" ] \
+          || fail "OpenCode secondmate lifecycle plugin is missing"
+        ;;
+      pi|pi-signed)
+        [ -f "$w/home/state/sm.pi-ext.ts" ] \
+          || fail "$harness secondmate lifecycle extension is missing"
+        ;;
+    esac
+  done
+  pass "B5a spawn: every push-lifecycle secondmate adapter gets generation-bound semantic wiring"
+}
+
+# The secondmate reader can only prove lifecycle state where the recovery-grade
+# endpoint classifier also works. On any other backend the wiring would emit a
+# turn-end notification no state could ever absorb, so it is not armed at all.
+test_spawn_secondmate_skips_wiring_on_an_unprovable_backend() {
+  local w sm meta fakebin
+  w="$TMP_ROOT/spawn-unprovable-backend"
+  sm="$w/sm"
+  make_seeded_home "$sm" sm
+  # Enough of the zellij CLI for one tab+pane creation, so the spawn reaches
+  # the arming decision on a backend with no recovery-grade agent classifier.
+  fakebin="$w/tmux-sm/fakebin"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/zellij" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  --version) printf 'zellij 0.44.0\n'; exit 0 ;;
+  list-sessions) printf 'firstmate\n'; exit 0 ;;
+esac
+sub=
+for a in "$@"; do
+  case "$a" in
+    list-tabs|new-tab|list-panes) sub=$a; break ;;
+  esac
+done
+case "$sub" in
+  list-tabs) printf '[]\n' ;;
+  new-tab) printf '7\n' ;;
+  list-panes) printf '[{"id":11,"tab_id":7,"is_plugin":false}]\n' ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/zellij"
+
+  # The home is persistent and may already carry what a prior incarnation armed
+  # while it ran on a backend whose state the reader could prove.
+  mkdir -p "$sm/.claude" "$w/home/state"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s sm idle --gen G1"}]}]}}' \
+    > "$sm/.claude/settings.local.json"
+  printf 'stale extension\n' > "$w/home/state/sm.pi-ext.ts"
+
+  FM_BACKEND=zellij spawn_secondmate "$w" sm "$sm" claude
+
+  meta="$w/home/state/sm.meta"
+  [ -f "$meta" ] || fail "unprovable-backend: no meta written"
+  [ "$(meta_harness "$meta")" = claude ] \
+    || fail "unprovable-backend: secondmate launched on '$(meta_harness "$meta")', expected claude"
+  grep -q '^backend=zellij$' "$meta" \
+    || fail "unprovable-backend: the fixture did not land on the unprovable backend"
+  grep -q '^busy_gen=' "$meta" 2>/dev/null \
+    && fail "unprovable-backend: a lifecycle generation was bound where no reader can prove it"
+  [ -e "$w/home/state/sm.busy-gen" ] \
+    && fail "unprovable-backend: a lifecycle generation sidecar was armed"
+  [ -e "$sm/.claude/settings.local.json" ] \
+    || fail "unprovable-backend: the captain-owned settings file was deleted"
+  grep -q 'fm-busy-event.sh' "$sm/.claude/settings.local.json" \
+    && fail "unprovable-backend: a prior incarnation's turn-end wiring survived a disarmed spawn"
+  grep -q 'captain-own-stop' "$sm/.claude/settings.local.json" \
+    || fail "unprovable-backend: the captain's own hook was discarded"
+  [ -e "$w/home/state/sm.pi-ext.ts" ] \
+    && fail "unprovable-backend: a prior incarnation's pi extension survived a disarmed spawn"
+  pass "B5e spawn: a secondmate on a backend without recovery-grade state arms no lifecycle wiring and retires what a prior incarnation armed"
+}
+
+# A secondmate home is persistent and captain-owned, so arming its Claude
+# lifecycle hooks must merge into the settings already there - on the first
+# spawn and on every recovery respawn - never replace them.
+test_spawn_secondmate_claude_settings_are_merged_not_replaced() {
+  local w sm settings gen1 gen2
+  w="$TMP_ROOT/spawn-settings-merge"
+  sm="$w/sm"
+  make_seeded_home "$sm" sm
+  settings="$sm/.claude/settings.local.json"
+  mkdir -p "$sm/.claude"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}' \
+    > "$settings"
+
+  spawn_secondmate "$w" sm "$sm" claude
+  gen1=$(grep '^busy_gen=' "$w/home/state/sm.meta" 2>/dev/null | cut -d= -f2-)
+
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "captain-owned permissions were discarded by lifecycle arming"
+  jq -e '[.hooks.Stop[].hooks[].command] | index("captain-own-stop")' "$settings" >/dev/null \
+    || fail "the captain's own Stop hook was discarded by lifecycle arming"
+  jq -e '.hooks.UserPromptSubmit and .hooks.StopFailure and .hooks.SessionEnd' "$settings" >/dev/null \
+    || fail "the secondmate lifecycle hook set is incomplete after a merge"
+  [ "$(jq "[.hooks.Stop[] | select([.hooks[].command] | any(contains(\"$gen1\")))] | length" "$settings")" = 1 ] \
+    || fail "the current generation's Stop wiring is not installed exactly once"
+
+  spawn_secondmate "$w" sm "$sm" claude
+  gen2=$(grep '^busy_gen=' "$w/home/state/sm.meta" 2>/dev/null | cut -d= -f2-)
+  [ -n "$gen2" ] && [ "$gen2" != "$gen1" ] || fail "the respawn did not mint a fresh lifecycle generation"
+
+  jq -e '[.hooks.Stop[].hooks[].command] | index("captain-own-stop")' "$settings" >/dev/null \
+    || fail "a respawn discarded the captain's own Stop hook"
+  [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
+    || fail "a respawn did not retire the previous incarnation's Stop wiring"
+  [ "$(jq "[.hooks.Stop[] | select([.hooks[].command] | any(contains(\"$gen1\")))] | length" "$settings")" = 0 ] \
+    || fail "the retired generation's Stop wiring outlived its incarnation"
+  pass "B5d spawn: Claude lifecycle arming merges into a captain-owned secondmate settings file"
+}
+
+# A secondmate home is a linked worktree of the captain's own repository, and
+# git's info/exclude lives in the shared common dir, so an entry written while
+# arming lifecycle wiring would hide that path in the captain's main checkout too.
+test_spawn_secondmate_leaves_the_captain_repo_exclude_untouched() {
+  local w sm capt excl before
+  w="$TMP_ROOT/spawn-shared-exclude"
+  capt="$w/captain-repo"
+  sm="$w/sm"
+  mkdir -p "$capt"
+  git init -q "$capt"
+  git -C "$capt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  git -C "$capt" worktree add -q -b sm-home "$sm" >/dev/null 2>&1 \
+    || fail "shared-exclude: could not build the secondmate home as a linked worktree"
+  make_seeded_home "$sm" sm
+  mkdir -p "$sm/.claude"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]}}' > "$sm/.claude/settings.local.json"
+  excl="$capt/.git/info/exclude"
+  mkdir -p "$capt/.git/info"
+  printf 'captain-own-ignore\n' > "$excl"
+  before=$(cat "$excl")
+
+  spawn_secondmate "$w" sm "$sm" claude
+
+  jq -e '.hooks.Stop' "$sm/.claude/settings.local.json" >/dev/null \
+    || fail "shared-exclude: the fixture never reached the lifecycle arming path"
+  [ "$(cat "$excl")" = "$before" ] \
+    || fail "shared-exclude: arming a secondmate wrote into the captain repository's shared git exclude"
+  pass "B5g spawn: arming a secondmate writes nothing into the captain repository's shared git exclude"
+}
+
+# A captain-owned settings file firstmate cannot parse is the captain's to repair.
+# The spawn still lands, the file survives byte for byte, and the mate simply
+# carries no lifecycle wiring, instead of the spawn refusing to run at all.
+test_spawn_secondmate_survives_unparseable_captain_settings() {
+  local w sm settings before after
+  w="$TMP_ROOT/spawn-unparseable-settings"
+  sm="$w/sm"
+  make_seeded_home "$sm" sm
+  settings="$sm/.claude/settings.local.json"
+  mkdir -p "$sm/.claude"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]}' > "$settings"
+  before=$(cksum < "$settings")
+
+  spawn_secondmate "$w" sm "$sm" claude
+
+  [ -f "$w/home/state/sm.meta" ] \
+    || fail "unparseable-settings: the spawn refused to launch over a file firstmate cannot parse"
+  after=$(cksum < "$settings")
+  [ "$before" = "$after" ] \
+    || fail "unparseable-settings: the captain's own settings file was rewritten"
+  grep -q '^busy_gen=' "$w/home/state/sm.meta" 2>/dev/null \
+    && fail "unparseable-settings: a lifecycle generation was bound with no hooks to report it"
+  [ -e "$w/home/state/sm.busy-gen" ] \
+    && fail "unparseable-settings: a lifecycle generation sidecar was armed"
+  pass "B5f spawn: an unparseable captain settings file disables wiring instead of the spawn"
 }
 
 # The unverified-adapter guard holds on the resolved secondmate path: an unknown
@@ -2540,6 +2746,11 @@ test_spawn_split_and_inherit
 test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins
+test_spawn_secondmate_semantic_lifecycle_wiring
+test_spawn_secondmate_skips_wiring_on_an_unprovable_backend
+test_spawn_secondmate_claude_settings_are_merged_not_replaced
+test_spawn_secondmate_leaves_the_captain_repo_exclude_untouched
+test_spawn_secondmate_survives_unparseable_captain_settings
 test_spawn_unverified_secondmate_harness_refused
 test_spawn_cursor_secondmate_launches_with_its_primary_contract
 test_spawn_backend_precedence_over_inherited_config

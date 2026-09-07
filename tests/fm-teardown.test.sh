@@ -1665,6 +1665,152 @@ SH
   chmod +x "$case_dir/fakebin/herdr"
 }
 
+# A secondmate home is captain-owned and comes back from the treehouse pool, so
+# teardown cannot delete its settings file the way a crew worktree's is deleted.
+# It must retire only firstmate's own lifecycle entries, or the next mate leased
+# into that home keeps firing this retired task's turn-end signal.
+test_secondmate_teardown_retires_only_firstmate_hooks() {
+  local case_dir home settings fmroot
+  case_dir=$(make_case secondmate-hook-retirement)
+  write_meta "$case_dir" local-only secondmate
+  printf 'harness=claude\n' >> "$case_dir/state/task-x1.meta"
+  # The home must be a registered worktree of the firstmate root, so teardown
+  # RETURNS it to the pool instead of deleting it - that is the only path on
+  # which a surviving hook can fire for the retired task.
+  fmroot="$case_dir/fmroot"
+  git init -q "$fmroot"
+  git -C "$fmroot" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  home="$case_dir/secondmate-home"
+  git -C "$fmroot" worktree add -q -b secondmate-home "$home" >/dev/null 2>&1
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$home/.claude"
+  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
+  printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
+  settings="$home/.claude/settings.local.json"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s task-x1 idle"}]}]}}' \
+    > "$settings"
+
+  prepare_treehouse_test_double "$case_dir"
+  FM_ROOT_OVERRIDE="$fmroot" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  FM_TREEHOUSE_OPERATION_LOCK="$case_dir/treehouse-operation.lock" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "secondmate-hook-retirement: teardown refused a clean forced secondmate teardown"
+
+  [ -e "$settings" ] || fail "secondmate-hook-retirement: the captain's settings file was deleted"
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "secondmate-hook-retirement: the captain's permissions were discarded"
+  [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
+    || fail "secondmate-hook-retirement: the captain's own Stop hook was discarded"
+  [ "$(jq '.hooks.Stop | length' "$settings")" = 1 ] \
+    || fail "secondmate-hook-retirement: the retired task's lifecycle hook outlived its teardown"
+  pass "secondmate teardown retires firstmate's lifecycle hooks and keeps the captain's settings"
+}
+
+# A non-Claude secondmate never had firstmate hooks merged into its home, so
+# teardown must not touch that captain-owned file at all; and when the prune
+# cannot run, the surviving hooks must be reported rather than silently kept.
+test_secondmate_teardown_retires_marked_hooks_and_reports_skips() {
+  local case_dir home settings fmroot before nojq
+  case_dir=$(make_case secondmate-hook-scope)
+  write_meta "$case_dir" local-only secondmate
+  printf 'harness=codex\n' >> "$case_dir/state/task-x1.meta"
+  fmroot="$case_dir/fmroot"
+  git init -q "$fmroot"
+  git -C "$fmroot" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  home="$case_dir/secondmate-home"
+  git -C "$fmroot" worktree add -q -b secondmate-home "$home" >/dev/null 2>&1
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$home/.claude"
+  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
+  printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
+  settings="$home/.claude/settings.local.json"
+  printf '%s' '{"permissions":{"allow":["Bash(git status:*)"]}}' > "$settings"
+  before=$(cat "$settings")
+  mkdir -p "$home/.opencode/plugins"
+  printf 'firstmate lifecycle plugin\n' > "$home/.opencode/plugins/fm-busy-state.js"
+  printf 'captain plugin\n' > "$home/.opencode/plugins/captain-own.js"
+
+  prepare_treehouse_test_double "$case_dir"
+  FM_ROOT_OVERRIDE="$fmroot" FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  FM_TREEHOUSE_OPERATION_LOCK="$case_dir/treehouse-operation.lock" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "hook-scope: teardown refused a clean codex secondmate teardown"
+  [ "$(cat "$settings")" = "$before" ] \
+    || fail "hook-scope: a codex secondmate's captain settings were rewritten"
+  [ -e "$home/.opencode/plugins/fm-busy-state.js" ] \
+    && fail "hook-scope: the firstmate opencode lifecycle plugin outlived its teardown"
+  [ -e "$home/.opencode/plugins/captain-own.js" ] \
+    || fail "hook-scope: a captain-owned opencode plugin was removed"
+
+  # A mate relaunched off Claude still owns the entries its Claude incarnation
+  # merged in, so the marker - not the harness recorded last - decides.
+  case_dir=$(make_case secondmate-hook-relaunched)
+  write_meta "$case_dir" local-only secondmate
+  printf 'harness=codex\n' >> "$case_dir/state/task-x1.meta"
+  fmroot="$case_dir/fmroot"
+  git init -q "$fmroot"
+  git -C "$fmroot" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  home="$case_dir/secondmate-home"
+  git -C "$fmroot" worktree add -q -b secondmate-home "$home" >/dev/null 2>&1
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$home/.claude"
+  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
+  printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
+  settings="$home/.claude/settings.local.json"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s task-x1 idle"}]}]}}' \
+    > "$settings"
+
+  prepare_treehouse_test_double "$case_dir"
+  FM_ROOT_OVERRIDE="$fmroot" FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  FM_TREEHOUSE_OPERATION_LOCK="$case_dir/treehouse-operation.lock" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "hook-relaunched: teardown refused a clean relaunched secondmate teardown"
+  [ -e "$settings" ] || fail "hook-relaunched: the captain-owned settings file was deleted"
+  ! grep -q 'fm-busy-event.sh' "$settings" \
+    || fail "hook-relaunched: a firstmate hook survived teardown after a harness switch"
+  [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
+    || fail "hook-relaunched: the captain's own Stop hook was removed"
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "hook-relaunched: the captain's permissions were discarded"
+
+  # Same home, Claude harness, but no jq on PATH: the prune cannot run, so the
+  # surviving firstmate hook must be named instead of silently kept.
+  case_dir=$(make_case secondmate-hook-warning)
+  write_meta "$case_dir" local-only secondmate
+  printf 'harness=claude\n' >> "$case_dir/state/task-x1.meta"
+  fmroot="$case_dir/fmroot"
+  git init -q "$fmroot"
+  git -C "$fmroot" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  home="$case_dir/secondmate-home"
+  git -C "$fmroot" worktree add -q -b secondmate-home "$home" >/dev/null 2>&1
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$home/.claude"
+  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
+  printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
+  settings="$home/.claude/settings.local.json"
+  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s task-x1 idle"}]}]}}' \
+    > "$settings"
+  # make_path_without_lsof builds a PATH from an explicit command list that has
+  # never included jq, so it doubles as the no-jq environment this needs.
+  nojq=$(make_path_without_lsof "$case_dir")
+
+  prepare_treehouse_test_double "$case_dir"
+  FM_ROOT_OVERRIDE="$fmroot" FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  FM_TREEHOUSE_OPERATION_LOCK="$case_dir/treehouse-operation.lock" \
+  PATH="$case_dir/fakebin:$nojq" \
+    "$TEARDOWN" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "hook-warning: teardown refused when the prune could not run"
+  assert_grep "could not be checked" "$case_dir/stderr" \
+    "hook-warning: a retirement that could not run left the captain unwarned"
+  grep -q "are still in $settings" "$case_dir/stderr" \
+    && fail "hook-warning: an uninspectable file was reported as holding surviving hooks"
+  pass "secondmate teardown retires firstmate-marked hooks on any harness and reports a skipped prune"
+}
+
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes() {
   local case_dir home log closed rc thlog
   case_dir=$(make_case herdr-child-preflight)
@@ -2999,6 +3145,8 @@ test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence
 test_herdr_flat_teardown_preflight_refuses_before_changes
+test_secondmate_teardown_retires_only_firstmate_hooks
+test_secondmate_teardown_retires_marked_hooks_and_reports_skips
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes
 test_forced_secondmate_teardown_holds_descendant_lifecycle_locks
 test_forced_secondmate_herdr_child_retains_records_when_close_unconfirmed

@@ -83,9 +83,16 @@ SH
 #!/usr/bin/env bash
 set -u
 case "${1:-}" in
+  list-windows)
+    [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && { printf "can't find session: fm\n" >&2; exit 1; }
+    printf '%s\n' "${FM_FAKE_TMUX_WINDOW:-fm-mate}" ;;
   display-message)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
-    printf '%%1\n' ;;
+    case "${*: -1}" in
+      '#{pane_current_command}') printf '%s\n' "${FM_FAKE_TMUX_COMMAND:-claude}" ;;
+      '#{pane_tty}') : ;;
+      *) printf '%%1\n' ;;
+    esac ;;
   capture-pane)
     [ "${FM_FAKE_TMUX_MISSING:-0}" = 1 ] && exit 1
     if [ "${FM_FAKE_BUSY:-0}" = 1 ]; then printf 'work in progress\n%s\n' "${FM_FAKE_BUSY_TEXT:-esc to interrupt}"
@@ -106,6 +113,13 @@ case "${1:-}" in
     exit 0 ;;
   pane)
     case "${2:-}" in
+      get)
+        if [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ]; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
+        else
+          printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${3:-w1:p1}"
+        fi
+        exit 0 ;;
       read)
         [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ] && exit 1
         if [ "${FM_FAKE_HERDR_BUSY:-0}" = 1 ]; then printf 'work in progress\nesc to interrupt\n'
@@ -115,6 +129,10 @@ case "${1:-}" in
   agent)
     case "${2:-}" in
       get)
+        if [ "${FM_FAKE_HERDR_NO_AGENT:-0}" = 1 ]; then
+          printf '{"error":{"code":"agent_not_found"}}\n'
+          exit 0
+        fi
         [ -n "${FM_FAKE_HERDR_AGENT_STATUS:-}" ] || exit 1
         printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "$FM_FAKE_HERDR_AGENT_STATUS"
         exit 0 ;;
@@ -156,6 +174,26 @@ arm_idle_record() {  # <state-dir> <id>
     --source claude-hook --event stop
 }
 
+make_secondmate_lifecycle_case() {  # <name> <harness> <source> <busy|idle> <tmux|herdr>
+  local d harness=$2 source=$3 lifecycle=$4 backend=$5 gen
+  d=$(new_case "$1")
+  mkdir -p "$d/wt"
+  make_fakebin "$d" >/dev/null
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" mate)
+  "$ROOT/bin/fm-busy-event.sh" apply "$d/state" mate "$lifecycle" --gen "$gen" \
+    --source "$source" --event fixture
+  if [ "$backend" = herdr ]; then
+    fm_write_meta "$d/state/mate.meta" "window=lab:w1:p1" "endpoint_task_id=mate" \
+      "worktree=$d/wt" "project=$d/wt" "kind=secondmate" "harness=$harness" \
+      "backend=herdr" "busy_gen=$gen" "home=$d/wt"
+  else
+    fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "endpoint_task_id=mate" \
+      "worktree=$d/wt" "project=$d/wt" "kind=secondmate" "harness=$harness" \
+      "busy_gen=$gen" "home=$d/wt"
+  fi
+  printf '%s\n' "$d"
+}
+
 # Clear the fake-driver vars and (re-)mark them exported, so the per-test plain
 # assignments below stay exported into the fakes without an `export VAR=$(...)`
 # command-substitution assignment (SC2155).
@@ -166,12 +204,16 @@ reset_fakes() {
   FM_FAKE_BUSY=0
   FM_FAKE_BUSY_TEXT=
   FM_FAKE_TMUX_MISSING=0
+  FM_FAKE_TMUX_WINDOW=fm-mate
+  FM_FAKE_TMUX_COMMAND=claude
   FM_FAKE_HERDR_BUSY=0
   FM_FAKE_HERDR_MISSING=0
+  FM_FAKE_HERDR_NO_AGENT=0
   FM_FAKE_HERDR_AGENT_STATUS=""
   FM_FAKE_CI_LOGS=""
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING
-  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_CI_LOGS
+  export FM_FAKE_TMUX_WINDOW FM_FAKE_TMUX_COMMAND
+  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_NO_AGENT FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_CI_LOGS
 }
 
 # --- run-object fixtures (TOON, as `no-mistakes axi status` emits) -----------
@@ -996,38 +1038,169 @@ test_no_run_idle_pane_custom_paused_verb() {
   pass "no run + idle pane honors the configured paused verb"
 }
 
-# A trailing keyed resolved: event is a decision-CLOSING event, not a run-state
-# verb. It must never become the current state or leak its resolution prose as the
-# detail: a healthy idle secondmate that just closed a keyed decision falls through
-# to the idle default (unknown/none), not `unknown` with the resolution note as its
-# `doing`. Regression for the bearings render bug where such a secondmate showed
-# state=unknown with resolution prose. The one-owner keyed fold in fm-classify-lib.sh
-# is untouched; this only stops the deriver from reading a non-state event as state.
-test_no_run_idle_secondmate_resolved_event_not_state() {
+# A secondmate's current state is lifecycle-derived. The status stream is only
+# consulted through the durable open-decision fold after a current, generation-
+# bound idle record and a recovery-grade live endpoint agree.
+test_secondmate_current_state_contract() {
   reset_fakes
-  local d; d=$(new_case resolved-idle)
+  local d out label harness source backend
+
+  while IFS='^' read -r label harness source backend; do
+    d=$(make_secondmate_lifecycle_case "secondmate-idle-$label" "$harness" "$source" idle "$backend")
+    [ "$backend" != herdr ] || FM_FAKE_HERDR_AGENT_STATUS=idle
+    printf 'working: old coordination event\nnote: later informational note\n' > "$d/state/mate.status"
+    out=$(run_crew_state "$d" mate)
+    assert_contains "$out" "state: idle" "$label idle lifecycle -> healthy idle"
+    assert_contains "$out" "secondmate coordinator healthy idle ($source)" "$label names its semantic source"
+    assert_not_contains "$out" "later informational note" "$label does not treat a later note as current state"
+  done <<'ROWS'
+claude-tmux^claude^claude-hook^tmux
+claude-herdr^claude^claude-hook^herdr
+opencode-tmux^opencode^opencode-plugin^tmux
+opencode-herdr^opencode^opencode-plugin^herdr
+pi-tmux^pi^pi-ext^tmux
+pi-signed-herdr^pi-signed^pi-ext^herdr
+ROWS
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-busy claude claude-hook busy tmux)
+  printf 'blocked [key=old]: prior blocker\nnote: status chatter\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: working" "busy lifecycle -> coordinating"
+  assert_contains "$out" "secondmate coordinator active (claude-hook)" "busy lifecycle names coordinator activity"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-blocked claude claude-hook idle tmux)
+  printf 'blocked [key=infra]: waiting on infra\nnote: later informational note\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: blocked" "idle lifecycle plus an open blocker -> blocked"
+  assert_contains "$out" "waiting on infra" "folded blocker reason is preserved"
+  assert_not_contains "$out" "later informational note" "later note cannot hide or replace an open blocker"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-paused claude claude-hook idle tmux)
+  printf 'working: coordinating\npaused: awaiting the upstream release\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: paused" "a declared external wait is not a healthy idle"
+  assert_contains "$out" "awaiting the upstream release" "the declared wait reason is preserved"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-paused-over-blocker claude claude-hook idle tmux)
+  printf 'blocked [key=infra]: waiting on infra\npaused: awaiting the upstream release\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: paused" "a trailing declared pause outranks an unresolved older blocker"
+  assert_contains "$out" "awaiting the upstream release" "the trailing declaration supplies the current reason"
+  assert_not_contains "$out" "waiting on infra" "the stale folded blocker reason is not reported as current"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-blocked-trailing claude claude-hook idle tmux)
+  printf 'blocked [key=infra]: waiting on infra\nblocked [key=vendor]: waiting on the vendor\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: blocked" "a trailing declared block still reports blocked"
+  assert_contains "$out" "waiting on the vendor" "the trailing block declaration supplies the current reason"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-paused-superseded claude claude-hook idle tmux)
+  printf 'paused: awaiting the upstream release\nnote: later informational note\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: idle" "a superseded pause declaration is not the current state"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-decision claude claude-hook idle tmux)
+  printf 'needs-decision [key=scope]: choose scope\nnote: later informational note\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: parked" "idle lifecycle plus an open decision -> parked"
+  assert_contains "$out" "choose scope" "folded decision reason is preserved"
+  assert_not_contains "$out" "later informational note" "later note cannot hide or replace an open decision"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-resolved claude claude-hook idle tmux)
+  printf 'needs-decision [key=race]: pick subscribe order\nresolved [key=race]: selected order\nnote: later note\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: idle" "resolved decision plus current idle lifecycle -> healthy idle"
+  assert_not_contains "$out" "selected order" "resolution prose is never current-state detail"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-stale-gen claude claude-hook idle tmux)
+  sed -i.bak 's/^busy_gen=.*/busy_gen=retired-generation/' "$d/state/mate.meta"
+  rm -f "$d/state/mate.meta.bak"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: unknown" "metadata generation mismatch -> unknown"
+  assert_contains "$out" "generation stale" "stale generation is explicit"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-dead claude claude-hook idle herdr)
+  FM_FAKE_HERDR_NO_AGENT=1
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: unknown" "dead endpoint -> unknown"
+  assert_contains "$out" "endpoint state unavailable (dead)" "dead endpoint reason is explicit"
+
+  reset_fakes
+  d=$(new_case secondmate-unsupported-harness)
   mkdir -p "$d/wt"
   make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "worktree=$d/wt" "kind=secondmate" "home=$d/wt"
-  printf 'needs-decision [key=race]: pick subscribe order\n' > "$d/state/mate.status"
-  printf 'resolved [key=race]: went with subscribe-before-write\n' >> "$d/state/mate.status"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_BUSY=0
-  local out; out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "state: unknown" "resolved-then-idle secondmate is not a spurious run-state"
-  assert_contains "$out" "source: none" "a resolved event is not treated as a status-log state source"
-  assert_not_contains "$out" "subscribe-before-write" "resolution prose must not leak into the detail"
-  # A bare (non-keyed) resolved: closes the default key and behaves the same.
-  printf 'blocked: waiting on infra\nresolved: infra access granted\n' > "$d/state/mate.status"
+  fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "endpoint_task_id=mate" \
+    "worktree=$d/wt" "project=$d/wt" "kind=secondmate" "harness=cursor" "home=$d/wt"
   out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "source: none" "a bare resolved: is not a state source either"
-  assert_not_contains "$out" "infra access granted" "bare resolution prose must not leak into the detail"
-  # Control: a genuine trailing state verb still renders from the log.
-  printf 'working: reconciling routed items\n' > "$d/state/mate.status"
+  assert_contains "$out" "state: unknown" "unsupported lifecycle source -> unknown"
+  assert_contains "$out" "generation unavailable" "unsupported harness does not borrow another adapter's state"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-unverified-backend claude claude-hook idle tmux)
+  printf 'backend=zellij\n' >> "$d/state/mate.meta"
   out=$(run_crew_state "$d" mate)
-  assert_contains "$out" "state: working" "a real trailing state verb still renders"
-  assert_contains "$out" "reconciling routed items" "a real state line still carries its detail"
-  pass "a trailing resolved: event does not corrupt state render (idle stays idle)"
+  assert_contains "$out" "state: unknown" "unverified backend recovery state -> unknown"
+  assert_contains "$out" "endpoint state unavailable (unverified)" "unsupported backend is explicit"
+
+  # A trailing declared paused/blocked/failed line is the coordinator's own
+  # statement about now, so it answers every case that would otherwise be unknown
+  # or healthy idle - including harnesses and backends with no lifecycle source.
+  reset_fakes
+  d=$(new_case secondmate-declared-pause-unsupported-harness)
+  mkdir -p "$d/wt"
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "endpoint_task_id=mate" \
+    "worktree=$d/wt" "project=$d/wt" "kind=secondmate" "harness=cursor" "home=$d/wt"
+  printf 'working: coordinating\npaused: awaiting the upstream release\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: paused" "a declared pause survives an unsupported lifecycle source"
+  assert_contains "$out" "awaiting the upstream release" "the declared wait reason is preserved"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-declared-block-unverified-backend claude claude-hook idle tmux)
+  printf 'backend=zellij\n' >> "$d/state/mate.meta"
+  printf 'blocked: waiting on the vendor\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: blocked" "a declared blocker survives an unverified backend"
+  assert_contains "$out" "waiting on the vendor" "the declared blocker reason is preserved"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-declared-failure claude claude-hook idle tmux)
+  printf 'working: coordinating\nfailed: cannot reach the upstream repo\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: failed" "a declared failure is not healthy idle"
+  assert_contains "$out" "cannot reach the upstream repo" "the declared failure reason is preserved"
+
+  # Live busy proof still outranks any declaration: a mate that declared and then
+  # resumed coordinating is working, not failed.
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-declared-then-busy claude claude-hook busy tmux)
+  printf 'failed: cannot reach the upstream repo\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: working" "live busy proof outranks an earlier declaration"
+
+  reset_fakes
+  d=$(new_case secondmate-remote-unreachable)
+  mkdir -p "$d/wt"
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/mate.meta" "window=remote:mate" "endpoint_task_id=mate" \
+    "worktree=$d/wt" "project=/srv/firstmate" "kind=secondmate" \
+    "harness=claude" "remote_host=mate.invalid" "home=/srv/firstmate"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: unknown" "remote source without local generation proof -> unknown"
+  assert_contains "$out" "remote secondmate current-state source unavailable" "remote unreachability remains explicit"
+
+  pass "secondmate state: current lifecycle distinguishes active, healthy idle, decision, blocked, stale, dead, remote, and unsupported cases"
 }
 
 test_dead_window_ignores_stale_status_log() {
@@ -1343,7 +1516,7 @@ test_no_run_idle_pane_uses_log
 test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
-test_no_run_idle_secondmate_resolved_event_not_state
+test_secondmate_current_state_contract
 test_dead_window_ignores_stale_status_log
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step

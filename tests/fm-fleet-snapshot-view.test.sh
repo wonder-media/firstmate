@@ -70,7 +70,7 @@ record_claude_idle() {  # <state-dir> <id>
 }
 
 write_fixture() {  # <home>
-  local home=$1 fixture_gen
+  local home=$1 fixture_gen secondmate_gen
   mkdir -p "$home/projects/alpha-worktree" "$home/projects/scout-worktree" "$home/secondmate-home"
   cat > "$home/data/backlog.md" <<EOF
 ## In flight
@@ -112,14 +112,21 @@ EOF
     "mode=scout" \
     "yolo=off"
   printf 'done: report ready\n' > "$home/state/scout-task.status"
+  # A coordinating secondmate proves it the same way: through its own semantic
+  # lifecycle record, bound to the incarnation its metadata names. Its status
+  # file stays an event ledger and is never the current-state source.
+  secondmate_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" secondmate-task)
+  "$ROOT/bin/fm-busy-event.sh" apply "$home/state" secondmate-task busy \
+    --gen "$secondmate_gen" --source claude-hook --event user-prompt-submit
   fm_write_meta "$home/state/secondmate-task.meta" \
     "window=firstmate:fm-secondmate-task" \
     "worktree=$home/secondmate-home" \
     "project=$home/secondmate-home" \
-    "harness=codex" \
+    "harness=claude" \
     "kind=secondmate" \
     "mode=secondmate" \
     "home=$home/secondmate-home" \
+    "busy_gen=$secondmate_gen" \
     "projects=alpha, beta, gamma, "
   printf 'working: watching delegated scope\n' > "$home/state/secondmate-task.status"
   fm_write_meta "$home/state/cmux-task.meta" \
@@ -576,7 +583,7 @@ test_view_renders_snapshot() {
     "view should render done backlog row"
   assert_contains "$view" "bin/fm-send.sh fm-secondmate-task" \
     "view should show secondmate send guidance"
-  assert_contains "$view" "| secondmate-task | working / status-log | secondmate | $home/secondmate-home | tmux | present / alive |" \
+  assert_contains "$view" "| secondmate-task | working / pane | secondmate | $home/secondmate-home | tmux | present / alive |" \
     "view should show secondmate endpoint agent liveness"
   assert_not_contains "$view" "fm-peek.sh fm-secondmate-task" \
     "view must not tell firstmate to routinely peek secondmates"

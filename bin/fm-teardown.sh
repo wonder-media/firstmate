@@ -2086,6 +2086,21 @@ EOF
   printf '%s\n' "$abs_home_path"
 }
 
+retire_secondmate_lifecycle_wiring() {  # <home> <state-dir> <task-id>
+  # The ownership marker, not the task's currently recorded harness, is what
+  # says these artifacts are firstmate's: a mate relaunched onto another
+  # harness leaves the ones its earlier incarnation wrote behind in the same
+  # captain-owned home (bin/fm-control-lib.sh owns what is retired and how).
+  local rc=0
+  fm_control_secondmate_lifecycle_retire "$1" "$2" "$3" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    2) echo "warning: firstmate lifecycle hooks in $1/.claude/settings.local.json could not be checked while retiring $3: jq is unavailable, or the file is not one JSON object firstmate can parse; the file is left untouched" >&2 ;;
+    3) echo "warning: firstmate could not remove its own lifecycle artifact $FM_CONTROL_RETIRE_FAILED_PATH while retiring $3; remove it by hand, or a re-leased home will keep signalling for a retired task" >&2 ;;
+    *) echo "warning: firstmate lifecycle hooks are still in $1/.claude/settings.local.json after retiring $3; remove them by hand, or a re-leased home will keep signalling for a retired task" >&2 ;;
+  esac
+}
+
 remove_firstmate_home() {
   local home=$1 label=$2 expected_id=${3:-} abs_home_path process_event_backup
   [ -n "$home" ] || return 0
@@ -2582,6 +2597,7 @@ cleanup_firstmate_home_children() {
       [ -n "$child_home" ] || child_home=$child_wt
       if [ -n "$child_home" ] && [ -d "$child_home" ]; then
         cleanup_firstmate_home_children "$child_home" || return $?
+        retire_secondmate_lifecycle_wiring "$child_home" "$sub_state" "$child_id"
         remove_firstmate_home "$child_home" "child firstmate home" "$child_id" || return $?
       fi
     elif [ "$child_backend" = orca ]; then
@@ -2923,6 +2939,12 @@ if [ "$BACKEND" = herdr ]; then
 fi
 if [ "$KIND" = secondmate ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
+  # A secondmate home is captain-owned and survives teardown through the
+  # treehouse pool, so the file cannot be removed the way a crew worktree's is
+  # (see the crew branch above). Retire only firstmate's own lifecycle entries,
+  # or a re-leased home keeps firing this retired task's turn-end signal
+  # (bin/fm-control-lib.sh owns the prune and what it leaves behind).
+  retire_secondmate_lifecycle_wiring "$HOME_PATH" "$STATE" "$ID"
   remove_firstmate_home "$HOME_PATH" "secondmate home" "$ID" || exit $?
   remove_secondmate_registry_entry "$ID"
 fi

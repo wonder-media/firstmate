@@ -188,6 +188,166 @@ test_ff_current() {
   pass "T2 current: an already-current home is a no-op and reports no instruction change"
 }
 
+# --- T3b: firstmate's own lifecycle wiring never reads as a dirty home --------
+test_ff_ignores_firstmate_lifecycle_artifacts() {
+  local w c1 base
+  w=$(new_world ff-lifecycle-artifacts)
+  mkdir -p "$w/main/.claude" "$w/main/.opencode/plugins"
+  printf '{}\n' > "$w/main/.claude/settings.json"
+  printf '// primary\n' > "$w/main/.opencode/plugins/fm-primary.js"
+  git -C "$w/main" add -A
+  git -C "$w/main" commit -qm "tracked harness config"
+  c1=$(head_of "$w/main")
+  git -C "$w/main" worktree add -q --detach "$w/sm" "$c1"
+  # Exactly what bin/fm-spawn.sh lays down in a home when it arms a secondmate.
+  mkdir -p "$w/sm/.opencode/plugins"
+  printf '{"hooks":{}}\n' > "$w/sm/.claude/settings.local.json"
+  printf '// firstmate\n' > "$w/sm/.opencode/plugins/fm-busy-state.js"
+  printf 'token=x\n' > "$w/sm/.fm-grok-turnend"
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+
+  run_ff "$w/sm" "$base"
+
+  [ "$FF_STATUS" = updated ] \
+    || fail "a home holding only firstmate's own lifecycle wiring was treated as dirty: $FF_OUT"
+  [ "$(head_of "$w/sm")" = "$base" ] || fail "the home did not advance to the primary's local HEAD"
+  [ -f "$w/sm/.claude/settings.local.json" ] || fail "the sync discarded firstmate's own claude settings"
+
+  printf 'uncommitted local edit\n' >> "$w/sm/AGENTS.md"
+  run_ff "$w/sm" "$base"
+  assert_contains "$FF_OUT" "skipped: dirty working tree" \
+    "a real uncommitted edit must still block the sync"
+  pass "T3b lifecycle wiring: firstmate's own home files never block the sync, a real edit still does"
+}
+
+# --- T3c: the remote home sync honours the same cleanliness contract ---------
+test_remote_sync_ignores_firstmate_lifecycle_artifacts() {
+  local w root home base out rc
+  w=$(new_world remote-sync-artifacts)
+  root="$w/main"
+  mkdir -p "$root/.claude" "$root/.opencode/plugins"
+  printf '{}\n' > "$root/.claude/settings.json"
+  printf '// primary\n' > "$root/.opencode/plugins/fm-primary.js"
+  git -C "$root" add -A
+  git -C "$root" commit -qm "tracked harness config"
+  home="$w/remote-home"
+  git -C "$root" worktree add -q --detach "$home" HEAD
+  printf 'ios\n' > "$home/.fm-secondmate-home"
+  bump_primary "$w" instr
+  base=$(head_of "$root")
+  # Exactly what bin/fm-spawn.sh lays down in the persistent home on launch.
+  mkdir -p "$home/.opencode/plugins"
+  printf '{"hooks":{}}\n' > "$home/.claude/settings.local.json"
+  printf '// firstmate\n' > "$home/.opencode/plugins/fm-busy-state.js"
+
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+    "$ROOT/bin/fm-remote-secondmate-control.sh" sync ios 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] \
+    || fail "remote sync refused a home holding only firstmate's own lifecycle wiring: $out"
+  assert_contains "$out" "synced:" "remote sync did not report a fast-forward"
+  [ "$(head_of "$home")" = "$base" ] || fail "the remote home did not advance to the code root HEAD"
+  [ -f "$home/.claude/settings.local.json" ] \
+    || fail "the remote sync discarded firstmate's own claude settings"
+
+  printf 'uncommitted local edit\n' >> "$home/AGENTS.md"
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+    "$ROOT/bin/fm-remote-secondmate-control.sh" sync ios 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "remote sync accepted a genuinely dirty home"
+  assert_contains "$out" "checkout is dirty" "a real uncommitted edit must still refuse the remote sync"
+  pass "T3c remote sync: firstmate's own home files never block it, a real edit still does"
+}
+
+# --- T3d: the SHIPPED tracked ignores keep BOTH home shapes clean ------------
+# The tracked .gitignore is what makes a wired home clean to EVERY consumer, not
+# only to firstmate's own sync check: a captain's `git status`, teardown's dirty
+# check and the relaunch checkpoint all read the same rule. git is that rule's
+# real consumer, so this hands git the shipped file and asks it, in both home
+# shapes a secondmate can take - a linked worktree and an independent clone.
+test_shipped_ignores_keep_both_home_shapes_clean() {
+  local w home shape dirt
+  w="$TMP_ROOT/shipped-home-ignores"
+  mkdir -p "$w"
+  git init -q -b main "$w/main"
+  cp "$ROOT/.gitignore" "$w/main/.gitignore"
+  mkdir -p "$w/main/.claude" "$w/main/.opencode/plugins"
+  printf '{}\n' > "$w/main/.claude/settings.json"
+  printf '// primary\n' > "$w/main/.opencode/plugins/fm-primary.js"
+  printf 'v1\n' > "$w/main/AGENTS.md"
+  git -C "$w/main" add -A
+  git -C "$w/main" commit -qm "shipped ignores"
+
+  git -C "$w/main" worktree add -q --detach "$w/linked" HEAD
+  git clone -q "$w/main" "$w/clone"
+  git -C "$w/clone" checkout -q --detach
+
+  for shape in linked clone; do
+    home="$w/$shape"
+    mkdir -p "$home/.claude" "$home/.opencode/plugins"
+    # Every file firstmate itself writes into a captain-owned home.
+    printf 'sm\n' > "$home/.fm-secondmate-home"
+    printf '{"hooks":{}}\n' > "$home/.claude/settings.local.json"
+    printf '// firstmate\n' > "$home/.opencode/plugins/fm-busy-state.js"
+    printf '// firstmate\n' > "$home/.opencode/plugins/fm-turn-end.js"
+    printf 'token=g\n' > "$home/.fm-grok-turnend"
+    printf 'token=k\n' > "$home/.fm-kimi-turnend"
+    dirt=$(git -C "$home" -c core.excludesFile=/dev/null status --porcelain)
+    [ -z "$dirt" ] \
+      || fail "firstmate's own lifecycle wiring dirties a $shape home: $dirt"
+  done
+
+  printf 'captain edit\n' >> "$w/clone/AGENTS.md"
+  dirt=$(git -C "$w/clone" -c core.excludesFile=/dev/null status --porcelain)
+  assert_contains "$dirt" "AGENTS.md" "a real captain edit must still read as dirty"
+  pass "T3d shipped ignores: a wired clone and a wired linked worktree are both clean to git"
+}
+
+# --- T3e: a CLONE-shaped home also syncs with firstmate's wiring present ------
+# T3b covers the linked-worktree shape. A clone reaches the same cleanliness
+# contract through a different route (it must acquire the missing commit from
+# the local primary first), so it needs its own case.
+test_standalone_ignores_firstmate_lifecycle_artifacts() {
+  local w base out
+  w=$(new_world standalone-lifecycle-artifacts)
+  mkdir -p "$w/main/.claude" "$w/main/.opencode/plugins"
+  printf '{}\n' > "$w/main/.claude/settings.json"
+  printf '// primary\n' > "$w/main/.opencode/plugins/fm-primary.js"
+  git -C "$w/main" add -A
+  git -C "$w/main" commit -qm "tracked harness config"
+  add_sm_standalone "$w" sm-artifacts
+  # Exactly what bin/fm-spawn.sh lays down in a home when it arms a secondmate.
+  mkdir -p "$w/sm-artifacts/.opencode/plugins"
+  printf '{"hooks":{}}\n' > "$w/sm-artifacts/.claude/settings.local.json"
+  printf '// firstmate\n' > "$w/sm-artifacts/.opencode/plugins/fm-busy-state.js"
+  printf 'token=x\n' > "$w/sm-artifacts/.fm-grok-turnend"
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+
+  FM_ROOT="$w/main" FM_HOME="$w/home"
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+
+  assert_contains "$out" "secondmate sm-artifacts: updated " \
+    "a clone home holding only firstmate's own lifecycle wiring was treated as dirty"
+  [ "$(head_of "$w/sm-artifacts")" = "$base" ] \
+    || fail "the clone home did not converge to the primary target"
+  [ -f "$w/sm-artifacts/.claude/settings.local.json" ] \
+    || fail "the sync discarded firstmate's own claude settings"
+
+  printf 'uncommitted local edit\n' >> "$w/sm-artifacts/AGENTS.md"
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+  assert_contains "$out" "skipped: dirty working tree" \
+    "a real uncommitted edit must still block the clone home's sync"
+  pass "T3e clone home: firstmate's own wiring never blocks the sync, a real edit still does"
+}
+
 # --- T3: dirty - a home with uncommitted edits is skipped, edit preserved ----
 test_ff_dirty() {
   local w c1 base before
@@ -1012,6 +1172,10 @@ test_seed_marker_does_not_mask_real_dirt() {
 
 test_ff_updated
 test_ff_current
+test_ff_ignores_firstmate_lifecycle_artifacts
+test_remote_sync_ignores_firstmate_lifecycle_artifacts
+test_shipped_ignores_keep_both_home_shapes_clean
+test_standalone_ignores_firstmate_lifecycle_artifacts
 test_ff_dirty
 test_ff_diverged
 test_ff_inflight_feature_branch

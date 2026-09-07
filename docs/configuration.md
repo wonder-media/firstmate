@@ -188,8 +188,11 @@ Set `FM_SECONDMATE_CHARTER` to seed from inline charter text when no filled char
 The seeded home's `data/charter.md` owns the standard secondmate lifecycle and escalation contract; the route file points to it through the existing `home:` field instead of adding another pointer.
 Each seed writes an `.fm-secondmate-home` identity marker at the home root, alongside a durable `.fm-secondmate-parent` record of the home's route to its parent (see "Provision a route" in [`docs/remote-secondmates.md`](remote-secondmates.md)).
 The tracked root `.gitignore` ignores both markers, so validation can read them without making a freshly seeded home appear dirty to porcelain-based safety checks.
-This does not relax protection for any other untracked file.
-An existing linked-worktree or standalone-clone home that predates this rule advances through its marker-only state during its next bootstrap or spawn local sync, after which Git ignores the marker normally.
+This does not relax protection for the captain's own or any other untracked files.
+The same tracked file also ignores the fixed set of lifecycle wiring files Firstmate itself writes into a live secondmate home, so a wired home stays clean to every consumer of `git status` - the captain's own, teardown's uncommitted-work check, and the guarded sync - instead of being stranded on a stale checkout.
+The tracked root `.gitignore` owns that exact path set; [`bin/fm-ff-lib.sh`](../bin/fm-ff-lib.sh) applies the same set inside the shared local and remote guarded sync's dirtiness check, which is what still advances a home checked out below this rule.
+An existing linked-worktree home that predates this rule advances through its marker-only state during its next bootstrap or spawn local sync, after which Git ignores the marker normally.
+A standalone-clone home that lacks the primary's commit acquires it from the local primary checkout first, so it advances through that same local sync rather than waiting for `/updatefirstmate`.
 The guarded local acquisition and refusal contract is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); it never consults origin.
 
 ## FM_HOME
@@ -218,6 +221,12 @@ muse is verified for crewmate and scout launches ONLY, and `fm-spawn.sh` refuses
 muse also needs a worker-reachable credential before spawning, and the portable fleet path is the `<config>/muse/auth.json` credential stored by `muse login`, because a caller-only `META_API_KEY` does not cross a long-lived backend daemon.
 New harnesses get verified through a supervised trial task before joining the set.
 The verified adapter evidence - each harness's busy-state source, interrupt and exit behavior, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
+Direct secondmate coordinator state is currently supported only for Claude, OpenCode, Pi, and pi-signed, whose existing structured lifecycle sources are wired into secondmate launches.
+It additionally requires the recovery-grade tmux or Herdr endpoint classifier, and a Claude secondmate also requires `jq`, because its hooks are merged into the captain-owned home settings rather than replacing them.
+`jq` stays optional, and so does a settings file firstmate can parse: when either is missing the mate launches with no wiring and reports `unknown`, the captain's file is left exactly as it was, and a warning names it, rather than the spawn or relaunch refusing to run.
+Retiring that wiring - on a relaunch, on a spawn that arms none, and on teardown of the home - removes only the hook commands and adapter files firstmate itself installed, never the captain's settings file, and warns by name when one artifact could not be retired.
+Every other harness or backend, and every remote secondmate whose generation cannot be proved locally, remains explicitly `unknown`; launch support alone is not a current-state claim.
+A trailing declared `paused:`, `blocked:` or `failed:` status line is the exception on every harness and backend: it is the coordinator's own statement about now, so it is reported instead of `unknown` or healthy idle, and only live `busy` proof outranks it.
 The executable interrupt and exit mechanics live in [`bin/fm-control-lib.sh`](../bin/fm-control-lib.sh), and [`docs/agent-control.md`](agent-control.md) owns their lifecycle-control architecture.
 Launch mechanics, including the verified command templates, live in [`bin/fm-spawn.sh`](../bin/fm-spawn.sh).
 Pi-family launches adapt the regular-TUI safeguard to the installed CLI's capabilities; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact version-safe launch mechanics.
@@ -225,6 +234,7 @@ Enabled primary-session turn-end guard integrations are tracked as repo-level ho
 Kimi remains outside the primary turn-end guard integrations; [`docs/turnend-guard.md`](turnend-guard.md#compatibility-limits) owns its separate captain-approved crew wake hook.
 Primary-session watcher wake protocols are rendered at session start by [`bin/fm-supervision-instructions.sh`](../bin/fm-supervision-instructions.sh) from [`docs/supervision-protocols/`](supervision-protocols/).
 Claude's Stop `asyncRewake` hook owns tokenless re-arm cycles, Cursor's stop hook parks on the watcher, Grok uses background-notify cycles, Codex uses bounded foreground checkpoints, Pi and pi-signed use the same two tracked primary extensions, and OpenCode uses its TUI plugin.
+Codex 0.153.3 exposes native `codex queue` delivery, but its `async: true` Stop-hook composition did not preserve user-message responsiveness deterministically in isolated live trials, so Firstmate does not use it as a watcher park or auto-arm.
 `config/crew-harness` is a local, gitignored file containing one adapter name for crewmate and scout launches.
 When pi-signed is selected, Firstmate preserves `FM_PI_HARNESS=pi-signed` and refuses the launch if the selected executable is unavailable rather than falling back to pi; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns executable resolution and launch mechanics.
 Plain Pi launches set `FM_PI_HARNESS=pi`, so a signed primary's environment cannot relabel a plain Pi worker.
@@ -592,7 +602,7 @@ FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
 FM_PROCEVENT_MAX_OUTPUT_BYTES=1048576   # bound on one captured process-to-event result
 FM_PROCEVENT_CLAIM_ROOT=                # machine-wide source claim root; default $XDG_STATE_HOME/firstmate/procevent-claims
 FM_WHEN_OUTPUT_TAIL_BYTES=8192          # bound on the command-output tail inside one condition->action outcome document
-FM_CODEX_WATCH_CHECKPOINT=180   # seconds per foreground watcher checkpoint in Codex primary supervision
+FM_CODEX_WATCH_CHECKPOINT=300   # seconds per foreground watcher checkpoint in Codex primary supervision
 FM_CREW_STATE_NM_TIMEOUT=10   # seconds allowed per no-mistakes query inside fm-crew-state.sh
 FM_TEARDOWN_NM_TIMEOUT=10    # seconds allowed per no-mistakes query or abort inside fm-teardown.sh
 FM_CREW_STATE_RUNS_LIMIT=200  # recent no-mistakes run rows scanned when axi status cannot be attributed to the current code

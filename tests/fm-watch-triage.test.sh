@@ -361,6 +361,36 @@ test_secondmate_status_signal_never_absorbed_classifier() {
     || fail "a working secondmate's status signal was treated as absorbable"
   signal_crew_provably_working "$state/sm.turn-ended" \
     || fail "a working secondmate's bare turn-end lost its ordinary absorb"
+  export FM_FAKE_CREW_STATE_sm='state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)'
+  signal_crew_provably_working "$state/sm.turn-ended" \
+    || fail "a healthy-idle secondmate's bare turn-end was surfaced as an alarm"
+  ! signal_crew_provably_working "$state/sm.status" \
+    || fail "a healthy-idle secondmate's routed status was incorrectly absorbed"
+  export FM_FAKE_CREW_STATE_sm='state: unknown · source: none · secondmate endpoint state unavailable (unreadable)'
+  ! signal_crew_provably_working "$state/sm.turn-ended" \
+    || fail "an unknown secondmate endpoint was treated as healthy idle"
+  # A decision or blocker that is still open in the parent fold has ALREADY been
+  # surfaced once through the mate's own .status append; its bare turn-ends must
+  # not re-raise it on every later turn.
+  export FM_FAKE_CREW_STATE_sm='state: blocked · source: status-log · secondmate coordinator blocked: waiting on the vendor'
+  signal_crew_provably_working "$state/sm.turn-ended" \
+    || fail "a still-open blocker re-raised the captain on a bare secondmate turn-end"
+  ! signal_crew_provably_working "$state/sm.status" \
+    || fail "a blocked secondmate's routed status was incorrectly absorbed"
+  export FM_FAKE_CREW_STATE_sm='state: parked · source: status-log · secondmate coordinator awaiting decision: pick a vendor'
+  signal_crew_provably_working "$state/sm.turn-ended" \
+    || fail "a still-open decision re-raised the captain on a bare secondmate turn-end"
+  export FM_FAKE_CREW_STATE_sm='state: paused · source: status-log · awaiting the upstream release'
+  signal_crew_provably_working "$state/sm.turn-ended" \
+    || fail "a declared secondmate pause was surfaced on a bare turn-end"
+  # The same verdicts stay NON-absorbable for an ordinary crewmate: only a
+  # coordinating secondmate earns the known-state absorb.
+  export FM_FAKE_CREW_STATE_crew='state: blocked · source: status-log · blocked: waiting on the vendor'
+  printf 'kind=ship\n' > "$state/blockedcrew.meta"
+  export FM_FAKE_CREW_STATE_blockedcrew="$FM_FAKE_CREW_STATE_crew"
+  ! signal_crew_provably_working "$state/blockedcrew.turn-ended" \
+    || fail "a blocked ordinary crewmate's turn-end was absorbed"
+  unset FM_FAKE_CREW_STATE_blockedcrew
   # An ordinary crewmate with the same verdict stays absorbable: the rule is
   # keyed on recorded kind, not on task naming or content guessing.
   export FM_FAKE_CREW_STATE_crew='state: working · source: run-step · running'
@@ -369,7 +399,7 @@ test_secondmate_status_signal_never_absorbed_classifier() {
   signal_crew_provably_working "$state/crew.status" \
     || fail "the secondmate rule leaked onto an ordinary crewmate status"
   unset FM_FAKE_CREW_STATE_sm FM_FAKE_CREW_STATE_crew
-  pass "a secondmate's status signal is never absorbed as provably working; crewmates are unaffected"
+  pass "a secondmate's status signal is never absorbed; its bare turn-end absorbs on any known state, and crewmates are unaffected"
 }
 
 # --- benign wakes are absorbed ONLY when the crew is provably working ---------

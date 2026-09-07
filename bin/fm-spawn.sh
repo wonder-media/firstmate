@@ -184,7 +184,10 @@
 #     __TURNEND__  absolute path to state/<task-id>.turn-ended (for harnesses whose
 #                  turn-end signal rides the launch command, e.g. codex -c notify=[...])
 #     __PIEXT__    absolute path to state/<task-id>.pi-ext.ts (pi turn-end extension,
-#                  written by this script; outside the worktree to avoid pi's trust gate)
+#                  written by this script; outside the worktree to avoid pi's trust gate).
+#                  A secondmate launch arms that extension only on a state-verified
+#                  backend, so the whole `-e` flag is dropped when the file is not
+#                  written rather than naming a path pi would fail to load.
 #     __PITURNEND__ absolute path to .pi/extensions/fm-primary-turnend-guard.ts in a pi secondmate home
 #     __PIWATCH__   absolute path to .pi/extensions/fm-primary-pi-watch.ts in a pi secondmate home
 #     __OPINPUT__   absolute path to the canonical operational-input encoder
@@ -796,7 +799,7 @@ spawn_abort_cleanup() {
         "$RELAUNCH_REPLACEMENT_HARNESS" \
         "$RELAUNCH_REPLACEMENT_WT" \
         "$RELAUNCH_REPLACEMENT_STATE" \
-        "$ID"; then
+        "$ID" "$KIND"; then
       echo "warning: could not remove replacement wiring after aborted relaunch of $ID" >&2
     fi
     if [ -n "$RELAUNCH_REPLACEMENT_BUSY_GEN" ]; then
@@ -911,7 +914,9 @@ spawn_herdr_presentation_order_lock_acquire() {
 }
 
 clear_relaunch_harness_wiring() {
-  local harness=$1 wt=$2 state=$3 id=$4 token_path token auth_path path
+  local harness=$1 wt=$2 state=$3 id=$4 kind=${5:-ship}
+  local token_path token auth_path path claude_ownership=owned
+  [ "$kind" != secondmate ] || claude_ownership=shared
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -931,6 +936,13 @@ clear_relaunch_harness_wiring() {
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
+    # Claude's settings file may hold captain-owned content in a secondmate
+    # home: retire only the entries firstmate wrote, and drop the file only
+    # when it held nothing else.
+    if [ "$harness" = claude ] && [ "$path" = "$wt/.claude/settings.local.json" ]; then
+      fm_control_claude_hooks_clear "$path" "$claude_ownership" || return 1
+      continue
+    fi
     rm -f -- "$path" || return 1
   done <<EOF
 $(fm_control_harness_wiring_paths "$harness" "$wt" "$state" "$id")
@@ -1226,7 +1238,7 @@ launch_template() {
     pi|pi-signed)
       printf '%s' '__PIBIN____PITUIMODE__'
       if [ "$kind" = secondmate ]; then
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ -e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       else
         printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
@@ -2590,8 +2602,13 @@ mkdir -p "$TASK_TMP/gotmp"
 mkdir -p "$STATE"
 STATE_REAL=$(cd "$STATE" && pwd -P)
 TURNEND="$STATE_REAL/$ID.turn-ended"
+# A secondmate's worktree is the captain's own persistent home, and info/exclude
+# lives in the repository's COMMON dir, so an entry written there would also hide
+# that path in the captain's main checkout and every other worktree, with nothing
+# to ever remove it. Only an ephemeral crew worktree is firstmate's to exclude in.
 exclude_path() {
   local rel=$1 EXCL
+  [ "$KIND" != secondmate ] || return 0
   EXCL=$(git -C "$WT" rev-parse --git-path info/exclude 2>/dev/null || true)
   [ -n "$EXCL" ] || return 0
   mkdir -p "$(dirname "$EXCL")"
@@ -2615,7 +2632,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   # files and turn-end token registry entries behind, and even a same-harness
   # relaunch would orphan the retired busy generation's token
   # (bin/fm-control-lib.sh owns where those artifacts live).
-  clear_relaunch_harness_wiring "$RELAUNCH_PRIOR_HARNESS" "$WT" "$STATE_REAL" "$ID" || {
+  clear_relaunch_harness_wiring "$RELAUNCH_PRIOR_HARNESS" "$WT" "$STATE_REAL" "$ID" "$KIND" || {
     echo "error: could not retire $RELAUNCH_PRIOR_HARNESS wiring for task $ID; refusing to arm the replacement" >&2
     exit 1
   }
@@ -2624,7 +2641,48 @@ if [ "$RELAUNCH" -eq 1 ]; then
   RELAUNCH_REPLACEMENT_STATE=$STATE_REAL
   RELAUNCH_REPLACEMENT_WT=$WT
 fi
-if [ "$KIND" != secondmate ]; then
+SEMANTIC_BUSY_WIRING=0
+case "$HARNESS" in
+  claude*|opencode*|pi|pi-signed) SEMANTIC_BUSY_WIRING=1 ;;
+esac
+# A secondmate's lifecycle state is only ever readable where the recovery-grade
+# endpoint classifier can prove the endpoint too (bin/fm-control-lib.sh owns
+# that table). Arming it on a backend the reader cannot classify would emit a
+# turn-end notification that no state can ever absorb, waking the captain on
+# every quiet turn.
+if [ "$KIND" = secondmate ] && ! fm_control_backend_state_verified "$BACKEND"; then
+  SEMANTIC_BUSY_WIRING=0
+fi
+# A Claude secondmate's home is captain-owned, so its hooks can only be installed
+# through the guest merge, which needs jq and a settings file it can parse. Both
+# are the captain's to provide: when either is missing this arms no wiring and
+# the reader reports unknown, rather than rewriting the captain's file or
+# refusing to launch a mate that launched fine before.
+if [ "$KIND" = secondmate ]; then
+  case "$HARNESS" in
+    claude*)
+      if ! fm_control_claude_shared_settings_mergeable "$WT/.claude/settings.local.json"; then
+        echo "warning: task $ID launches without claude lifecycle wiring and reports state unknown: $WT/.claude/settings.local.json is not one JSON object firstmate can merge into, or jq is unavailable; the file is left untouched" >&2
+        SEMANTIC_BUSY_WIRING=0
+      fi
+      ;;
+  esac
+fi
+# A disarmed spawn writes no wiring, so without this nothing would retire what a
+# previous incarnation armed in this persistent home: its Stop hook would keep
+# touching the turn-end marker that no state can now absorb, and a stale pi
+# extension left in state/ would be handed to the new process.
+if [ "$KIND" = secondmate ] && [ "$SEMANTIC_BUSY_WIRING" -eq 0 ]; then
+  RETIRE_RC=0
+  fm_control_secondmate_lifecycle_retire "$WT" "$STATE_REAL" "$ID" || RETIRE_RC=$?
+  case "$RETIRE_RC" in
+    0) ;;
+    2) echo "warning: firstmate lifecycle hooks in $WT/.claude/settings.local.json could not be checked for task $ID: jq is unavailable, or the file is not one JSON object firstmate can parse; the file is left untouched" >&2 ;;
+    3) echo "warning: firstmate could not remove its own lifecycle artifact $FM_CONTROL_RETIRE_FAILED_PATH for task $ID; remove it by hand, or this home keeps signalling turn ends the reader cannot absorb" >&2 ;;
+    *) echo "warning: firstmate lifecycle hooks are still in $WT/.claude/settings.local.json for task $ID; remove them by hand, or this home keeps signalling turn ends the reader cannot absorb" >&2 ;;
+  esac
+fi
+if [ "$KIND" != secondmate ] || [ "$SEMANTIC_BUSY_WIRING" -eq 1 ]; then
   # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every
   # adapter with a verified semantic source. The launch brief sent below IS a
   # submitted turn, so the seed record is busy/fm-spawn. The minted gen is
@@ -2678,9 +2736,20 @@ if [ "$KIND" != secondmate ]; then
       j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
       j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
       j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
-      cat > "$WT/.claude/settings.local.json" <<EOF
+      claude_hooks_json=$(cat <<EOF
 {"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
 EOF
+)
+      # A secondmate's worktree is its persistent captain-owned home, so the
+      # hooks are merged into any settings already there rather than replacing
+      # them (bin/fm-control-lib.sh owns the merge and its retirement).
+      claude_settings_ownership=owned
+      [ "$KIND" != secondmate ] || claude_settings_ownership=shared
+      fm_control_claude_hooks_write "$WT/.claude/settings.local.json" "$claude_hooks_json" \
+        "$claude_settings_ownership" || {
+        echo "error: could not install the claude lifecycle hooks for task $ID without discarding existing settings" >&2
+        exit 1
+      }
       exclude_path '.claude/settings.local.json'
       ;;
     opencode*)
@@ -3052,7 +3121,14 @@ LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
 LAUNCH=${LAUNCH//__AUTOCOMPACTFLAG__/$AUTOCOMPACTFLAG}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
-LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
+# The state-resident lifecycle extension is written only when the semantic wiring
+# is armed, so a launch that is not armed must not name a path Pi would be told to
+# load and firstmate never created: drop the flag instead of substituting it.
+if [ -f "$STATE/$ID.pi-ext.ts" ]; then
+  LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
+else
+  LAUNCH=${LAUNCH// -e __PIEXT__/}
+fi
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}

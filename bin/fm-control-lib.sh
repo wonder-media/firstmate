@@ -249,3 +249,194 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
     *) return 0 ;;
   esac
 }
+
+# --- claude settings.local.json wiring (merge in, prune out) ----------------
+#
+# Who owns <worktree>/.claude/settings.local.json depends on the worktree. In an
+# ephemeral crew worktree firstmate creates and removes the whole file, so both
+# helpers below stay a plain write and a plain rm ("owned") and need no jq -
+# jq is optional for a tmux-only install (bin/fm-backend.sh's required tools).
+# A secondmate's worktree IS a long-lived, captain-owned firstmate home whose
+# settings can already carry the captain's own permissions and hooks, so there
+# firstmate is a guest ("shared"): the lifecycle hooks are merged into whatever
+# is present and retired by removing only the entries firstmate wrote,
+# identified by the busy-event command every one of them runs. Only that mode
+# needs jq, which stays optional: the whole "can this merge run at all" question
+# is answered up front by fm_control_claude_shared_settings_mergeable, so a
+# caller decides whether to arm instead of discovering a missing jq or an
+# unusable captain file mid-write and refusing the launch. When it cannot run,
+# the captain's file is left exactly as it was.
+# Only the owned mode ever deletes the file: a guest never removes a path it did
+# not create, and never rewrites one holding no firstmate entry at all. What
+# counts as a firstmate entry is a question about the parsed hook COMMANDS, never
+# about the document's text: the captain's own permissions, env values or status
+# line can name the same script without firstmate owning anything in the file.
+FM_CONTROL_CLAUDE_HOOK_MARKER='bin/fm-busy-event.sh'
+
+# 0 when stdin is exactly one JSON object. jq exits 0 while printing nothing for
+# an input it accepts but yields no value from, and a stream holding two
+# concatenated documents merges into two, so neither an unusable captain file
+# nor such a merge result may be written back over captain-owned settings.
+_fm_control_claude_settings_is_one_object() {  # reads stdin
+  jq -e -s 'length == 1 and (.[0] | type) == "object"' >/dev/null 2>&1
+}
+
+# shellcheck disable=SC2016 # single quotes are deliberate: $marker is jq's own
+# argument binding and must reach jq unexpanded.
+_fm_control_claude_owned_hook_program='
+  [(.hooks // {}) | .[]? | select(type == "array") | .[]?
+    | select((.hooks | type) == "array") | .hooks[] | .command // ""]
+  | any(contains($marker))
+'
+
+# Firstmate owns individual hook COMMANDS, not the matcher entry holding them:
+# its Stop entry carries no matcher, so a captain hand-editing that event adds
+# their command beside firstmate's rather than in an entry of their own.
+# Retirement therefore drops matching commands, and drops the entry and the
+# event only when firstmate's own removal is what emptied them: an entry or an
+# event that already declared nothing is the captain's and is left as it is.
+# shellcheck disable=SC2016 # single quotes are deliberate: $marker is jq's own
+# argument binding and must reach jq unexpanded.
+_fm_control_claude_prune_program='
+  def fm_entry:
+    if (.hooks | type) != "array" or ((.hooks | length) == 0)
+    then .
+    else .hooks = (.hooks | map(select((.command // "") | contains($marker) | not)))
+      | if (.hooks | length) == 0 then empty else . end
+    end;
+  .hooks = ((.hooks // {}) | with_entries(
+      if (.value | type) != "array" or (.value | length) == 0 then .
+      else .value |= map(fm_entry) | select((.value | length) > 0) end))
+'
+
+# Pruning and merging are different capabilities and each has its own gate, so
+# neither is refused over a requirement it does not have.
+#
+# Prunable is what RETIREMENT needs: jq is present (optional for a tmux-only
+# install, per bin/fm-backend.sh's required tools), the existing file, if any, is
+# exactly one JSON object, and the prune program actually accepts it - a `hooks`
+# value of an unexpected inner shape parses as one object but makes that program
+# error. Proving it with the SAME program is what keeps this the single owner of
+# the question, so a document firstmate cannot walk declines up front instead of
+# failing mid-write.
+#
+# Mergeable is what ARMING needs, which is strictly more: the merge appends
+# firstmate's own entries onto `.hooks[<event>]`, so every hook event present
+# must be an array for that append to run. The prune leaves an event it cannot
+# walk into untouched rather than deleting the captain's content, so an odd event
+# firstmate never merges into still retires cleanly while arming warns and
+# reports unknown. Such a file is the captain's to repair, never firstmate's to
+# rewrite or to refuse a launch over.
+# 0 when <settings-file> holds at least one hook command firstmate installed.
+# Only meaningful once fm_control_claude_shared_settings_prunable has passed,
+# which is what proves jq is present and the document walkable.
+fm_control_claude_hooks_owned() {  # <settings-file>
+  [ -s "${1-}" ] || return 1
+  jq -e --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+    "$_fm_control_claude_owned_hook_program" "$1" >/dev/null 2>&1
+}
+
+fm_control_claude_shared_settings_prunable() {  # <settings-file>
+  command -v jq >/dev/null 2>&1 || return 1
+  [ -s "${1-}" ] || return 0
+  _fm_control_claude_settings_is_one_object < "$1" || return 1
+  jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+    "$_fm_control_claude_prune_program" "$1" >/dev/null 2>&1
+}
+
+fm_control_claude_shared_settings_mergeable() {  # <settings-file>
+  fm_control_claude_shared_settings_prunable "${1-}" || return 1
+  [ -s "${1-}" ] || return 0
+  jq -e '[(.hooks // {}) | .[]?] | all(type == "array")' "$1" >/dev/null 2>&1
+}
+
+# The rename gives the target the temp file's umask-derived mode, so a
+# captain-owned settings file the captain hardened would silently come back
+# world-readable. Carry the existing mode over before the rename.
+_fm_control_claude_settings_replace() {  # <settings-file> <content>
+  local file=$1 content=$2 tmp=$1.tmp.$$ mode=
+  if [ -f "$file" ]; then
+    if [ "$(uname)" = Darwin ]; then
+      mode=$(stat -f %Lp "$file" 2>/dev/null) || mode=
+    else
+      mode=$(stat -c %a "$file" 2>/dev/null) || mode=
+    fi
+  fi
+  printf '%s\n' "$content" > "$tmp" || { rm -f -- "$tmp"; return 1; }
+  if [ -n "$mode" ]; then
+    chmod "$mode" "$tmp" || { rm -f -- "$tmp"; return 1; }
+  fi
+  mv -f -- "$tmp" "$file" || { rm -f -- "$tmp"; return 1; }
+}
+
+fm_control_claude_hooks_write() {  # <settings-file> <hooks-json> [owned|shared]
+  local file=${1-} add=${2-} mode=${3:-owned} merged
+  [ -n "$file" ] && [ -n "$add" ] || return 1
+  mkdir -p "$(dirname "$file")" || return 1
+  if [ "$mode" != shared ] || [ ! -s "$file" ]; then
+    _fm_control_claude_settings_replace "$file" "$add" || return 1
+    return 0
+  fi
+  fm_control_claude_shared_settings_mergeable "$file" || return 1
+  merged=$(jq --argjson add "$add" --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+    "$_fm_control_claude_prune_program"'
+      | ($add.hooks // {}) as $new
+      | .hooks = (reduce ($new | keys_unsorted[]) as $k (.hooks; .[$k] = ((.[$k] // []) + $new[$k])))
+    ' "$file") || return 1
+  printf '%s\n' "$merged" | _fm_control_claude_settings_is_one_object || return 1
+  _fm_control_claude_settings_replace "$file" "$merged" || return 1
+}
+
+fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
+  local file=${1-} mode=${2:-owned} pruned
+  [ -n "$file" ] || return 1
+  [ -e "$file" ] || return 0
+  if [ "$mode" = shared ]; then
+    fm_control_claude_shared_settings_prunable "$file" || return 0
+    fm_control_claude_hooks_owned "$file" || return 0
+    pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+      "$_fm_control_claude_prune_program"'
+        | if (.hooks | length) == 0 then del(.hooks) else . end
+      ' "$file") || return 1
+    printf '%s\n' "$pruned" | _fm_control_claude_settings_is_one_object || return 1
+    _fm_control_claude_settings_replace "$file" "$pruned" || return 1
+    return 0
+  fi
+  rm -f -- "$file" || return 1
+}
+
+# Retire every firstmate-owned semantic lifecycle artifact a prior incarnation
+# may have left in a secondmate's persistent, captain-owned home. The three
+# semantic adapters' artifacts are read from the wiring table above so this
+# stays one owner of where they live; the Claude settings file is the captain's
+# and is only ever pruned, never removed. The prune reports success both when it
+# ran and when it safely declined, so the outcome is reported here instead: 0
+# when nothing firstmate-owned is left, 3 when one of the adapter artifacts could
+# not be removed (the path is left in FM_CONTROL_RETIRE_FAILED_PATH and the
+# Claude prune never ran), 2 when the captain's file cannot be pruned at all
+# (no jq, or a document the prune program cannot walk) and nothing can be claimed
+# about it either way, and 1 when the prune ran and a firstmate hook is still
+# there - the only case that needs the captain to edit that file by hand.
+FM_CONTROL_RETIRE_FAILED_PATH=
+
+fm_control_secondmate_lifecycle_retire() {  # <home> <state-dir> <task-id>
+  local home=${1-} state=${2-} id=${3-} settings adapter path
+  FM_CONTROL_RETIRE_FAILED_PATH=
+  [ -n "$home" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
+  settings=$home/.claude/settings.local.json
+  for adapter in claude opencode pi; do
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      [ "$path" != "$settings" ] || continue
+      # shellcheck disable=SC2034 # Read by callers (fm-spawn.sh, fm-teardown.sh) after return 3.
+      rm -f -- "$path" || { FM_CONTROL_RETIRE_FAILED_PATH=$path; return 3; }
+    done <<EOF
+$(fm_control_harness_wiring_paths "$adapter" "$home" "$state" "$id")
+EOF
+  done
+  [ -f "$settings" ] || return 0
+  fm_control_claude_shared_settings_prunable "$settings" || return 2
+  fm_control_claude_hooks_owned "$settings" || return 0
+  fm_control_claude_hooks_clear "$settings" shared >/dev/null 2>&1 || true
+  ! fm_control_claude_hooks_owned "$settings"
+}
