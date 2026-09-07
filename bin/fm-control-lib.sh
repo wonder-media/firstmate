@@ -377,10 +377,12 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
 # may have left in a secondmate's persistent, captain-owned home. The three
 # semantic adapters' artifacts are read from the wiring table above so this
 # stays one owner of where they live; the Claude settings file is the captain's
-# and is only ever pruned, never removed. Returns non-zero when a firstmate hook
-# is still there afterwards, or when the file cannot be inspected at all, since
-# the prune reports success both when it prunes and when it safely declines; the
-# caller can then name the home the captain has to repair by hand.
+# and is only ever pruned, never removed. The prune reports success both when it
+# ran and when it safely declined, so the outcome is reported here instead: 0
+# when nothing firstmate-owned is left, 2 when the captain's file cannot be
+# inspected at all (no jq, or a document the prune program cannot walk) and
+# nothing can be claimed about it either way, and 1 when the prune ran and a
+# firstmate hook is still there - the only case the captain must repair by hand.
 fm_control_secondmate_lifecycle_retire() {  # <home> <state-dir> <task-id>
   local home=${1-} state=${2-} id=${3-} settings adapter path
   [ -n "$home" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
@@ -395,7 +397,7 @@ $(fm_control_harness_wiring_paths "$adapter" "$home" "$state" "$id")
 EOF
   done
   [ -f "$settings" ] || return 0
-  fm_control_claude_shared_settings_mergeable "$settings" || return 1
+  fm_control_claude_shared_settings_mergeable "$settings" || return 2
   fm_control_claude_hooks_owned "$settings" || return 0
   fm_control_claude_hooks_clear "$settings" shared >/dev/null 2>&1 || true
   ! fm_control_claude_hooks_owned "$settings"

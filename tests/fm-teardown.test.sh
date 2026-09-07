@@ -1804,8 +1804,10 @@ test_secondmate_teardown_retires_marked_hooks_and_reports_skips() {
   PATH="$case_dir/fakebin:$nojq" \
     "$TEARDOWN" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
     || fail "hook-warning: teardown refused when the prune could not run"
-  assert_grep "still in $settings" "$case_dir/stderr" \
-    "hook-warning: a skipped retirement left the surviving hooks unreported"
+  assert_grep "could not be checked" "$case_dir/stderr" \
+    "hook-warning: a retirement that could not run left the captain unwarned"
+  grep -q "are still in $settings" "$case_dir/stderr" \
+    && fail "hook-warning: an uninspectable file was reported as holding surviving hooks"
   pass "secondmate teardown retires firstmate-marked hooks on any harness and reports a skipped prune"
 }
 

@@ -2669,8 +2669,13 @@ fi
 # touching the turn-end marker that no state can now absorb, and a stale pi
 # extension left in state/ would be handed to the new process.
 if [ "$KIND" = secondmate ] && [ "$SEMANTIC_BUSY_WIRING" -eq 0 ]; then
-  fm_control_secondmate_lifecycle_retire "$WT" "$STATE_REAL" "$ID" \
-    || echo "warning: firstmate lifecycle hooks are still in $WT/.claude/settings.local.json for task $ID; remove them by hand, or this home keeps signalling turn ends the reader cannot absorb" >&2
+  RETIRE_RC=0
+  fm_control_secondmate_lifecycle_retire "$WT" "$STATE_REAL" "$ID" || RETIRE_RC=$?
+  case "$RETIRE_RC" in
+    0) ;;
+    2) echo "warning: firstmate lifecycle hooks in $WT/.claude/settings.local.json could not be checked for task $ID: jq is unavailable, or the file is not one JSON object firstmate can parse; the file is left untouched" >&2 ;;
+    *) echo "warning: firstmate lifecycle hooks are still in $WT/.claude/settings.local.json for task $ID; remove them by hand, or this home keeps signalling turn ends the reader cannot absorb" >&2 ;;
+  esac
 fi
 if [ "$KIND" != secondmate ] || [ "$SEMANTIC_BUSY_WIRING" -eq 1 ]; then
   # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every

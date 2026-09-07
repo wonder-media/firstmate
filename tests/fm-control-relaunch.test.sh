@@ -593,6 +593,22 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$(settings_mode "$settings")" = 600 ] \
     || fail "the captain's file mode was widened to $(settings_mode "$settings") by the atomic replacement"
 
+  # A file firstmate cannot inspect at all is reported apart from one whose
+  # prune ran and left an owned hook behind: only the second is the captain's
+  # to repair by hand.
+  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  rc=0
+  ( PATH="$nojq" fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 ) || rc=$?
+  [ "$rc" = 2 ] \
+    || fail "an uninspectable captain file was reported as $rc, not as unverifiable"
+  rc=0
+  chmod 500 "$dir/home/.claude"
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  chmod 700 "$dir/home/.claude"
+  [ "$rc" = 1 ] \
+    || fail "a prune that ran and left an owned hook behind was reported as $rc"
+
   printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
     > "$settings"
   fm_control_claude_hooks_clear "$settings" shared \

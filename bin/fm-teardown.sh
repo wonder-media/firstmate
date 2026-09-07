@@ -2091,8 +2091,13 @@ retire_secondmate_lifecycle_wiring() {  # <home> <state-dir> <task-id>
   # says these artifacts are firstmate's: a mate relaunched onto another
   # harness leaves the ones its earlier incarnation wrote behind in the same
   # captain-owned home (bin/fm-control-lib.sh owns what is retired and how).
-  fm_control_secondmate_lifecycle_retire "$1" "$2" "$3" && return 0
-  echo "warning: firstmate lifecycle hooks are still in $1/.claude/settings.local.json after retiring $3; remove them by hand, or a re-leased home will keep signalling for a retired task" >&2
+  local rc=0
+  fm_control_secondmate_lifecycle_retire "$1" "$2" "$3" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    2) echo "warning: firstmate lifecycle hooks in $1/.claude/settings.local.json could not be checked while retiring $3: jq is unavailable, or the file is not one JSON object firstmate can parse; the file is left untouched" >&2 ;;
+    *) echo "warning: firstmate lifecycle hooks are still in $1/.claude/settings.local.json after retiring $3; remove them by hand, or a re-leased home will keep signalling for a retired task" >&2 ;;
+  esac
 }
 
 remove_firstmate_home() {
