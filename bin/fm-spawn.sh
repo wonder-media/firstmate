@@ -2659,6 +2659,14 @@ if [ "$KIND" = secondmate ]; then
       ;;
   esac
 fi
+# A disarmed spawn writes no wiring, so without this nothing would retire what a
+# previous incarnation armed in this persistent home: its Stop hook would keep
+# touching the turn-end marker that no state can now absorb, and a stale pi
+# extension left in state/ would be handed to the new process.
+if [ "$KIND" = secondmate ] && [ "$SEMANTIC_BUSY_WIRING" -eq 0 ]; then
+  fm_control_secondmate_lifecycle_retire "$WT" "$STATE_REAL" "$ID" \
+    || echo "warning: firstmate lifecycle hooks are still in $WT/.claude/settings.local.json for task $ID; remove them by hand, or this home keeps signalling turn ends the reader cannot absorb" >&2
+fi
 if [ "$KIND" != secondmate ] || [ "$SEMANTIC_BUSY_WIRING" -eq 1 ]; then
   # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every
   # adapter with a verified semantic source. The launch brief sent below IS a

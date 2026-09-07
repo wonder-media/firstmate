@@ -1727,6 +1727,9 @@ test_secondmate_teardown_retires_marked_hooks_and_reports_skips() {
   settings="$home/.claude/settings.local.json"
   printf '%s' '{"permissions":{"allow":["Bash(git status:*)"]}}' > "$settings"
   before=$(cat "$settings")
+  mkdir -p "$home/.opencode/plugins"
+  printf 'firstmate lifecycle plugin\n' > "$home/.opencode/plugins/fm-busy-state.js"
+  printf 'captain plugin\n' > "$home/.opencode/plugins/captain-own.js"
 
   prepare_treehouse_test_double "$case_dir"
   FM_ROOT_OVERRIDE="$fmroot" FM_STATE_OVERRIDE="$case_dir/state" \
@@ -1737,6 +1740,10 @@ test_secondmate_teardown_retires_marked_hooks_and_reports_skips() {
     || fail "hook-scope: teardown refused a clean codex secondmate teardown"
   [ "$(cat "$settings")" = "$before" ] \
     || fail "hook-scope: a codex secondmate's captain settings were rewritten"
+  [ -e "$home/.opencode/plugins/fm-busy-state.js" ] \
+    && fail "hook-scope: the firstmate opencode lifecycle plugin outlived its teardown"
+  [ -e "$home/.opencode/plugins/captain-own.js" ] \
+    || fail "hook-scope: a captain-owned opencode plugin was removed"
 
   # A mate relaunched off Claude still owns the entries its Claude incarnation
   # merged in, so the marker - not the harness recorded last - decides.

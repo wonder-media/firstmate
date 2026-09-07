@@ -643,6 +643,13 @@ exit 0
 SH
   chmod +x "$fakebin/zellij"
 
+  # The home is persistent and may already carry what a prior incarnation armed
+  # while it ran on a backend whose state the reader could prove.
+  mkdir -p "$sm/.claude" "$w/home/state"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s sm idle --gen G1"}]}]}}' \
+    > "$sm/.claude/settings.local.json"
+  printf 'stale extension\n' > "$w/home/state/sm.pi-ext.ts"
+
   FM_BACKEND=zellij spawn_secondmate "$w" sm "$sm" claude
 
   meta="$w/home/state/sm.meta"
@@ -656,8 +663,14 @@ SH
   [ -e "$w/home/state/sm.busy-gen" ] \
     && fail "unprovable-backend: a lifecycle generation sidecar was armed"
   [ -e "$sm/.claude/settings.local.json" ] \
-    && fail "unprovable-backend: turn-end wiring was installed with no way to absorb its events"
-  pass "B5e spawn: a secondmate on a backend without recovery-grade state arms no lifecycle wiring"
+    || fail "unprovable-backend: the captain-owned settings file was deleted"
+  grep -q 'fm-busy-event.sh' "$sm/.claude/settings.local.json" \
+    && fail "unprovable-backend: a prior incarnation's turn-end wiring survived a disarmed spawn"
+  grep -q 'captain-own-stop' "$sm/.claude/settings.local.json" \
+    || fail "unprovable-backend: the captain's own hook was discarded"
+  [ -e "$w/home/state/sm.pi-ext.ts" ] \
+    && fail "unprovable-backend: a prior incarnation's pi extension survived a disarmed spawn"
+  pass "B5e spawn: a secondmate on a backend without recovery-grade state arms no lifecycle wiring and retires what a prior incarnation armed"
 }
 
 # A secondmate home is persistent and captain-owned, so arming its Claude

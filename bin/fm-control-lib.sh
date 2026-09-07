@@ -342,3 +342,30 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
   fi
   rm -f -- "$file" || return 1
 }
+
+# Retire every firstmate-owned semantic lifecycle artifact a prior incarnation
+# may have left in a secondmate's persistent, captain-owned home. The three
+# semantic adapters' artifacts are read from the wiring table above so this
+# stays one owner of where they live; the Claude settings file is the captain's
+# and is only ever pruned, never removed. Returns non-zero when a firstmate
+# hook is still there afterwards, which is the only proof the prune really ran
+# (it reports success both when it prunes and when it safely declines), so the
+# caller can name the home the captain has to repair by hand.
+fm_control_secondmate_lifecycle_retire() {  # <home> <state-dir> <task-id>
+  local home=${1-} state=${2-} id=${3-} settings adapter path
+  [ -n "$home" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
+  settings=$home/.claude/settings.local.json
+  for adapter in claude opencode pi; do
+    while IFS= read -r path; do
+      [ -n "$path" ] || continue
+      [ "$path" != "$settings" ] || continue
+      rm -f -- "$path" || return 1
+    done <<EOF
+$(fm_control_harness_wiring_paths "$adapter" "$home" "$state" "$id")
+EOF
+  done
+  [ -f "$settings" ] || return 0
+  grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$settings" 2>/dev/null || return 0
+  fm_control_claude_hooks_clear "$settings" shared >/dev/null 2>&1 || true
+  ! grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$settings" 2>/dev/null
+}
