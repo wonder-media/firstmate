@@ -26,6 +26,13 @@ FM_TREEHOUSE_CI_REPO=kunchenguid/treehouse
 FM_HERDR_CI_VERSION=0.7.4
 FM_HERDR_CI_REPO=ogulcancelik/herdr
 
+# Treehouse compatibility is feature-based rather than semantic: a supported
+# build declares the --lease flag on `treehouse get`. Callers own how they run
+# the probe (bounded or not) and pass its output here.
+fm_treehouse_help_declares_lease() {  # <treehouse get --help output>
+  printf '%s\n' "$1" | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
+}
+
 # Herdr compatibility is protocol-based. Version freshness alone cannot prove
 # this floor, so the maintenance inventory reports the floor but never starts or
 # queries a live Herdr server to claim compatibility.

@@ -122,7 +122,7 @@ treehouse_compatibility() {
   [ "$installed" != unknown ] || { printf 'unknown\n'; return 0; }
   output=$(fm_run_timed "$TIMEOUT" treehouse get --help </dev/null 2>/dev/null) \
     || { printf 'unknown\n'; return 0; }
-  if printf '%s\n' "$output" | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'; then
+  if fm_treehouse_help_declares_lease "$output"; then
     printf 'supported\n'
   else
     printf 'below-minimum\n'
