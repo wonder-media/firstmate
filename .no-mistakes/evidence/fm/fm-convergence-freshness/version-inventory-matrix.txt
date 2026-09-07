@@ -1,0 +1,21 @@
+$ bin/fm-version-inventory.sh   (release channels served by local fakes)
+tool                 installed      minimum-supported  available-stable  compatibility                  freshness             intentionally-pinned  release-channel
+no-mistakes          1.31.2         1.31.2             1.64.0            supported                      update-available      none                  github:kunchenguid/no-mistakes
+treehouse            2.0.1          lease-capable      2.3.0             supported                      intentionally-pinned  CI=2.0.1              github:kunchenguid/treehouse
+herdr                0.7.4          protocol>=14       0.8.2             unknown (protocol not probed)  intentionally-pinned  CI=0.7.4              github:ogulcancelik/herdr
+gh-axi               0.1.35         0.1.29             0.1.35            supported                      current-stable        none                  npm:gh-axi
+chrome-devtools-axi  0.1.34         present            0.1.34            supported                      current-stable        none                  npm:chrome-devtools-axi
+lavish-axi           0.1.46         0.1.46             0.1.64            supported                      update-available      none                  npm:lavish-axi
+tasks-axi            0.2.3          0.2.4              0.2.5             below-minimum                  update-available      none                  npm:tasks-axi
+quota-axi            not-installed  0.1.25             0.1.37            not-installed                  not-installed         none                  npm:quota-axi
+
+$ bin/fm-version-inventory.sh   (no gh-axi, no npm on PATH -> offline host)
+tool                 installed      minimum-supported  available-stable  compatibility                  freshness        intentionally-pinned  release-channel
+no-mistakes          1.31.2         1.31.2             unknown/offline   supported                      unknown/offline  none                  github:kunchenguid/no-mistakes
+treehouse            2.0.1          lease-capable      unknown/offline   supported                      unknown/offline  CI=2.0.1              github:kunchenguid/treehouse
+herdr                0.7.4          protocol>=14       unknown/offline   unknown (protocol not probed)  unknown/offline  CI=0.7.4              github:ogulcancelik/herdr
+gh-axi               not-installed  0.1.29             unknown/offline   not-installed                  not-installed    none                  npm:gh-axi
+chrome-devtools-axi  0.1.34         present            unknown/offline   supported                      unknown/offline  none                  npm:chrome-devtools-axi
+lavish-axi           0.1.46         0.1.46             unknown/offline   supported                      unknown/offline  none                  npm:lavish-axi
+tasks-axi            0.2.3          0.2.4              unknown/offline   below-minimum                  unknown/offline  none                  npm:tasks-axi
+quota-axi            not-installed  0.1.25             unknown/offline   not-installed                  not-installed    none                  npm:quota-axi

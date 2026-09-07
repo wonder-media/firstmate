@@ -1,0 +1,15 @@
+
+=== standalone secondmate home cloned NOW, origin pointed at a dead path ===
+sm HEAD=42ac405  origin=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-spawn-demo.NyTWzr/no-such-origin.git
+
+=== primary then advances LOCALLY (the clone's object store never sees it) ===
+sm: MISSING target e0c9fabfad7af706756bb28aa67315e4f5d8aa1b
+
+=== real CLI: bin/fm-spawn.sh sm <home> codex --secondmate ===
+spawned sm harness=codex kind=secondmate mode=secondmate yolo=off window=firstmate:fm-sm worktree=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-spawn-demo.NyTWzr/sm
+
+=== after spawn ===
+sm      HEAD=e0c9fab
+primary HEAD=e0c9fab
+sm AGENTS.md -> v2
+sm bin/tool.sh -> echo b

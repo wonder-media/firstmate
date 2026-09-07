@@ -1,0 +1,18 @@
+### Documented opt-in (docs/configuration.md) must survive test isolation
+700:Set `FM_BOARD_BROWSER_TEST=1` when running `tests/fm-board.test.sh` to add rendered Chrome assertions at a desktop and a phone window size, each reported separately; `FM_BOARD_BROWSER_SIZE=<width>,<height>` renders one operator-chosen size instead. The test prints an explicit skip when the flag or a Chrome binary is absent, while API, SSE, and answer-lifecycle checks always run.
+
+--- A. direct sourcing of tests/lib.sh ---
+$ FM_BOARD_BROWSER_TEST=1 FM_BOARD_BROWSER_SIZE=1280x900 bash -c ". tests/lib.sh; echo TEST=\${FM_BOARD_BROWSER_TEST:-unset} SIZE=\${FM_BOARD_BROWSER_SIZE:-unset}"
+TEST=1 SIZE=1280x900
+
+--- B. a production value is still stripped (isolation contract intact) ---
+$ FM_HOME=/real/home bash -c ". tests/lib.sh; echo FM_HOME=\$FM_HOME"
+FM_HOME=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-test-direct.VYPOiB/fm-home (synthetic, not /real/home)
+
+--- C. the synthetic HOME is still installed (no login home leak) ---
+HOME=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-test-direct.0rv8x7/user-home
+ok: HOME is a disposable synthetic root
+
+--- D. same opt-in through the canonical runner (bin/fm-test-run.sh) ---
+ok - runner: FM_BOARD_BROWSER_TEST=1 FM_BOARD_BROWSER_SIZE=1280x900 FM_HOME_is_synthetic=yes
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=179

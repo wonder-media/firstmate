@@ -1,0 +1,37 @@
+### SAME SCENARIO ON THE BASE COMMIT 195df24 (before the change)
+
+=== 1. PRIMARY firstmate checkout ===
+primary HEAD: 1ae94fe
+
+=== 2. Two ISOLATED STANDALONE secondmate homes (independent clones, origin pointed at a dead path) ===
+sm-alpha origin -> /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-standalone-demo.sq3DmW/no-such-origin.git (unreachable)
+sm-beta origin -> /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-standalone-demo.sq3DmW/no-such-origin.git (unreachable)
+sm-beta has UNCOMMITTED work:
+$ git -C /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-standalone-demo.sq3DmW/sm-beta status --porcelain
+ M AGENTS.md
+?? .fm-secondmate-home
+
+=== 3. PRIMARY moves ahead by one LOCAL commit (never pushed anywhere) ===
+primary target commit: 147e638913ae5d041dcb61e1974d2531475e1810
+
+=== 4. Neither standalone clone HAS that object yet (the reported failure) ===
+sm-alpha: MISSING target  <-- would never converge before this change
+sm-beta: MISSING target  <-- would never converge before this change
+
+=== 5. Startup sweep (the same function bin/fm-bootstrap.sh calls) ===
+secondmate sm-alpha: skipped: 147e638913ae5d041dcb61e1974d2531475e1810 does not exist
+secondmate sm-beta: skipped: 147e638913ae5d041dcb61e1974d2531475e1810 does not exist
+
+=== 6. Result for each home ===
+sm-alpha  HEAD=1ae94fe  detached=yes
+sm-beta   HEAD=1ae94fe  detached=yes
+primary  HEAD=147e638
+sm-alpha AGENTS.md -> v1 (converged)
+sm-beta  AGENTS.md -> v1 local edit  (uncommitted work preserved)
+sm-beta: refused BEFORE acquiring any object (guard held)
+
+=== 7. Did anything reach for origin / the network? ===
+no origin route taken - acquisition was a bounded local-path fetch only
+
+=== cleanup ===
+removed /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-standalone-demo.sq3DmW
