@@ -2598,8 +2598,13 @@ mkdir -p "$TASK_TMP/gotmp"
 mkdir -p "$STATE"
 STATE_REAL=$(cd "$STATE" && pwd -P)
 TURNEND="$STATE_REAL/$ID.turn-ended"
+# A secondmate's worktree is the captain's own persistent home, and info/exclude
+# lives in the repository's COMMON dir, so an entry written there would also hide
+# that path in the captain's main checkout and every other worktree, with nothing
+# to ever remove it. Only an ephemeral crew worktree is firstmate's to exclude in.
 exclude_path() {
   local rel=$1 EXCL
+  [ "$KIND" != secondmate ] || return 0
   EXCL=$(git -C "$WT" rev-parse --git-path info/exclude 2>/dev/null || true)
   [ -n "$EXCL" ] || return 0
   mkdir -p "$(dirname "$EXCL")"

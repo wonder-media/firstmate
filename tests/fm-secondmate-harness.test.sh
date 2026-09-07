@@ -711,6 +711,36 @@ test_spawn_secondmate_claude_settings_are_merged_not_replaced() {
   pass "B5d spawn: Claude lifecycle arming merges into a captain-owned secondmate settings file"
 }
 
+# A secondmate home is a linked worktree of the captain's own repository, and
+# git's info/exclude lives in the shared common dir, so an entry written while
+# arming lifecycle wiring would hide that path in the captain's main checkout too.
+test_spawn_secondmate_leaves_the_captain_repo_exclude_untouched() {
+  local w sm capt excl before
+  w="$TMP_ROOT/spawn-shared-exclude"
+  capt="$w/captain-repo"
+  sm="$w/sm"
+  mkdir -p "$capt"
+  git init -q "$capt"
+  git -C "$capt" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  git -C "$capt" worktree add -q -b sm-home "$sm" >/dev/null 2>&1 \
+    || fail "shared-exclude: could not build the secondmate home as a linked worktree"
+  make_seeded_home "$sm" sm
+  mkdir -p "$sm/.claude"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]}}' > "$sm/.claude/settings.local.json"
+  excl="$capt/.git/info/exclude"
+  mkdir -p "$capt/.git/info"
+  printf 'captain-own-ignore\n' > "$excl"
+  before=$(cat "$excl")
+
+  spawn_secondmate "$w" sm "$sm" claude
+
+  jq -e '.hooks.Stop' "$sm/.claude/settings.local.json" >/dev/null \
+    || fail "shared-exclude: the fixture never reached the lifecycle arming path"
+  [ "$(cat "$excl")" = "$before" ] \
+    || fail "shared-exclude: arming a secondmate wrote into the captain repository's shared git exclude"
+  pass "B5g spawn: arming a secondmate writes nothing into the captain repository's shared git exclude"
+}
+
 # A captain-owned settings file firstmate cannot parse is the captain's to repair.
 # The spawn still lands, the file survives byte for byte, and the mate simply
 # carries no lifecycle wiring, instead of the spawn refusing to run at all.
@@ -2719,6 +2749,7 @@ test_spawn_explicit_harness_wins
 test_spawn_secondmate_semantic_lifecycle_wiring
 test_spawn_secondmate_skips_wiring_on_an_unprovable_backend
 test_spawn_secondmate_claude_settings_are_merged_not_replaced
+test_spawn_secondmate_leaves_the_captain_repo_exclude_untouched
 test_spawn_secondmate_survives_unparseable_captain_settings
 test_spawn_unverified_secondmate_harness_refused
 test_spawn_cursor_secondmate_launches_with_its_primary_contract
