@@ -12,6 +12,11 @@ set -u
 
 RUNNER="$ROOT/bin/fm-test-run.sh"
 
+# A direct invocation is one that starts outside any isolated process tree.
+direct_invoke() {
+  env -u FM_TEST_ENV_ISOLATED -u FM_TEST_ENV_ROOT -u FM_TEST_ENV_TMP bash "$@"
+}
+
 assert_present "$RUNNER" "bin/fm-test-run.sh is missing"
 [ -x "$RUNNER" ] || fail "bin/fm-test-run.sh must be executable"
 
@@ -92,6 +97,7 @@ init_changed_fixture_repo() {
   local repo=$1 script
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  cp "$ROOT/bin/fm-test-env-lib.sh" "$repo/bin/fm-test-env-lib.sh"
   chmod +x "$repo/bin/fm-test-run.sh"
   for script in \
     fm-brief.test.sh \
@@ -248,6 +254,323 @@ assert "family" in doc["scripts"][0]
 ' "$json" || { rm -rf "$tmp"; fail "JSON timing artifact missing required fields"; }
   rm -rf "$tmp"
   pass "timing markers and JSON artifact are valid"
+}
+
+test_inherited_fm_environment_is_sanitized() {
+  local tmp fixture runner_capture direct_capture
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-env.XXXXXX")
+  fixture="$tmp/environment.test.sh"
+  runner_capture="$tmp/runner.capture"
+  direct_capture="$tmp/direct.capture"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_TEST_SOURCE_LIB:-0}" = 1 ]; then
+  # shellcheck source=/dev/null
+  . "$FM_TEST_LIB_PATH"
+fi
+
+[ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] || exit 21
+[ "${FM_TEST_RETAINED:-}" = retained ] || exit 22
+effective_state=${FM_STATE_OVERRIDE:-$FM_HOME/state}
+effective_data=${FM_DATA_OVERRIDE:-$FM_HOME/data}
+effective_config=${FM_CONFIG_OVERRIDE:-$FM_HOME/config}
+effective_projects=${FM_PROJECTS_OVERRIDE:-$FM_HOME/projects}
+case "$HOME:$FM_HOME:$effective_state:$effective_data:$effective_config:$effective_projects" in
+  "$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*:"$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 23 ;;
+esac
+[ "$effective_state" = "$FM_HOME/state" ] || exit 24
+[ "$effective_data/secondmates.md" = "$FM_HOME/data/secondmates.md" ] || exit 25
+[ -z "${FM_ROOT_OVERRIDE+x}" ] || exit 26
+[ -z "${FM_BACKEND+x}" ] || exit 27
+[ -z "${FM_UNRECOGNIZED_OVERRIDE+x}" ] || exit 28
+[ -z "${FM_STATE_OVERRIDE+x}${FM_DATA_OVERRIDE+x}${FM_CONFIG_OVERRIDE+x}${FM_PROJECTS_OVERRIDE+x}" ] || exit 30
+
+# Mutation happens only after the synthetic effective paths pass the assertions.
+touch "$effective_state/asserted-before-mutation"
+
+# A test remains free to install its own fixture overrides after isolation.
+fixture_home="$FM_TEST_ENV_ROOT/test-owned-home"
+mkdir -p "$fixture_home/state" "$fixture_home/data" "$fixture_home/config" "$fixture_home/projects"
+export FM_HOME="$fixture_home"
+export FM_STATE_OVERRIDE="$fixture_home/state"
+export FM_DATA_OVERRIDE="$fixture_home/data"
+export FM_CONFIG_OVERRIDE="$fixture_home/config"
+export FM_PROJECTS_OVERRIDE="$fixture_home/projects"
+[ "$FM_STATE_OVERRIDE" = "$fixture_home/state" ] || exit 29
+printf '%s\n' "$FM_TEST_ENV_ROOT" >"$FM_TEST_CAPTURE"
+printf 'ok - inherited production FM environment sanitized\n'
+SH
+  chmod +x "$fixture"
+
+  HOME=/Users/patrick \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_DATA_OVERRIDE=/Users/patrick/firstmate/data \
+    FM_CONFIG_OVERRIDE=/Users/patrick/firstmate/config \
+    FM_PROJECTS_OVERRIDE=/Users/patrick/firstmate/projects \
+    FM_BACKEND=herdr \
+    FM_UNRECOGNIZED_OVERRIDE=/Users/patrick/Secondmates \
+    FM_TEST_RETAINED=retained FM_TEST_CAPTURE="$runner_capture" \
+    "$RUNNER" "$fixture" >"$tmp/runner.out" 2>"$tmp/runner.err" \
+    || { rm -rf "$tmp"; fail "runner did not sanitize inherited FM environment"; }
+  [ -s "$runner_capture" ] || { rm -rf "$tmp"; fail "runner isolation probe did not complete"; }
+
+  HOME=/Users/patrick \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_DATA_OVERRIDE=/Users/patrick/firstmate/data \
+    FM_CONFIG_OVERRIDE=/Users/patrick/firstmate/config \
+    FM_PROJECTS_OVERRIDE=/Users/patrick/firstmate/projects \
+    FM_BACKEND=herdr \
+    FM_UNRECOGNIZED_OVERRIDE=/Users/patrick/Secondmates \
+    FM_TEST_SOURCE_LIB=1 FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+    FM_TEST_RETAINED=retained FM_TEST_CAPTURE="$direct_capture" \
+    direct_invoke "$fixture" >"$tmp/direct.out" 2>"$tmp/direct.err" \
+    || { rm -rf "$tmp"; fail "shared test helper did not sanitize direct invocation"; }
+  [ -s "$direct_capture" ] || { rm -rf "$tmp"; fail "direct isolation probe did not complete"; }
+
+  rm -rf "$tmp"
+  pass "runner and shared helper sanitize inherited FM values before synthetic mutation"
+}
+
+test_documented_live_gates_survive_isolation() {
+  local tmp fixture runner_capture direct_capture login_home
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-gates.XXXXXX")
+  fixture="$tmp/gates.test.sh"
+  runner_capture="$tmp/runner.capture"
+  direct_capture="$tmp/direct.capture"
+  login_home="$tmp/login-home"
+  mkdir -p "$login_home"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_TEST_SOURCE_LIB:-0}" = 1 ]; then
+  # shellcheck source=/dev/null
+  . "$FM_TEST_LIB_PATH"
+fi
+
+[ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] || exit 41
+[ "${FM_CMUX_CLAUDE_COMPOSER_LIVE:-}" = 1 ] || exit 42
+[ "${FM_HARNESS_LIVENESS_DRIFT:-}" = 1 ] || exit 43
+[ "${FM_PI_LIVE_E2E:-}" = 1 ] || exit 44
+[ "${FM_MUSE_SIGNALS_LIVE:-}" = 0 ] || exit 45
+[ "${FM_BOARD_BROWSER_TEST:-}" = 1 ] || exit 52
+[ -z "${FM_UNLISTED_LIVE_E2E+x}" ] || exit 46
+[ -z "${FM_ROOT_OVERRIDE+x}" ] || exit 47
+[ -z "${FM_BACKEND+x}" ] || exit 48
+[ -z "${FM_STATE_OVERRIDE+x}${FM_DATA_OVERRIDE+x}${FM_CONFIG_OVERRIDE+x}${FM_PROJECTS_OVERRIDE+x}" ] || exit 49
+case "$FM_HOME" in
+  "$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 50 ;;
+esac
+[ "$HOME" = "$FM_TEST_LOGIN_HOME" ] || exit 51
+printf '%s\n' "$FM_TEST_ENV_ROOT" >"$FM_TEST_CAPTURE"
+printf 'ok - documented live gates survive isolation\n'
+SH
+  chmod +x "$fixture"
+
+  HOME="$login_home" FM_TEST_LOGIN_HOME="$login_home" \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_BACKEND=herdr \
+    FM_BOARD_BROWSER_TEST=1 \
+    FM_CMUX_CLAUDE_COMPOSER_LIVE=1 \
+    FM_HARNESS_LIVENESS_DRIFT=1 \
+    FM_PI_LIVE_E2E=1 \
+    FM_MUSE_SIGNALS_LIVE=0 \
+    FM_UNLISTED_LIVE_E2E=1 \
+    FM_TEST_CAPTURE="$runner_capture" \
+    "$RUNNER" "$fixture" >"$tmp/runner.out" 2>"$tmp/runner.err" \
+    || { rm -rf "$tmp"; fail "runner did not preserve documented live gates while stripping production values"; }
+  [ -s "$runner_capture" ] || { rm -rf "$tmp"; fail "runner live-gate probe did not complete"; }
+  grep -Eq '^FM_TEST_END .+ exit=0 duration_ms=[0-9]+ gate_skip=false$' "$tmp/runner.out" \
+    || { rm -rf "$tmp"; fail "live-gate probe must not be counted as a gate skip"; }
+
+  HOME="$login_home" FM_TEST_LOGIN_HOME="$login_home" \
+    FM_HOME=/Users/patrick/firstmate \
+    FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+    FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+    FM_BACKEND=herdr \
+    FM_BOARD_BROWSER_TEST=1 \
+    FM_CMUX_CLAUDE_COMPOSER_LIVE=1 \
+    FM_HARNESS_LIVENESS_DRIFT=1 \
+    FM_PI_LIVE_E2E=1 \
+    FM_MUSE_SIGNALS_LIVE=0 \
+    FM_UNLISTED_LIVE_E2E=1 \
+    FM_TEST_SOURCE_LIB=1 FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+    FM_TEST_CAPTURE="$direct_capture" \
+    direct_invoke "$fixture" >"$tmp/direct.out" 2>"$tmp/direct.err" \
+    || { rm -rf "$tmp"; fail "shared test helper did not preserve documented live gates while stripping production values"; }
+  [ -s "$direct_capture" ] || { rm -rf "$tmp"; fail "direct live-gate probe did not complete"; }
+
+  rm -rf "$tmp"
+  pass "documented opt-in live gates survive the runner boundary while production values are stripped"
+}
+
+test_board_browser_opt_ins_survive_without_a_login_home() {
+  local tmp fixture login_home mode
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-board.XXXXXX")
+  fixture="$tmp/board.test.sh"
+  login_home="$tmp/login-home"
+  mkdir -p "$login_home"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_TEST_SOURCE_LIB:-0}" = 1 ]; then
+  # shellcheck source=/dev/null
+  . "$FM_TEST_LIB_PATH"
+fi
+
+[ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] || exit 71
+[ "${FM_BOARD_BROWSER_TEST:-}" = 1 ] || exit 72
+[ "${FM_BOARD_BROWSER_SIZE:-}" = 390,844 ] || exit 73
+[ -z "${FM_ROOT_OVERRIDE+x}${FM_STATE_OVERRIDE+x}${FM_BACKEND+x}" ] || exit 74
+[ "$HOME" != "$FM_TEST_LOGIN_HOME" ] || exit 75
+case "$HOME" in
+  "$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 76 ;;
+esac
+case "$FM_HOME" in
+  "$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 77 ;;
+esac
+printf 'ok - board browser opt-ins survive inside the synthetic home\n'
+SH
+  chmod +x "$fixture"
+
+  for mode in runner direct; do
+    HOME="$login_home" FM_TEST_LOGIN_HOME="$login_home" \
+      FM_HOME=/Users/patrick/firstmate \
+      FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+      FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+      FM_BACKEND=herdr \
+      FM_BOARD_BROWSER_TEST=1 \
+      FM_BOARD_BROWSER_SIZE=390,844 \
+      FM_TEST_SOURCE_LIB=$([ "$mode" = direct ] && echo 1 || echo 0) FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+      "$([ "$mode" = runner ] && echo "$RUNNER" || echo direct_invoke)" "$fixture" >"$tmp/$mode.out" 2>"$tmp/$mode.err" \
+      || { rm -rf "$tmp"; fail "$mode: board browser opt-ins did not survive inside the synthetic home: $(cat "$tmp/$mode.out" "$tmp/$mode.err")"; }
+  done
+
+  rm -rf "$tmp"
+  pass "documented board browser opt-ins survive isolation without granting the login home"
+}
+
+test_nested_children_keep_fixtures_inside_the_boundary() {
+  local tmp fixture runner_capture direct_capture
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-nested.XXXXXX")
+  fixture="$tmp/nested.test.sh"
+  runner_capture="$tmp/runner.capture"
+  direct_capture="$tmp/direct.capture"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+# shellcheck source=/dev/null
+. "$FM_TEST_LIB_PATH"
+
+lab=$(fm_test_tmproot nested-lab)
+mkdir -p "$lab/state"
+export FM_HOME="$lab" FM_STATE_OVERRIDE="$lab/state" FM_FIXTURE_ALARM_LOG="$lab/alarm.log"
+child_err=$(bash -c '
+  . "$FM_TEST_LIB_PATH"
+  printf "%s\n" "${FM_FIXTURE_ALARM_LOG:-gone}|$FM_HOME|$FM_STATE_OVERRIDE|$FM_TEST_ENV_ROOT|$HOME" >"$FM_TEST_CAPTURE"
+' 2>&1) || exit 51
+[ -z "$child_err" ] || exit 52
+[ "$(cat "$FM_TEST_CAPTURE")" = "$lab/alarm.log|$lab|$lab/state|$FM_TEST_ENV_ROOT|$HOME" ] || exit 53
+
+escape_err=$(FM_HOME=/usr bash -c '. "$FM_TEST_LIB_PATH"; echo reached' 2>&1 >"$FM_TEST_CAPTURE.escape") && exit 54
+case "$escape_err" in
+  *'escapes the isolated fixture roots'*) ;;
+  *) exit 55 ;;
+esac
+[ ! -s "$FM_TEST_CAPTURE.escape" ] || exit 56
+printf 'ok - nested children keep fixtures inside the boundary\n'
+SH
+  chmod +x "$fixture"
+
+  FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" FM_TEST_CAPTURE="$runner_capture" \
+    "$RUNNER" "$fixture" >"$tmp/runner.out" 2>"$tmp/runner.err" \
+    || { rm -rf "$tmp"; fail "nested child under the runner lost fixtures or failed to refuse an escaping home: $(cat "$tmp/runner.out" "$tmp/runner.err")"; }
+  [ -s "$runner_capture" ] || { rm -rf "$tmp"; fail "runner nested probe did not complete"; }
+
+  FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" FM_TEST_CAPTURE="$direct_capture" \
+    direct_invoke "$fixture" >"$tmp/direct.out" 2>"$tmp/direct.err" \
+    || { rm -rf "$tmp"; fail "nested child under direct invocation lost fixtures or failed to refuse an escaping home: $(cat "$tmp/direct.out" "$tmp/direct.err")"; }
+  [ -s "$direct_capture" ] || { rm -rf "$tmp"; fail "direct nested probe did not complete"; }
+
+  rm -rf "$tmp"
+  pass "nested children keep parent fixtures and refuse effective paths outside the disposable roots"
+}
+
+test_enabled_live_lane_keeps_its_login_home() {
+  local tmp fixture login_home mode
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-live-home.XXXXXX")
+  fixture="$tmp/live-home.test.sh"
+  login_home="$tmp/login-home"
+  mkdir -p "$login_home/.grok"
+  printf '{}\n' >"$login_home/.grok/auth.json"
+  cat >"$fixture" <<'SH'
+#!/usr/bin/env bash
+set -eu
+if [ "${FM_TEST_SOURCE_LIB:-0}" = 1 ]; then
+  # shellcheck source=/dev/null
+  . "$FM_TEST_LIB_PATH"
+fi
+
+[ "${FM_TEST_ENV_ISOLATED:-}" = 1 ] || exit 61
+case "$FM_HOME" in
+  "$FM_TEST_ENV_ROOT"/*) ;;
+  *) exit 62 ;;
+esac
+[ -z "${FM_ROOT_OVERRIDE+x}${FM_STATE_OVERRIDE+x}${FM_BACKEND+x}${FM_GROK_AUTH_FILE+x}" ] || exit 63
+if [ "$FM_TEST_EXPECT_LOGIN_HOME" = 1 ]; then
+  [ "${FM_GROK_STOP_LIVE_E2E:-}" = 1 ] || exit 64
+  [ "$HOME" = "$FM_TEST_LOGIN_HOME" ] || exit 65
+  [ -f "$HOME/.grok/auth.json" ] || exit 66
+else
+  [ "${FM_GROK_STOP_LIVE_E2E:-}" = 0 ] || exit 67
+  case "$HOME" in
+    "$FM_TEST_ENV_ROOT"/*) ;;
+    *) exit 68 ;;
+  esac
+  [ ! -e "$HOME/.grok/auth.json" ] || exit 69
+fi
+printf 'ok - live lane home policy\n'
+SH
+  chmod +x "$fixture"
+
+  for mode in runner direct; do
+    HOME="$login_home" \
+      FM_HOME=/Users/patrick/firstmate \
+      FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+      FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+      FM_BACKEND=herdr \
+      FM_GROK_AUTH_FILE=/Users/patrick/.grok/auth.json \
+      FM_GROK_STOP_LIVE_E2E=1 \
+      FM_TEST_EXPECT_LOGIN_HOME=1 FM_TEST_LOGIN_HOME="$login_home" \
+      FM_TEST_SOURCE_LIB=$([ "$mode" = direct ] && echo 1 || echo 0) FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+      "$([ "$mode" = runner ] && echo "$RUNNER" || echo direct_invoke)" "$fixture" >"$tmp/$mode.on.out" 2>"$tmp/$mode.on.err" \
+      || { rm -rf "$tmp"; fail "$mode: an explicitly enabled live lane did not keep its login home: $(cat "$tmp/$mode.on.out" "$tmp/$mode.on.err")"; }
+
+    HOME="$login_home" \
+      FM_HOME=/Users/patrick/firstmate \
+      FM_ROOT_OVERRIDE=/Users/patrick/firstmate \
+      FM_STATE_OVERRIDE=/Users/patrick/firstmate/state \
+      FM_BACKEND=herdr \
+      FM_GROK_AUTH_FILE=/Users/patrick/.grok/auth.json \
+      FM_GROK_STOP_LIVE_E2E=0 \
+      FM_TEST_EXPECT_LOGIN_HOME=0 FM_TEST_LOGIN_HOME="$login_home" \
+      FM_TEST_SOURCE_LIB=$([ "$mode" = direct ] && echo 1 || echo 0) FM_TEST_LIB_PATH="$ROOT/tests/lib.sh" \
+      "$([ "$mode" = runner ] && echo "$RUNNER" || echo direct_invoke)" "$fixture" >"$tmp/$mode.off.out" 2>"$tmp/$mode.off.err" \
+      || { rm -rf "$tmp"; fail "$mode: a disabled live switch did not keep the synthetic home: $(cat "$tmp/$mode.off.out" "$tmp/$mode.off.err")"; }
+  done
+
+  rm -rf "$tmp"
+  pass "an explicitly enabled live lane keeps its existing login home; a disabled switch stays synthetic"
 }
 
 test_aggregate_exit_behavior() {
@@ -507,6 +830,7 @@ test_jobs_parallel_scheduler_and_failure_propagation() {
   d=tests/fm-supervision-instructions.test.sh
   mkdir -p "$repo/bin" "$repo/tests" "$evidence" "$fake_bin"
   cp "$RUNNER" "$runner"
+  cp "$ROOT/bin/fm-test-env-lib.sh" "$repo/bin/fm-test-env-lib.sh"
   cat >"$fake_bin/stat" <<'SH'
 #!/usr/bin/env bash
 if [ "$1" = "-c" ] && [ "$2" = "%a" ]; then
@@ -710,6 +1034,11 @@ test_changed_file_selection_is_conservative
 test_changed_dependency_selection_and_unmapped_failure
 test_empty_selection_emits_summary
 test_timing_markers_and_json
+test_inherited_fm_environment_is_sanitized
+test_documented_live_gates_survive_isolation
+test_board_browser_opt_ins_survive_without_a_login_home
+test_nested_children_keep_fixtures_inside_the_boundary
+test_enabled_live_lane_keeps_its_login_home
 test_aggregate_exit_behavior
 test_gate_skip_accounting
 test_fail_on_gate_skip_token

@@ -96,6 +96,8 @@ tmp=$(mktemp -d) && printf 'done: smoke\n' > "$tmp/smoke.status" && FM_STATE_OVE
 
 `bin/fm-test-run.sh` is the single owner of behavior-suite selection, portable CI lane composition, optional local `--jobs` for the proven-isolated set only, per-script timing markers, family totals, the coverage guard, and the optional JSON timing artifact.
 Its header and `--help` own the flags, family labels, lanes, and changed-file map; this section only documents the entry points.
+Every suite process runs inside the shared environment boundary owned by [`bin/fm-test-env-lib.sh`](bin/fm-test-env-lib.sh), which removes inherited production `FM_*` values and installs a synthetic operational home, so a production `FM_*` value exported before a test has no effect.
+That file owns the exact enumeration of `FM_TEST_*` controls and opt-in live-lane switches that survive the boundary, and the live-lane `HOME` exception.
 `bin/fm-test-isolation-proof.sh` remains the single owner of the Phase 2 concurrent isolation proof and the exact proven candidate set; see `docs/fm-test-isolation-proof.md`.
 Portable shard balance evidence lives in `docs/fm-test-portable-shards.md`.
 Local no-mistakes Test stays intent-targeted and must not wire `commands.test` to `--all` or a `tests/*.test.sh` walk.

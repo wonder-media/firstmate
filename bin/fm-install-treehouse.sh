@@ -12,12 +12,13 @@
 # Pins Treehouse v2.0.1, the version exercised by the local real-Herdr suite.
 set -eu
 
-FM_TREEHOUSE_CI_VERSION=2.0.1
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-tool-versions-lib.sh
+. "$SCRIPT_DIR/fm-tool-versions-lib.sh"
+
 FM_TREEHOUSE_CI_TAG="v${FM_TREEHOUSE_CI_VERSION}"
 # Bounded download ceiling (bytes). Official 2.0.1 archives are under 8 MiB.
 FM_TREEHOUSE_CI_MAX_BYTES=15000000
-FM_TREEHOUSE_CI_REPO=kunchenguid/treehouse
-
 die() {
   printf 'fm-install-treehouse.sh: %s\n' "$*" >&2
   exit 1

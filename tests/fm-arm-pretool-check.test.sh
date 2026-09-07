@@ -14,6 +14,12 @@ set -u
 CHECK="$ROOT/bin/fm-arm-pretool-check.sh"
 POLICY="$ROOT/bin/fm-arm-command-policy.mjs"
 
+# The matrix drives repo-relative watcher commands, so the active home under
+# test is this checkout. Pin it explicitly instead of relying on an ambient
+# FM_HOME: the checked-out root is what the absolute x-mode.env cases (A13) and
+# the deny counter-case (E07) are stated against.
+export FM_HOME="$ROOT"
+
 # --- full cross-harness acceptance matrix ----------------------------------
 
 MATRIX_IDS=()
