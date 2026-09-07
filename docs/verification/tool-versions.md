@@ -6,7 +6,7 @@ This record verifies that startup compatibility gates and opt-in release freshne
 
 ## Current verification
 
-Verified 2026-09-04 from a disposable Firstmate worktree.
+Verified 2026-09-06 from a disposable Firstmate worktree, after the final bound and refusal fixes on this branch.
 
 The deterministic regression used only isolated fake executables and no real network:
 
