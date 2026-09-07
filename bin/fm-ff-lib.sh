@@ -195,7 +195,7 @@ validate_secondmate_home() {
 
 # A single fetch refreshes every worktree that shares an object store, so fetch
 # each distinct git-common-dir at most once. Used ONLY by the origin base mode;
-# the local-HEAD sync never fetches.
+# the local-HEAD sync never calls it and never takes a network route.
 FETCHED=""
 fetch_once() {
   local dir=$1 common

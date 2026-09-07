@@ -81,9 +81,12 @@ add_sm_worktree() {
 
 # add_sm_standalone <w> <id>: a secondmate home as an independent clone whose
 # object store does not receive later primary-only commits, plus live metadata.
+# Its origin is repointed away from the primary so any route through origin
+# fails: only an explicit local-path acquisition can reach the primary objects.
 add_sm_standalone() {
   local w=$1 id=$2
   git clone -q --no-local "$w/main" "$w/$id"
+  git -C "$w/$id" remote set-url origin "$w/nonexistent-origin.git"
   git -C "$w/$id" checkout -q --detach
   printf '%s\n' "$id" > "$w/$id/.fm-secondmate-home"
   {

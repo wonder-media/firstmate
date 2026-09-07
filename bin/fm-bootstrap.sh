@@ -276,7 +276,7 @@ secondmate_sync() {
   . "$SCRIPT_DIR/fm-wake-lib.sh"
   # Placement-specific secondmate sync: local homes fast-forward to the primary
   # checkout's current default-branch commit. That path is purely LOCAL - no
-  # fetch, no origin dependency: a linked-worktree home already holds the primary's
+  # origin dependency, no network route: a linked-worktree home already holds the primary's
   # commit, and a validated standalone clone that lacks it acquires the objects
   # from the primary local checkout through the guarded bounded path
   # (fm-ff-lib.sh). Startup sends reread nudges only
