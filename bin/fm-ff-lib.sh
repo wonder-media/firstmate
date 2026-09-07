@@ -224,10 +224,19 @@ changed_instr() {
   printf '%s' "$out"
 }
 
+# The untracked files firstmate itself writes into a secondmate home to wire that
+# incarnation's lifecycle. They are never the captain's work, so counting them as
+# a dirty tree would strand the home on a stale checkout: the pre-launch sync and
+# every /updatefirstmate sweep would skip it for as long as the mate exists.
+FM_FF_HOME_OWNED_UNTRACKED_RE='^\?\? (\.claude/settings\.local\.json|\.opencode/plugins/fm-(busy-state|turn-end)\.js|\.fm-grok-turnend|\.fm-kimi-turnend)$'
+
 dirty_status() {
   local dir=$1 ignore_seed_marker=${2:-no}
   if [ "$ignore_seed_marker" = yes ]; then
-    git -C "$dir" status --porcelain 2>/dev/null | awk -v marker="?? $SUB_HOME_MARKER" '$0 != marker { print; exit }'
+    git -C "$dir" status --porcelain 2>/dev/null \
+      | awk -v marker="?? $SUB_HOME_MARKER" '$0 != marker' \
+      | grep -vE "$FM_FF_HOME_OWNED_UNTRACKED_RE" \
+      | head -1
   else
     git -C "$dir" status --porcelain 2>/dev/null | head -1
   fi

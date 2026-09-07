@@ -168,6 +168,39 @@ test_ff_current() {
   pass "T2 current: an already-current home is a no-op and reports no instruction change"
 }
 
+# --- T3b: firstmate's own lifecycle wiring never reads as a dirty home --------
+test_ff_ignores_firstmate_lifecycle_artifacts() {
+  local w c1 base
+  w=$(new_world ff-lifecycle-artifacts)
+  mkdir -p "$w/main/.claude" "$w/main/.opencode/plugins"
+  printf '{}\n' > "$w/main/.claude/settings.json"
+  printf '// primary\n' > "$w/main/.opencode/plugins/fm-primary.js"
+  git -C "$w/main" add -A
+  git -C "$w/main" commit -qm "tracked harness config"
+  c1=$(head_of "$w/main")
+  git -C "$w/main" worktree add -q --detach "$w/sm" "$c1"
+  # Exactly what bin/fm-spawn.sh lays down in a home when it arms a secondmate.
+  mkdir -p "$w/sm/.opencode/plugins"
+  printf '{"hooks":{}}\n' > "$w/sm/.claude/settings.local.json"
+  printf '// firstmate\n' > "$w/sm/.opencode/plugins/fm-busy-state.js"
+  printf 'token=x\n' > "$w/sm/.fm-grok-turnend"
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+
+  run_ff "$w/sm" "$base"
+
+  [ "$FF_STATUS" = updated ] \
+    || fail "a home holding only firstmate's own lifecycle wiring was treated as dirty: $FF_OUT"
+  [ "$(head_of "$w/sm")" = "$base" ] || fail "the home did not advance to the primary's local HEAD"
+  [ -f "$w/sm/.claude/settings.local.json" ] || fail "the sync discarded firstmate's own claude settings"
+
+  printf 'uncommitted local edit\n' >> "$w/sm/AGENTS.md"
+  run_ff "$w/sm" "$base"
+  assert_contains "$FF_OUT" "skipped: dirty working tree" \
+    "a real uncommitted edit must still block the sync"
+  pass "T3b lifecycle wiring: firstmate's own home files never block the sync, a real edit still does"
+}
+
 # --- T3: dirty - a home with uncommitted edits is skipped, edit preserved ----
 test_ff_dirty() {
   local w c1 base before
@@ -853,6 +886,7 @@ test_seed_marker_does_not_mask_real_dirt() {
 
 test_ff_updated
 test_ff_current
+test_ff_ignores_firstmate_lifecycle_artifacts
 test_ff_dirty
 test_ff_diverged
 test_ff_inflight_feature_branch
