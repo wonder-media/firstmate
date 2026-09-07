@@ -654,6 +654,33 @@ test_claude_wiring_retirement_is_ownership_aware() {
   ! fm_control_claude_shared_settings_mergeable "$dir/home/.claude/settings.local.json" \
     || fail "a hook event the merge cannot append onto was reported mergeable"
 
+  # An event firstmate does not walk keeps its own type and its own keys, and an
+  # event the captain explicitly set to null is content too, not the absence of
+  # content: neither may be rewritten or dropped by a retirement.
+  printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"PreToolUse":{"a":{"hooks":[{"type":"command","command":"captain-own"}]}},"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  rc=0
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  [ "$rc" = 0 ] \
+    || fail "a captain event firstmate does not walk was reported as $rc, not as a clean retirement"
+  [ "$(jq -r '.hooks.PreToolUse | type' "$dir/home/.claude/settings.local.json")" = object ] \
+    || fail "retirement converted a captain event firstmate does not walk into an array"
+  [ "$(jq -r '.hooks.PreToolUse | has("a")' "$dir/home/.claude/settings.local.json")" = true ] \
+    || fail "retirement discarded the captain's own key from an event firstmate does not walk"
+  [ "$(jq -r '.hooks | has("Stop")' "$dir/home/.claude/settings.local.json")" = false ] \
+    || fail "firstmate's own hook outlived a retirement it could run"
+
+  printf '%s\n' '{"hooks":{"PreToolUse":null,"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  rc=0
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  [ "$rc" = 0 ] \
+    || fail "a captain event set to null was reported as $rc, not as a clean retirement"
+  [ "$(jq -r '.hooks | has("PreToolUse")' "$dir/home/.claude/settings.local.json")" = true ] \
+    || fail "retirement deleted a captain event explicitly set to null"
+  [ "$(jq -r '.hooks | has("Stop")' "$dir/home/.claude/settings.local.json")" = false ] \
+    || fail "firstmate's own hook outlived a retirement beside a null captain event"
+
   # A removal firstmate cannot perform is its own outcome, not a claim about
   # hooks surviving in the captain's settings file.
   mkdir -p "$dir/home/.opencode/plugins"

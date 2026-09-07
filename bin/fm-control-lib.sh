@@ -299,9 +299,9 @@ _fm_control_claude_prune_program='
     else .hooks = (.hooks | map(select((.command // "") | contains($marker) | not)))
       | if (.hooks | length) == 0 then empty else . end
     end;
-  .hooks = ((.hooks // {}) | with_entries(.value |= (
-      if length == 0 then . else (map(fm_entry) | if length == 0 then null else . end) end)))
-  | .hooks |= with_entries(select(.value != null))
+  .hooks = ((.hooks // {}) | with_entries(
+      if (.value | type) != "array" or (.value | length) == 0 then .
+      else .value |= map(fm_entry) | select((.value | length) > 0) end))
 '
 
 # Pruning and merging are different capabilities and each has its own gate, so
