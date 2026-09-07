@@ -189,9 +189,10 @@ The seeded home's `data/charter.md` owns the standard secondmate lifecycle and e
 Each seed writes an `.fm-secondmate-home` identity marker at the home root, alongside a durable `.fm-secondmate-parent` record of the home's route to its parent (see "Provision a route" in [`docs/remote-secondmates.md`](remote-secondmates.md)).
 The tracked root `.gitignore` ignores both markers, so validation can read them without making a freshly seeded home appear dirty to porcelain-based safety checks.
 This does not relax protection for the captain's own or any other untracked files.
-The only other exemption is the fixed set of lifecycle wiring files Firstmate itself writes into a live secondmate home, which the shared local and remote guarded sync skips so a wired home is still fast-forwarded instead of being stranded on a stale checkout; [`bin/fm-ff-lib.sh`](../bin/fm-ff-lib.sh) owns that exact path set.
+The same tracked file also ignores the fixed set of lifecycle wiring files Firstmate itself writes into a live secondmate home, so a wired home stays clean to every consumer of `git status` - the captain's own, teardown's uncommitted-work check, and the guarded sync - instead of being stranded on a stale checkout.
+The tracked root `.gitignore` owns that exact path set; [`bin/fm-ff-lib.sh`](../bin/fm-ff-lib.sh) applies the same set inside the shared local and remote guarded sync's dirtiness check, which is what still advances a home checked out below this rule.
 An existing linked-worktree home that predates this rule advances through its marker-only state during its next bootstrap or spawn local sync, after which Git ignores the marker normally.
-A standalone-clone home cannot receive a primary-local commit through that no-fetch sync, so it receives the rule through `/updatefirstmate`'s origin refresh instead.
+A standalone-clone home that lacks the primary's commit acquires it from the local primary checkout first, so it advances through that same local sync rather than waiting for `/updatefirstmate`.
 The guarded local acquisition and refusal contract is owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); it never consults origin.
 
 ## FM_HOME
