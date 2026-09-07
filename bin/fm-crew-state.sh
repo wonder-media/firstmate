@@ -571,6 +571,22 @@ if [ "$KIND" = secondmate ]; then
       emit working pane "secondmate coordinator active (${BUSY_VERDICT#* })"
       ;;
     idle)
+      # A trailing `paused:` or `blocked:` line is a declared wait, not a past
+      # event: it is the coordinator's own statement about the wait it is in
+      # right now, so it outranks the durable decision fold below, which can only
+      # report the OLDEST key still awaiting a closing verb. The watcher rechecks
+      # a declared pause on its bounded pause cadence instead of treating the
+      # quiet endpoint as a wedge. Only the LAST line declares, so any later line
+      # ends the declared wait and the fold resumes ownership.
+      case "$(map_log_state "$LOG_LINE")" in
+        paused)
+          emit paused status-log "$(status_line_note "$LOG_LINE")"
+          ;;
+        blocked)
+          LOG_NOTE=$(status_line_note "$LOG_LINE")
+          emit blocked status-log "secondmate coordinator blocked${LOG_NOTE:+: $LOG_NOTE}"
+          ;;
+      esac
       OPEN_DECISIONS=$(status_open_decisions "$LOG" || true)
       if printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "needs-decision" { found=1 } END { exit !found }'; then
         OPEN_NOTE=$(printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "needs-decision" { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }')
@@ -579,14 +595,6 @@ if [ "$KIND" = secondmate ]; then
       if printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "blocked" { found=1 } END { exit !found }'; then
         OPEN_NOTE=$(printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "blocked" { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }')
         emit blocked status-log "secondmate coordinator blocked${OPEN_NOTE:+: $OPEN_NOTE}"
-      fi
-      # A trailing `paused:` line is a declared external wait, not a past event:
-      # it is the coordinator's own statement about the wait it is in right now,
-      # and the watcher rechecks it on its bounded pause cadence instead of
-      # treating the quiet endpoint as a wedge. Only the LAST line counts, so any
-      # later line ends the declared wait.
-      if status_is_paused "$LOG_LINE"; then
-        emit paused status-log "$(status_line_note "$LOG_LINE")"
       fi
       emit idle pane "secondmate coordinator healthy idle (${BUSY_VERDICT#* })"
       ;;

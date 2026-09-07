@@ -1116,10 +1116,7 @@ crew_absorb_class() {  # <id> [kind]
   if [ "$kind" = secondmate ]; then
     case "$state" in parked|blocked) printf '%s' "$state"; return ;; esac
   fi
-  if [ "$state" = idle ]; then
-    src=${line#*source: }; src=${src%% *}
-    [ "$src" = pane ] && { printf 'idle'; return; }
-  fi
+  if [ "$state" = idle ]; then printf 'idle'; return; fi
   if [ "$state" = paused ]; then printf 'paused'; return; fi
   if [ "$state" = working ]; then
     src=${line#*source: }; src=${src%% *}

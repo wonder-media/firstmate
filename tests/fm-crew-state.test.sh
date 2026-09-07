@@ -1085,6 +1085,21 @@ ROWS
   assert_contains "$out" "awaiting the upstream release" "the declared wait reason is preserved"
 
   reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-paused-over-blocker claude claude-hook idle tmux)
+  printf 'blocked [key=infra]: waiting on infra\npaused: awaiting the upstream release\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: paused" "a trailing declared pause outranks an unresolved older blocker"
+  assert_contains "$out" "awaiting the upstream release" "the trailing declaration supplies the current reason"
+  assert_not_contains "$out" "waiting on infra" "the stale folded blocker reason is not reported as current"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-blocked-trailing claude claude-hook idle tmux)
+  printf 'blocked [key=infra]: waiting on infra\nblocked [key=vendor]: waiting on the vendor\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: blocked" "a trailing declared block still reports blocked"
+  assert_contains "$out" "waiting on the vendor" "the trailing block declaration supplies the current reason"
+
+  reset_fakes
   d=$(make_secondmate_lifecycle_case secondmate-paused-superseded claude claude-hook idle tmux)
   printf 'paused: awaiting the upstream release\nnote: later informational note\n' > "$d/state/mate.status"
   out=$(run_crew_state "$d" mate)
