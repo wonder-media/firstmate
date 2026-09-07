@@ -1078,6 +1078,19 @@ ROWS
   assert_not_contains "$out" "later informational note" "later note cannot hide or replace an open blocker"
 
   reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-paused claude claude-hook idle tmux)
+  printf 'working: coordinating\npaused: awaiting the upstream release\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: paused" "a declared external wait is not a healthy idle"
+  assert_contains "$out" "awaiting the upstream release" "the declared wait reason is preserved"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-paused-superseded claude claude-hook idle tmux)
+  printf 'paused: awaiting the upstream release\nnote: later informational note\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: idle" "a superseded pause declaration is not the current state"
+
+  reset_fakes
   d=$(make_secondmate_lifecycle_case secondmate-decision claude claude-hook idle tmux)
   printf 'needs-decision [key=scope]: choose scope\nnote: later informational note\n' > "$d/state/mate.status"
   out=$(run_crew_state "$d" mate)

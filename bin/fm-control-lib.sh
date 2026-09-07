@@ -249,3 +249,57 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
     *) return 0 ;;
   esac
 }
+
+# --- claude settings.local.json wiring (merge in, prune out) ----------------
+#
+# Claude's per-project settings file is NOT firstmate-owned. An ephemeral crew
+# worktree happens to have no other content in it, but a secondmate's worktree
+# IS a long-lived, captain-owned firstmate home whose settings.local.json can
+# already carry the captain's own permissions and hooks. So the lifecycle hooks
+# are merged into whatever is there and retired by removing only the entries
+# firstmate wrote, identified by the busy-event command every one of them runs.
+# The file is deleted only when nothing but firstmate wiring was ever in it, so
+# a crew worktree still ends a relaunch with no file at all.
+FM_CONTROL_CLAUDE_HOOK_MARKER='bin/fm-busy-event.sh'
+
+_fm_control_claude_prune_program='
+  def fm_owned: (.hooks // []) | map(.command // "") | any(contains($marker));
+  .hooks = ((.hooks // {}) | with_entries(.value |= map(select(fm_owned | not))))
+  | .hooks |= with_entries(select((.value | length) > 0))
+'
+
+fm_control_claude_hooks_write() {  # <settings-file> <hooks-json>
+  local file=${1-} add=${2-} merged
+  [ -n "$file" ] && [ -n "$add" ] || return 1
+  mkdir -p "$(dirname "$file")" || return 1
+  if [ ! -s "$file" ]; then
+    printf '%s\n' "$add" > "$file" || return 1
+    return 0
+  fi
+  command -v jq >/dev/null 2>&1 || return 1
+  merged=$(jq --argjson add "$add" --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+    "$_fm_control_claude_prune_program"'
+      | ($add.hooks // {}) as $new
+      | .hooks = (reduce ($new | keys_unsorted[]) as $k (.hooks; .[$k] = ((.[$k] // []) + $new[$k])))
+    ' "$file") || return 1
+  printf '%s\n' "$merged" > "$file" || return 1
+}
+
+fm_control_claude_hooks_clear() {  # <settings-file>
+  local file=${1-} pruned
+  [ -n "$file" ] || return 1
+  [ -e "$file" ] || return 0
+  if [ -s "$file" ] && command -v jq >/dev/null 2>&1; then
+    pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+      "$_fm_control_claude_prune_program"'
+        | if (.hooks | length) == 0 then del(.hooks) else . end
+      ' "$file") || return 1
+    if [ "$pruned" != '{}' ]; then
+      printf '%s\n' "$pruned" > "$file" || return 1
+      return 0
+    fi
+  elif [ -s "$file" ]; then
+    return 1
+  fi
+  rm -f -- "$file" || return 1
+}

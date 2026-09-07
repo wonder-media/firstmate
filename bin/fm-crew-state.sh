@@ -583,6 +583,14 @@ if [ "$KIND" = secondmate ]; then
         OPEN_NOTE=$(printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "blocked" { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }')
         emit blocked status-log "secondmate coordinator blocked${OPEN_NOTE:+: $OPEN_NOTE}"
       fi
+      # A trailing `paused:` line is a declared external wait, not a past event:
+      # it is the coordinator's own statement about the wait it is in right now,
+      # and the watcher rechecks it on its bounded pause cadence instead of
+      # treating the quiet endpoint as a wedge. Only the LAST line counts, so any
+      # later line ends the declared wait.
+      if status_is_paused "$LOG_LINE"; then
+        emit paused status-log "$(status_line_note "$LOG_LINE")"
+      fi
       emit idle pane "secondmate coordinator healthy idle (${BUSY_VERDICT#* })"
       ;;
     *)

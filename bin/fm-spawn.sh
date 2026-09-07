@@ -931,6 +931,13 @@ clear_relaunch_harness_wiring() {
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
+    # Claude's settings file may hold captain-owned content in a secondmate
+    # home: retire only the entries firstmate wrote, and drop the file only
+    # when it held nothing else.
+    if [ "$harness" = claude ] && [ "$path" = "$wt/.claude/settings.local.json" ]; then
+      fm_control_claude_hooks_clear "$path" || return 1
+      continue
+    fi
     rm -f -- "$path" || return 1
   done <<EOF
 $(fm_control_harness_wiring_paths "$harness" "$wt" "$state" "$id")
@@ -2681,9 +2688,17 @@ if [ "$KIND" != secondmate ] || [ "$SEMANTIC_BUSY_WIRING" -eq 1 ]; then
       j_stop=$(json_escape "touch $(shell_quote "$TURNEND"); $busy_cmd_prefix idle $busy_suffix --event stop 2>/dev/null || true")
       j_stopfail=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event stop-failure 2>/dev/null || true")
       j_sessionend=$(json_escape "$busy_cmd_prefix idle $busy_suffix --event session-end 2>/dev/null || true")
-      cat > "$WT/.claude/settings.local.json" <<EOF
+      claude_hooks_json=$(cat <<EOF
 {"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"$j_submit"}]}],"Stop":[{"hooks":[{"type":"command","command":"$j_stop"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"$j_stopfail"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"$j_sessionend"}]}]}}
 EOF
+)
+      # A secondmate's worktree is its persistent captain-owned home, so the
+      # hooks are merged into any settings already there rather than replacing
+      # them (bin/fm-control-lib.sh owns the merge and its retirement).
+      fm_control_claude_hooks_write "$WT/.claude/settings.local.json" "$claude_hooks_json" || {
+        echo "error: could not install the claude lifecycle hooks for task $ID without discarding existing settings" >&2
+        exit 1
+      }
       exclude_path '.claude/settings.local.json'
       ;;
     opencode*)

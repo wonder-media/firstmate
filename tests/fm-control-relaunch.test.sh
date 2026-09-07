@@ -464,6 +464,30 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
   pass "fm-control relaunch: switching harness is one ordinary relaunch, and the old wiring goes with the old agent"
 }
 
+# Retiring claude wiring must remove only what firstmate wrote: a secondmate's
+# worktree is its captain-owned home, whose settings file can carry the
+# captain's own hooks and permissions.
+test_harness_switch_keeps_foreign_claude_settings() {
+  local dir out rc settings
+  dir=$(new_case switch-foreign rl4b)
+  add_ship_task "$dir" rl4b claude
+  settings="$dir/wt/.claude/settings.local.json"
+  mkdir -p "${settings%/*}"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s rl4b idle"}]}]}}' \
+    > "$settings"
+  printf 'codex' > "$dir/fake/becomes"
+  out=$(run_control "$dir" rl4b relaunch --harness codex --note "switching runtime"); rc=$?
+  expect_code 0 "$rc" "a harness switch should succeed"$'\n'"$out"
+  [ -e "$settings" ] || fail "retiring wiring must not delete a settings file with foreign content"
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "retiring wiring discarded the captain's permissions"
+  [ "$(jq '.hooks.Stop | length' "$settings")" = 1 ] \
+    || fail "retiring wiring did not remove exactly the firstmate hook entry"
+  [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
+    || fail "retiring wiring removed the captain's own hook"
+  pass "fm-control relaunch: retiring claude wiring prunes firstmate's entries and keeps foreign settings"
+}
+
 test_harness_switch_does_not_carry_the_old_profile_axes() {
   local dir out rc
   dir=$(new_case profile rl5)
@@ -1468,6 +1492,7 @@ test_disabled_relaunch_clears_prior_trace_context
 test_relaunch_appends_the_progress_note_to_the_instructions
 test_relaunch_requires_a_note_for_a_ship_task
 test_harness_switch_moves_the_record_and_clears_prior_wiring
+test_harness_switch_keeps_foreign_claude_settings
 test_harness_switch_does_not_carry_the_old_profile_axes
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement

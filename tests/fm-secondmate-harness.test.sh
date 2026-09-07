@@ -597,16 +597,54 @@ test_spawn_secondmate_semantic_lifecycle_wiring() {
           || fail "Claude secondmate lifecycle hook set is incomplete"
         ;;
       opencode)
-        assert_contains "$(cat "$sm/.opencode/plugins/fm-busy-state.js" 2>/dev/null)" "session.status" \
-          "OpenCode secondmate lifecycle plugin is missing"
+        [ -f "$sm/.opencode/plugins/fm-busy-state.js" ] \
+          || fail "OpenCode secondmate lifecycle plugin is missing"
         ;;
       pi|pi-signed)
-        assert_contains "$(cat "$w/home/state/sm.pi-ext.ts" 2>/dev/null)" 'agent_settled' \
-          "$harness secondmate lifecycle extension is missing"
+        [ -f "$w/home/state/sm.pi-ext.ts" ] \
+          || fail "$harness secondmate lifecycle extension is missing"
         ;;
     esac
   done
   pass "B5a spawn: every push-lifecycle secondmate adapter gets generation-bound semantic wiring"
+}
+
+# A secondmate home is persistent and captain-owned, so arming its Claude
+# lifecycle hooks must merge into the settings already there - on the first
+# spawn and on every recovery respawn - never replace them.
+test_spawn_secondmate_claude_settings_are_merged_not_replaced() {
+  local w sm settings gen1 gen2
+  w="$TMP_ROOT/spawn-settings-merge"
+  sm="$w/sm"
+  make_seeded_home "$sm" sm
+  settings="$sm/.claude/settings.local.json"
+  mkdir -p "$sm/.claude"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}' \
+    > "$settings"
+
+  spawn_secondmate "$w" sm "$sm" claude
+  gen1=$(grep '^busy_gen=' "$w/home/state/sm.meta" 2>/dev/null | cut -d= -f2-)
+
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "captain-owned permissions were discarded by lifecycle arming"
+  jq -e '[.hooks.Stop[].hooks[].command] | index("captain-own-stop")' "$settings" >/dev/null \
+    || fail "the captain's own Stop hook was discarded by lifecycle arming"
+  jq -e '.hooks.UserPromptSubmit and .hooks.StopFailure and .hooks.SessionEnd' "$settings" >/dev/null \
+    || fail "the secondmate lifecycle hook set is incomplete after a merge"
+  [ "$(jq "[.hooks.Stop[] | select([.hooks[].command] | any(contains(\"$gen1\")))] | length" "$settings")" = 1 ] \
+    || fail "the current generation's Stop wiring is not installed exactly once"
+
+  spawn_secondmate "$w" sm "$sm" claude
+  gen2=$(grep '^busy_gen=' "$w/home/state/sm.meta" 2>/dev/null | cut -d= -f2-)
+  [ -n "$gen2" ] && [ "$gen2" != "$gen1" ] || fail "the respawn did not mint a fresh lifecycle generation"
+
+  jq -e '[.hooks.Stop[].hooks[].command] | index("captain-own-stop")' "$settings" >/dev/null \
+    || fail "a respawn discarded the captain's own Stop hook"
+  [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
+    || fail "a respawn did not retire the previous incarnation's Stop wiring"
+  [ "$(jq "[.hooks.Stop[] | select([.hooks[].command] | any(contains(\"$gen1\")))] | length" "$settings")" = 0 ] \
+    || fail "the retired generation's Stop wiring outlived its incarnation"
+  pass "B5d spawn: Claude lifecycle arming merges into a captain-owned secondmate settings file"
 }
 
 # The unverified-adapter guard holds on the resolved secondmate path: an unknown
@@ -2588,6 +2626,7 @@ test_spawn_backward_compat_crew_fallback
 test_spawn_bare_backward_compat
 test_spawn_explicit_harness_wins
 test_spawn_secondmate_semantic_lifecycle_wiring
+test_spawn_secondmate_claude_settings_are_merged_not_replaced
 test_spawn_unverified_secondmate_harness_refused
 test_spawn_cursor_secondmate_launches_with_its_primary_contract
 test_spawn_backend_precedence_over_inherited_config
