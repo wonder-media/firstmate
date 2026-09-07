@@ -551,19 +551,47 @@ fi
 # after a torn metadata publication or stale relaunch, but they do not describe
 # this endpoint unless meta names that same generation.
 if [ "$KIND" = secondmate ]; then
+  # A trailing `paused:`, `blocked:` or `failed:` line is the coordinator's own
+  # statement about the state it is in RIGHT NOW - its charter (bin/fm-brief.sh)
+  # tells it to append one and stop - so it is current truth wherever the
+  # semantic lifecycle does not outrank it with live `busy` proof. It therefore
+  # answers every case below that would otherwise report unknown or healthy
+  # idle, on every backend and harness, including those with no lifecycle source
+  # at all. It also outranks the durable decision fold, which can only report the
+  # OLDEST key still awaiting a closing verb. Only the LAST line declares, so any
+  # later line ends the declaration and the fold resumes ownership.
+  emit_secondmate_declared_or() {  # [<fallback-state> <fallback-source> [detail]]
+    local note
+    case "$(map_log_state "$LOG_LINE")" in
+      paused)
+        emit paused status-log "$(status_line_note "$LOG_LINE")"
+        ;;
+      blocked)
+        note=$(status_line_note "$LOG_LINE")
+        emit blocked status-log "secondmate coordinator blocked${note:+: $note}"
+        ;;
+      failed)
+        note=$(status_line_note "$LOG_LINE")
+        emit failed status-log "secondmate coordinator failed${note:+: $note}"
+        ;;
+    esac
+    [ "$#" -gt 0 ] || return 0
+    emit "$@"
+  }
+
   REMOTE_HOST=$(meta_value remote_host)
   [ -z "$REMOTE_HOST" ] \
-    || emit unknown none "remote secondmate current-state source unavailable"
+    || emit_secondmate_declared_or unknown none "remote secondmate current-state source unavailable"
   ENDPOINT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")
   [ "$ENDPOINT_STATE" = alive ] \
-    || emit unknown none "secondmate endpoint state unavailable ($ENDPOINT_STATE)"
+    || emit_secondmate_declared_or unknown none "secondmate endpoint state unavailable ($ENDPOINT_STATE)"
 
   META_BUSY_GEN=$(meta_value busy_gen)
   CURRENT_BUSY_GEN=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
   [ -n "$META_BUSY_GEN" ] && [ -n "$CURRENT_BUSY_GEN" ] \
-    || emit unknown pane "secondmate lifecycle generation unavailable"
+    || emit_secondmate_declared_or unknown pane "secondmate lifecycle generation unavailable"
   [ "$META_BUSY_GEN" = "$CURRENT_BUSY_GEN" ] \
-    || emit unknown pane "secondmate lifecycle generation stale"
+    || emit_secondmate_declared_or unknown pane "secondmate lifecycle generation stale"
 
   BUSY_VERDICT=$(crew_busy_verdict "$BACKEND_TARGET")
   case "${BUSY_VERDICT%% *}" in
@@ -571,22 +599,7 @@ if [ "$KIND" = secondmate ]; then
       emit working pane "secondmate coordinator active (${BUSY_VERDICT#* })"
       ;;
     idle)
-      # A trailing `paused:` or `blocked:` line is a declared wait, not a past
-      # event: it is the coordinator's own statement about the wait it is in
-      # right now, so it outranks the durable decision fold below, which can only
-      # report the OLDEST key still awaiting a closing verb. The watcher rechecks
-      # a declared pause on its bounded pause cadence instead of treating the
-      # quiet endpoint as a wedge. Only the LAST line declares, so any later line
-      # ends the declared wait and the fold resumes ownership.
-      case "$(map_log_state "$LOG_LINE")" in
-        paused)
-          emit paused status-log "$(status_line_note "$LOG_LINE")"
-          ;;
-        blocked)
-          LOG_NOTE=$(status_line_note "$LOG_LINE")
-          emit blocked status-log "secondmate coordinator blocked${LOG_NOTE:+: $LOG_NOTE}"
-          ;;
-      esac
+      emit_secondmate_declared_or
       OPEN_DECISIONS=$(status_open_decisions "$LOG" || true)
       if printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "needs-decision" { found=1 } END { exit !found }'; then
         OPEN_NOTE=$(printf '%s\n' "$OPEN_DECISIONS" | awk -F '\t' '$2 == "needs-decision" { sub(/^[^\t]*\t[^\t]*\t/, ""); print; exit }')
@@ -599,7 +612,7 @@ if [ "$KIND" = secondmate ]; then
       emit idle pane "secondmate coordinator healthy idle (${BUSY_VERDICT#* })"
       ;;
     *)
-      emit unknown pane "secondmate lifecycle state unavailable ($BUSY_VERDICT)"
+      emit_secondmate_declared_or unknown pane "secondmate lifecycle state unavailable ($BUSY_VERDICT)"
       ;;
   esac
 fi

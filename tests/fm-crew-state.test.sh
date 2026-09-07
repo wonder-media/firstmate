@@ -1152,6 +1152,43 @@ ROWS
   assert_contains "$out" "state: unknown" "unverified backend recovery state -> unknown"
   assert_contains "$out" "endpoint state unavailable (unverified)" "unsupported backend is explicit"
 
+  # A trailing declared paused/blocked/failed line is the coordinator's own
+  # statement about now, so it answers every case that would otherwise be unknown
+  # or healthy idle - including harnesses and backends with no lifecycle source.
+  reset_fakes
+  d=$(new_case secondmate-declared-pause-unsupported-harness)
+  mkdir -p "$d/wt"
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/mate.meta" "window=fm:fm-mate" "endpoint_task_id=mate" \
+    "worktree=$d/wt" "project=$d/wt" "kind=secondmate" "harness=cursor" "home=$d/wt"
+  printf 'working: coordinating\npaused: awaiting the upstream release\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: paused" "a declared pause survives an unsupported lifecycle source"
+  assert_contains "$out" "awaiting the upstream release" "the declared wait reason is preserved"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-declared-block-unverified-backend claude claude-hook idle tmux)
+  printf 'backend=zellij\n' >> "$d/state/mate.meta"
+  printf 'blocked: waiting on the vendor\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: blocked" "a declared blocker survives an unverified backend"
+  assert_contains "$out" "waiting on the vendor" "the declared blocker reason is preserved"
+
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-declared-failure claude claude-hook idle tmux)
+  printf 'working: coordinating\nfailed: cannot reach the upstream repo\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: failed" "a declared failure is not healthy idle"
+  assert_contains "$out" "cannot reach the upstream repo" "the declared failure reason is preserved"
+
+  # Live busy proof still outranks any declaration: a mate that declared and then
+  # resumed coordinating is working, not failed.
+  reset_fakes
+  d=$(make_secondmate_lifecycle_case secondmate-declared-then-busy claude claude-hook busy tmux)
+  printf 'failed: cannot reach the upstream repo\n' > "$d/state/mate.status"
+  out=$(run_crew_state "$d" mate)
+  assert_contains "$out" "state: working" "live busy proof outranks an earlier declaration"
+
   reset_fakes
   d=$(new_case secondmate-remote-unreachable)
   mkdir -p "$d/wt"

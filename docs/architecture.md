@@ -49,6 +49,7 @@ Only when no matching run exists does it consult semantic busy state; exact busy
 Decision-only events such as `resolved` never become current state or leak their prose into the current-state detail.
 In that status-log fallback, a declared external wait reports the distinct `paused` state with its reason.
 The semantic branch reports working only on an exact busy verdict and names the source that produced it; an unknown verdict never becomes working, never permits the status-log fallback, and never becomes a silent idle.
+For a secondmate coordinator a trailing declared `paused:`, `blocked:` or `failed:` line outranks both healthy idle and every unknown reason, on any harness or backend, because the mate's charter tells it to append one and stop; only a live busy verdict outranks that declaration.
 For a direct secondmate coordinator, the reader instead requires three current proofs: a recovery-grade live endpoint, the lifecycle generation bound into that endpoint's metadata, and the matching adapter-owned semantic busy record.
 Busy reports `working`; idle plus a folded open blocker or decision reports `blocked` or `parked`; idle with no open item reports the distinct `idle` state.
 Missing, stale, unsupported, remote-unreachable, or unreadable proof reports `unknown`, and no historical status event is promoted to current state.

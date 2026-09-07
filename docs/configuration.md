@@ -222,6 +222,7 @@ Direct secondmate coordinator state is currently supported only for Claude, Open
 It additionally requires the recovery-grade tmux or Herdr endpoint classifier, and a Claude secondmate also requires `jq`, because its hooks are merged into the captain-owned home settings rather than replacing them.
 `jq` stays optional, and so does a settings file firstmate can parse: when either is missing the mate launches with no wiring and reports `unknown`, the captain's file is left exactly as it was, and a warning names it, rather than the spawn or relaunch refusing to run.
 Every other harness or backend, and every remote secondmate whose generation cannot be proved locally, remains explicitly `unknown`; launch support alone is not a current-state claim.
+A trailing declared `paused:`, `blocked:` or `failed:` status line is the exception on every harness and backend: it is the coordinator's own statement about now, so it is reported instead of `unknown` or healthy idle, and only live `busy` proof outranks it.
 The executable interrupt and exit mechanics live in [`bin/fm-control-lib.sh`](../bin/fm-control-lib.sh), and [`docs/agent-control.md`](agent-control.md) owns their lifecycle-control architecture.
 Launch mechanics, including the verified command templates, live in [`bin/fm-spawn.sh`](../bin/fm-spawn.sh).
 Pi-family launches adapt the regular-TUI safeguard to the installed CLI's capabilities; [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the exact version-safe launch mechanics.
