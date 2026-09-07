@@ -25,7 +25,7 @@ fm_test_env_error() {
 
 fm_test_env_canonical_dir() {
   [ -d "$1" ] || return 1
-  (CDPATH= cd -P -- "$1" && pwd)
+  (CDPATH='' cd -P -- "$1" && pwd)
 }
 
 # Exact enumeration of the documented opt-in live-lane switches. Each defaults

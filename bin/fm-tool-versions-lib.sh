@@ -1,4 +1,5 @@
 # shellcheck shell=bash
+# shellcheck disable=SC2034 # every constant here is read by sourcing callers.
 # Shared Firstmate tool compatibility floors, release-channel identities, and
 # intentionally pinned CI versions.
 # Usage: . bin/fm-tool-versions-lib.sh
