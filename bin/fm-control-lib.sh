@@ -300,23 +300,30 @@ _fm_control_claude_prune_program='
       | if (.hooks | length) == 0 then empty else . end
     end;
   .hooks = ((.hooks // {}) | with_entries(.value |= (
-      if type != "array" then error("hook event is not an array")
-      elif length == 0 then .
-      else (map(fm_entry) | if length == 0 then null else . end) end)))
+      if length == 0 then . else (map(fm_entry) | if length == 0 then null else . end) end)))
   | .hooks |= with_entries(select(.value != null))
 '
 
-# Whether the guest ("shared") merge into <settings-file> can run: jq is present
-# (optional for a tmux-only install, per bin/fm-backend.sh's required tools), the
-# existing file, if any, is exactly one JSON object to merge into, and the prune
-# program both helpers run actually accepts it - a `hooks` value of an unexpected
-# inner shape parses as one object but makes that program error. Proving
-# feasibility with the SAME program is what keeps this the single owner of the
-# question, so an input firstmate cannot handle disarms the wiring up front
-# instead of failing mid-write. Such a file is the captain's to repair, never
-# firstmate's to rewrite or to refuse a launch over.
+# Pruning and merging are different capabilities and each has its own gate, so
+# neither is refused over a requirement it does not have.
+#
+# Prunable is what RETIREMENT needs: jq is present (optional for a tmux-only
+# install, per bin/fm-backend.sh's required tools), the existing file, if any, is
+# exactly one JSON object, and the prune program actually accepts it - a `hooks`
+# value of an unexpected inner shape parses as one object but makes that program
+# error. Proving it with the SAME program is what keeps this the single owner of
+# the question, so a document firstmate cannot walk declines up front instead of
+# failing mid-write.
+#
+# Mergeable is what ARMING needs, which is strictly more: the merge appends
+# firstmate's own entries onto `.hooks[<event>]`, so every hook event present
+# must be an array for that append to run. The prune leaves an event it cannot
+# walk into untouched rather than deleting the captain's content, so an odd event
+# firstmate never merges into still retires cleanly while arming warns and
+# reports unknown. Such a file is the captain's to repair, never firstmate's to
+# rewrite or to refuse a launch over.
 # 0 when <settings-file> holds at least one hook command firstmate installed.
-# Only meaningful once fm_control_claude_shared_settings_mergeable has passed,
+# Only meaningful once fm_control_claude_shared_settings_prunable has passed,
 # which is what proves jq is present and the document walkable.
 fm_control_claude_hooks_owned() {  # <settings-file>
   [ -s "${1-}" ] || return 1
@@ -324,12 +331,18 @@ fm_control_claude_hooks_owned() {  # <settings-file>
     "$_fm_control_claude_owned_hook_program" "$1" >/dev/null 2>&1
 }
 
-fm_control_claude_shared_settings_mergeable() {  # <settings-file>
+fm_control_claude_shared_settings_prunable() {  # <settings-file>
   command -v jq >/dev/null 2>&1 || return 1
   [ -s "${1-}" ] || return 0
   _fm_control_claude_settings_is_one_object < "$1" || return 1
   jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
     "$_fm_control_claude_prune_program" "$1" >/dev/null 2>&1
+}
+
+fm_control_claude_shared_settings_mergeable() {  # <settings-file>
+  fm_control_claude_shared_settings_prunable "${1-}" || return 1
+  [ -s "${1-}" ] || return 0
+  jq -e '[(.hooks // {}) | .[]?] | all(type == "array")' "$1" >/dev/null 2>&1
 }
 
 # The rename gives the target the temp file's umask-derived mode, so a
@@ -374,7 +387,7 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
   [ -n "$file" ] || return 1
   [ -e "$file" ] || return 0
   if [ "$mode" = shared ]; then
-    fm_control_claude_shared_settings_mergeable "$file" || return 0
+    fm_control_claude_shared_settings_prunable "$file" || return 0
     fm_control_claude_hooks_owned "$file" || return 0
     pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
       "$_fm_control_claude_prune_program"'
@@ -395,7 +408,7 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
 # ran and when it safely declined, so the outcome is reported here instead: 0
 # when nothing firstmate-owned is left, 3 when one of the adapter artifacts could
 # not be removed (the path is left in FM_CONTROL_RETIRE_FAILED_PATH and the
-# Claude prune never ran), 2 when the captain's file cannot be inspected at all
+# Claude prune never ran), 2 when the captain's file cannot be pruned at all
 # (no jq, or a document the prune program cannot walk) and nothing can be claimed
 # about it either way, and 1 when the prune ran and a firstmate hook is still
 # there - the only case that needs the captain to edit that file by hand.
@@ -416,7 +429,7 @@ $(fm_control_harness_wiring_paths "$adapter" "$home" "$state" "$id")
 EOF
   done
   [ -f "$settings" ] || return 0
-  fm_control_claude_shared_settings_mergeable "$settings" || return 2
+  fm_control_claude_shared_settings_prunable "$settings" || return 2
   fm_control_claude_hooks_owned "$settings" || return 0
   fm_control_claude_hooks_clear "$settings" shared >/dev/null 2>&1 || true
   ! fm_control_claude_hooks_owned "$settings"

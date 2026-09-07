@@ -638,6 +638,22 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$(jq -r '.hooks | has("PreToolUse")' "$settings")" = false ] \
     || fail "the event firstmate emptied outlived its retirement"
 
+  # An event whose value firstmate never merges into is not something the prune
+  # walks, so it must not block the retirement of firstmate's own hooks - while
+  # still keeping the wiring disarmed, because the merge could not append onto it.
+  printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"PreToolUse":{},"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  rc=0
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  [ "$rc" = 0 ] \
+    || fail "a captain event firstmate never merges into blocked retirement of its own hooks (rc=$rc)"
+  [ "$(jq -r '.hooks.PreToolUse | type' "$dir/home/.claude/settings.local.json")" = object ] \
+    || fail "retirement rewrote a captain event firstmate does not walk into"
+  [ "$(jq -r '.hooks | has("Stop")' "$dir/home/.claude/settings.local.json")" = false ] \
+    || fail "firstmate's own hook outlived a retirement it could run"
+  ! fm_control_claude_shared_settings_mergeable "$dir/home/.claude/settings.local.json" \
+    || fail "a hook event the merge cannot append onto was reported mergeable"
+
   # A removal firstmate cannot perform is its own outcome, not a claim about
   # hooks surviving in the captain's settings file.
   mkdir -p "$dir/home/.opencode/plugins"
