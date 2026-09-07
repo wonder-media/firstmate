@@ -281,6 +281,8 @@ _fm_control_claude_settings_is_one_object() {  # reads stdin
   jq -e -s 'length == 1 and (.[0] | type) == "object"' >/dev/null 2>&1
 }
 
+# shellcheck disable=SC2016 # single quotes are deliberate: $marker is jq's own
+# argument binding and must reach jq unexpanded.
 _fm_control_claude_owned_hook_program='
   [(.hooks // {}) | .[]? | select(type == "array") | .[]?
     | select((.hooks | type) == "array") | .hooks[] | .command // ""]
@@ -293,6 +295,8 @@ _fm_control_claude_owned_hook_program='
 # Retirement therefore drops matching commands, and drops the entry and the
 # event only when firstmate's own removal is what emptied them: an entry or an
 # event that already declared nothing is the captain's and is left as it is.
+# shellcheck disable=SC2016 # single quotes are deliberate: $marker is jq's own
+# argument binding and must reach jq unexpanded.
 _fm_control_claude_prune_program='
   def fm_entry:
     if (.hooks | type) != "array" or ((.hooks | length) == 0)
@@ -424,6 +428,7 @@ fm_control_secondmate_lifecycle_retire() {  # <home> <state-dir> <task-id>
     while IFS= read -r path; do
       [ -n "$path" ] || continue
       [ "$path" != "$settings" ] || continue
+      # shellcheck disable=SC2034 # Read by callers (fm-spawn.sh, fm-teardown.sh) after return 3.
       rm -f -- "$path" || { FM_CONTROL_RETIRE_FAILED_PATH=$path; return 3; }
     done <<EOF
 $(fm_control_harness_wiring_paths "$adapter" "$home" "$state" "$id")
