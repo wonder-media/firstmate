@@ -1,0 +1,55 @@
+=== Captain-owned secondmate settings survive arm + retire =============
+
+--- A. captain permissions + their own PreToolUse hook
+  captain's file BEFORE firstmate arms:
+    {"permissions":{"allow":["Bash(git status)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"captain-guard.sh"}]}]},"statusLine":{"type":"command","command":"my-status.sh"}}
+  WHILE a firstmate secondmate is armed:
+    {"permissions":{"allow":["Bash(git status)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"captain-guard.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]},"statusLine":{"type":"command","command":"my-status.sh"}}
+  retire exit: 0
+  captain's file AFTER teardown retires firstmate:
+    {"permissions":{"allow":["Bash(git status)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"captain-guard.sh"}]}]},"statusLine":{"type":"command","command":"my-status.sh"}}
+
+--- B. captain command sitting INSIDE firstmate's Stop entry
+  captain's file BEFORE firstmate arms:
+    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop.sh"}]}]}}
+  WHILE a firstmate secondmate is armed:
+    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop.sh"}]},{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]}}
+  retire exit: 0
+  captain's file AFTER teardown retires firstmate:
+    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop.sh"}]}]}}
+
+--- C. captain entry that declares an EMPTY hooks array
+  captain's file BEFORE firstmate arms:
+    {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}]}}
+  WHILE a firstmate secondmate is armed:
+    {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}],"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]}}
+  retire exit: 0
+  captain's file AFTER teardown retires firstmate:
+    {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}]}}
+
+--- D. captain event that is an EMPTY array (untouched by firstmate)
+  captain's file BEFORE firstmate arms:
+    {"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
+  WHILE a firstmate secondmate is armed:
+    {"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]}}
+  retire exit: 0
+  captain's file AFTER teardown retires firstmate:
+    {"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
+
+--- E. captain EMPTY Stop event, the one firstmate merges into
+  captain's file BEFORE firstmate arms:
+    {"hooks":{"Stop":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
+  WHILE a firstmate secondmate is armed:
+    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
+  retire exit: 0
+  captain's file AFTER teardown retires firstmate:
+    {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
+
+=== jq stays optional on a tmux-only install ===========================
+
+  jq on PATH: no
+  ordinary crew worktree arm: ok (file written)
+  ordinary crew worktree relaunch clear: ok
+  file removed: ok
+
+=== end ================================================================

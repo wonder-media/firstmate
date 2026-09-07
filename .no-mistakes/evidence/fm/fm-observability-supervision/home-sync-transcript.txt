@@ -1,0 +1,19 @@
+=== The home, as git sees it ===========================================
+  ?? .fm-secondmate-home
+  ?? .opencode/plugins/fm-busy-state.js
+
+=== 1. firstmate's own wiring must not strand the home =================
+$ bin/fm-remote-secondmate-control.sh sync ios
+  synced: e9b5c576506e6f08733bf76bdaff0f12eb233a9c
+  exit: 0
+  home HEAD == code root HEAD: yes
+  AGENTS.md now reads: instructions v2
+  firstmate settings still present: yes
+
+=== 2. A real captain edit must still block the sync ===================
+$ bin/fm-remote-secondmate-control.sh sync ios
+  error: remote secondmate checkout is dirty; sync skipped
+  exit: 1 (non-zero = refused)
+  captain's edit preserved: captain was editing this
+
+=== end ================================================================
