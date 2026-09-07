@@ -1,12 +1,14 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034 # every constant here is read by sourcing callers.
-# Shared Firstmate tool compatibility floors, release-channel identities, and
+# Shared Firstmate tool support baselines, release-channel identities, and
 # intentionally pinned CI versions.
 # Usage: . bin/fm-tool-versions-lib.sh
 #
-# Compatibility floors answer only whether an installed tool is supported by
-# tracked Firstmate behavior. They are not claims about the newest release and
-# do not drift merely because a newer stable version is published.
+# Each *_MIN constant is a verified support baseline: the oldest version of that
+# tool Firstmate behavior has actually been verified against, not the version
+# that first introduced a depended-on feature and not the newest published
+# release. A baseline moves only when a newer version is verified and an older
+# one is no longer, never merely because a newer stable version exists.
 # bin/fm-version-inventory.sh separately performs an explicit, bounded,
 # read-only freshness check against the release channels named here.
 #

@@ -332,7 +332,7 @@ On session start the first mate detects what its required toolchain is missing o
 It installs automatically supported tools only after you say go; manual-only tools remain for you to install from the printed instructions.
 Required tools come in two parts: a universal toolchain every home needs regardless of backend, and a per-backend delta that follows the runtime backend actually resolved for this home.
 The universal toolchain is node, git, gh with GitHub auth via `gh auth login`, no-mistakes v1.31.2 or newer, compatible gh-axi, chrome-devtools-axi, compatible lavish-axi, compatible tasks-axi per "Backlog backend" above, and compatible quota-axi.
-[`bin/fm-tool-versions-lib.sh`](../bin/fm-tool-versions-lib.sh) owns the compatibility floors and exact release-channel identities; those floors state the oldest tracked behavior Firstmate supports, not the newest published build.
+[`bin/fm-tool-versions-lib.sh`](../bin/fm-tool-versions-lib.sh) owns the verified support baselines and exact release-channel identities; each baseline names the oldest version Firstmate behavior has been verified against, not the newest published build.
 Run [`bin/fm-version-inventory.sh`](../bin/fm-version-inventory.sh) explicitly during maintenance to compare installed versions with stable releases through bounded read-only requests, distinguish unavailable channels as `unknown/offline`, and show intentional CI pins separately.
 Session startup never runs that inventory, queries a release channel, or requires latest-at-every-start freshness.
 This section is the single owner of that universal toolchain list; backend guides' prerequisites point here and add only their backend-specific tools.

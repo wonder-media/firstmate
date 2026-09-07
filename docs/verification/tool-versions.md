@@ -1,7 +1,7 @@
 # Tool compatibility and freshness verification
 
 This record verifies that startup compatibility gates and opt-in release freshness are separate mechanisms.
-[`bin/fm-tool-versions-lib.sh`](../../bin/fm-tool-versions-lib.sh) owns compatibility floors, exact release-channel identities, and intentional CI pins.
+[`bin/fm-tool-versions-lib.sh`](../../bin/fm-tool-versions-lib.sh) owns verified support baselines, exact release-channel identities, and intentional CI pins.
 [`bin/fm-version-inventory.sh`](../../bin/fm-version-inventory.sh) reads those values and performs the bounded maintenance comparison without installing or changing any tool.
 
 ## Current verification

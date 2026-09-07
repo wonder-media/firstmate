@@ -126,7 +126,7 @@ SH
   chmod +x "$fakebin/gh-axi"
   started=$(date +%s)
   out=$(PATH="$fakebin:$BASE_PATH" FM_FAKE_GITHUB_LOG="$github_log" FM_FAKE_NPM_LOG="$npm_log" \
-    FM_VERSION_INVENTORY_TIMEOUT=1 "$ROOT/bin/fm-version-inventory.sh")
+    FM_TEST_VERSION_INVENTORY_TIMEOUT=1 "$ROOT/bin/fm-version-inventory.sh")
   ended=$(date +%s)
   elapsed=$((ended - started))
 

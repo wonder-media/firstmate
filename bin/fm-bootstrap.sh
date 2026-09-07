@@ -52,8 +52,8 @@
 #          "treehouse get --lease" support.
 #          no-mistakes is also MISSING when its installed version is older than
 #          1.31.2.
-#          bin/fm-tool-versions-lib.sh owns honest compatibility floors. An
-#          installed build below its floor reports MISSING like no-mistakes, so
+#          bin/fm-tool-versions-lib.sh owns the verified support baselines. An
+#          installed build below its baseline reports MISSING like no-mistakes, so
 #          the operator is asked to upgrade rather than silently running an older
 #          tool. bin/fm-version-inventory.sh owns the separate opt-in freshness
 #          check; startup never queries a release channel.

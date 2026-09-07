@@ -14,9 +14,9 @@
 # fields. unknown/offline is an ordinary maintenance result, not a compatibility
 # failure.
 #
-# Bounds:
-#   FM_VERSION_INVENTORY_TIMEOUT  seconds per local probe or release request
-#                                 (default 8, positive integer, maximum 30)
+# Every local probe and every release request is bounded by the fixed
+# REQUEST_TIMEOUT below; the behavior suite shortens it through
+# FM_TEST_VERSION_INVENTORY_TIMEOUT to keep its bound assertion quick.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,17 +36,8 @@ case "${1:-}" in
 esac
 [ $# -le 1 ] || { usage; exit 2; }
 
-TIMEOUT=${FM_VERSION_INVENTORY_TIMEOUT:-8}
-case "$TIMEOUT" in
-  ''|*[!0-9]*|0)
-    printf 'error: FM_VERSION_INVENTORY_TIMEOUT must be a positive integer\n' >&2
-    exit 2
-    ;;
-esac
-[ "$TIMEOUT" -le 30 ] || {
-  printf 'error: FM_VERSION_INVENTORY_TIMEOUT must not exceed 30 seconds\n' >&2
-  exit 2
-}
+REQUEST_TIMEOUT=8
+TIMEOUT=${FM_TEST_VERSION_INVENTORY_TIMEOUT:-$REQUEST_TIMEOUT}
 
 normalize_version() {
   printf '%s\n' "$1" |
