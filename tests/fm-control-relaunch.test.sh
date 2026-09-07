@@ -721,6 +721,22 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
     || fail "arming did not append firstmate's own entry beside the captain's"
 
+  # A captain event that is not an array is content firstmate steps over, in the
+  # ownership walk exactly as in the prune: it must not hide firstmate's own hook
+  # from the retirement, and must never turn into a clean-retirement claim.
+  printf '%s\n' '{"hooks":{"PreToolUse":{"matcher":"Bash","hooks":[{"type":"command","command":"captain-own"}]},"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  fm_control_claude_hooks_owned "$dir/home/.claude/settings.local.json" \
+    || fail "a captain event firstmate steps over hid firstmate's own hook from the ownership walk"
+  rc=0
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  [ "$rc" = 0 ] \
+    || fail "a captain event firstmate steps over was reported as $rc, not as a clean retirement"
+  [ "$(jq -r '.hooks | has("Stop")' "$dir/home/.claude/settings.local.json")" = false ] \
+    || fail "retirement reported clean while firstmate's own hook was still installed"
+  [ "$(jq -c '.hooks.PreToolUse' "$dir/home/.claude/settings.local.json")" = '{"matcher":"Bash","hooks":[{"type":"command","command":"captain-own"}]}' ] \
+    || fail "retirement rewrote a captain event firstmate steps over"
+
   # A removal firstmate cannot perform is its own outcome, not a claim about
   # hooks surviving in the captain's settings file.
   mkdir -p "$dir/home/.opencode/plugins"

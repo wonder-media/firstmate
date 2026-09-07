@@ -282,7 +282,7 @@ _fm_control_claude_settings_is_one_object() {  # reads stdin
 }
 
 _fm_control_claude_owned_hook_program='
-  [(.hooks // {}) | .[]? | .[]?
+  [(.hooks // {}) | .[]? | select(type == "array") | .[]?
     | select((.hooks | type) == "array") | .hooks[] | .command // ""]
   | any(contains($marker))
 '
