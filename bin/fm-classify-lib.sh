@@ -1174,8 +1174,7 @@ signal_crew_provably_working() {  # <file> ...
     case " $seen " in *" $task "*) continue ;; esac
     seen="$seen $task"
     class=$(crew_absorb_class "$task")
-    [ "$class" = working ] || { [ "$kind" = secondmate ] && [ "$base" = "$task.turn-ended" ] && [ "$class" = idle ]; } \
-      || return 1
+    [ "$class" = working ] || { [ "$kind" = secondmate ] && [ "$class" = idle ]; } || return 1
   done
   [ -n "$seen" ] || return 1
   return 0

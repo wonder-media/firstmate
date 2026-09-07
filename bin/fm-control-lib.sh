@@ -271,12 +271,18 @@ _fm_control_claude_prune_program='
   | .hooks |= with_entries(select((.value | length) > 0))
 '
 
+_fm_control_claude_settings_replace() {  # <settings-file> <content>
+  local file=$1 content=$2 tmp=$1.tmp.$$
+  printf '%s\n' "$content" > "$tmp" || { rm -f -- "$tmp"; return 1; }
+  mv -f -- "$tmp" "$file" || { rm -f -- "$tmp"; return 1; }
+}
+
 fm_control_claude_hooks_write() {  # <settings-file> <hooks-json> [owned|shared]
   local file=${1-} add=${2-} mode=${3:-owned} merged
   [ -n "$file" ] && [ -n "$add" ] || return 1
   mkdir -p "$(dirname "$file")" || return 1
   if [ "$mode" != shared ] || [ ! -s "$file" ]; then
-    printf '%s\n' "$add" > "$file" || return 1
+    _fm_control_claude_settings_replace "$file" "$add" || return 1
     return 0
   fi
   command -v jq >/dev/null 2>&1 || return 1
@@ -285,7 +291,7 @@ fm_control_claude_hooks_write() {  # <settings-file> <hooks-json> [owned|shared]
       | ($add.hooks // {}) as $new
       | .hooks = (reduce ($new | keys_unsorted[]) as $k (.hooks; .[$k] = ((.[$k] // []) + $new[$k])))
     ' "$file") || return 1
-  printf '%s\n' "$merged" > "$file" || return 1
+  _fm_control_claude_settings_replace "$file" "$merged" || return 1
 }
 
 fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
@@ -299,7 +305,7 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
         | if (.hooks | length) == 0 then del(.hooks) else . end
       ' "$file") || return 1
     if [ "$pruned" != '{}' ]; then
-      printf '%s\n' "$pruned" > "$file" || return 1
+      _fm_control_claude_settings_replace "$file" "$pruned" || return 1
       return 0
     fi
   fi
