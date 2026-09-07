@@ -260,10 +260,28 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
 # settings can already carry the captain's own permissions and hooks, so there
 # firstmate is a guest ("shared"): the lifecycle hooks are merged into whatever
 # is present and retired by removing only the entries firstmate wrote,
-# identified by the busy-event command every one of them runs. That mode needs
-# jq and fails closed without it rather than discarding captain-owned settings;
-# the file is deleted only when nothing else was left in it.
+# identified by the busy-event command every one of them runs. Only that mode
+# needs jq, which stays optional: a caller arms the shared merge only when
+# fm_control_claude_shared_merge_supported agrees, and the retirement leaves a
+# captain's file untouched rather than failing or deleting it when jq is gone.
+# The file is deleted only when nothing else was left in it.
 FM_CONTROL_CLAUDE_HOOK_MARKER='bin/fm-busy-event.sh'
+
+# Whether the guest ("shared") merge into a captain-owned settings file can run
+# at all. jq is optional for a tmux-only install (bin/fm-backend.sh's required
+# tools), and only this merge needs it, so the arming decision consults this
+# instead of discovering the gap at write time and refusing the whole spawn.
+fm_control_claude_shared_merge_supported() {
+  command -v jq >/dev/null 2>&1
+}
+
+# 0 when <text> is exactly one JSON object. jq exits 0 while printing nothing
+# for an input it accepts but yields no value from, and a file holding two
+# concatenated documents merges into two, so neither result may be written back
+# over captain-owned settings.
+_fm_control_claude_settings_is_one_object() {  # <text>
+  printf '%s\n' "${1-}" | jq -e -s 'length == 1 and (.[0] | type) == "object"' >/dev/null 2>&1
+}
 
 _fm_control_claude_prune_program='
   def fm_owned: (.hooks // []) | map(.command // "") | any(contains($marker));
@@ -285,12 +303,13 @@ fm_control_claude_hooks_write() {  # <settings-file> <hooks-json> [owned|shared]
     _fm_control_claude_settings_replace "$file" "$add" || return 1
     return 0
   fi
-  command -v jq >/dev/null 2>&1 || return 1
+  fm_control_claude_shared_merge_supported || return 1
   merged=$(jq --argjson add "$add" --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
     "$_fm_control_claude_prune_program"'
       | ($add.hooks // {}) as $new
       | .hooks = (reduce ($new | keys_unsorted[]) as $k (.hooks; .[$k] = ((.[$k] // []) + $new[$k])))
     ' "$file") || return 1
+  _fm_control_claude_settings_is_one_object "$merged" || return 1
   _fm_control_claude_settings_replace "$file" "$merged" || return 1
 }
 
@@ -299,12 +318,13 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
   [ -n "$file" ] || return 1
   [ -e "$file" ] || return 0
   if [ "$mode" = shared ] && [ -s "$file" ]; then
-    command -v jq >/dev/null 2>&1 || return 1
+    fm_control_claude_shared_merge_supported || return 0
     pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
       "$_fm_control_claude_prune_program"'
         | if (.hooks | length) == 0 then del(.hooks) else . end
       ' "$file") || return 1
     if [ "$pruned" != '{}' ]; then
+      _fm_control_claude_settings_is_one_object "$pruned" || return 1
       _fm_control_claude_settings_replace "$file" "$pruned" || return 1
       return 0
     fi

@@ -2644,6 +2644,15 @@ esac
 if [ "$KIND" = secondmate ] && ! fm_control_backend_state_verified "$BACKEND"; then
   SEMANTIC_BUSY_WIRING=0
 fi
+# A Claude secondmate's home is captain-owned, so its hooks can only be installed
+# through the guest merge, and that merge needs jq. jq stays optional on tmux, so
+# a host without it arms no wiring and the reader reports unknown, rather than
+# refusing to launch a mate that launched fine before.
+if [ "$KIND" = secondmate ] && ! fm_control_claude_shared_merge_supported; then
+  case "$HARNESS" in
+    claude*) SEMANTIC_BUSY_WIRING=0 ;;
+  esac
+fi
 if [ "$KIND" != secondmate ] || [ "$SEMANTIC_BUSY_WIRING" -eq 1 ]; then
   # Arm the semantic busy-state contract (bin/fm-busy-lib.sh) for every
   # adapter with a verified semantic source. The launch brief sent below IS a

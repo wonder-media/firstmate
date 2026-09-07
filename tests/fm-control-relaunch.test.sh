@@ -467,8 +467,8 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
 # Retiring claude wiring is ownership-aware. In a crew worktree firstmate owns
 # the whole settings file and removes it (jq is optional there, so a tmux-only
 # install must still relaunch). In a secondmate home firstmate is a guest, so
-# only its own entries go and a missing jq fails closed rather than discarding
-# captain-owned settings.
+# only its own entries go, and a missing jq skips the prune rather than failing a
+# previously working path or discarding captain-owned settings.
 test_claude_wiring_retirement_is_ownership_aware() {
   local dir settings foreign rc nojq t
   dir="$TMP_ROOT/claude-ownership-$RANDOM"
@@ -502,11 +502,12 @@ test_claude_wiring_retirement_is_ownership_aware() {
     || fail "retiring shared wiring removed the captain's own hook"
 
   printf '%s\n' "$foreign" > "$settings"
-  rc=0
-  ( PATH="$nojq" fm_control_claude_hooks_clear "$settings" shared ) || rc=$?
-  [ "$rc" -ne 0 ] || fail "retiring shared wiring without jq must fail closed"
+  ( PATH="$nojq" fm_control_claude_hooks_clear "$settings" shared ) \
+    || fail "retiring shared wiring without jq must not fail a previously working path"
   [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
-    || fail "a failed-closed retirement must leave the captain's settings untouched"
+    || fail "a skipped retirement must leave the captain's settings untouched"
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "a skipped retirement must not touch the captain's permissions"
 
   printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}\n' > "$settings"
   rc=0
@@ -515,7 +516,23 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$rc" -ne 0 ] || fail "arming shared wiring without jq must fail closed"
   [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
     || fail "a failed-closed arming must not overwrite captain-owned settings"
-  pass "fm-control relaunch: claude settings retirement is ownership-aware and jq stays optional for crew worktrees"
+
+  # jq accepts a whitespace-only file and yields no value, and a file holding two
+  # concatenated documents merges into two; neither may be written back.
+  printf '   \n' > "$settings"
+  rc=0
+  fm_control_claude_hooks_write "$settings" '{"hooks":{"Stop":[]}}' shared || rc=$?
+  [ "$rc" -ne 0 ] || fail "a merge yielding no JSON object must not report success"
+  [ "$(cat "$settings")" = '   ' ] \
+    || fail "a merge yielding no JSON object must leave the file untouched"
+
+  printf '{"a":1}\n{"b":2}\n' > "$settings"
+  rc=0
+  fm_control_claude_hooks_write "$settings" '{"hooks":{"Stop":[]}}' shared || rc=$?
+  [ "$rc" -ne 0 ] || fail "a merge yielding two JSON documents must not report success"
+  [ "$(wc -l < "$settings")" -eq 2 ] \
+    || fail "a merge yielding two JSON documents must leave the file untouched"
+  pass "fm-control relaunch: claude settings retirement is ownership-aware, jq stays optional, and only one merged object is ever written"
 }
 
 test_harness_switch_does_not_carry_the_old_profile_axes() {

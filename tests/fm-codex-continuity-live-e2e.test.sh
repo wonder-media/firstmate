@@ -37,11 +37,13 @@ mkdir -p "$HOME_DIR/state" "$HOME_DIR/data" "$HOME_DIR/config" \
 ln -s "$HOME/.codex/auth.json" "$CODEX_HOME_DIR/auth.json"
 printf '[features]\nhooks = true\n' > "$CODEX_HOME_DIR/config.toml"
 
-for resolved in "$PROJECT" "$HOME_DIR" "$HOME_DIR/state" "$HOME_DIR/data" \
+LAB_REAL=$(cd "$LAB" && pwd -P) || fail "could not resolve the isolated fixture root"
+for candidate in "$PROJECT" "$HOME_DIR" "$HOME_DIR/state" "$HOME_DIR/data" \
   "$HOME_DIR/config" "$HOME_DIR/projects" "$CODEX_HOME_DIR"; do
-  case "$resolved" in
-    "$ROOT"/.codex-live-e2e.*/*) ;;
-    *) fail "resolved live-test path escaped the isolated fixture: $resolved" ;;
+  resolved=$(cd "$candidate" && pwd -P) || fail "could not resolve live-test path: $candidate"
+  case "$resolved/" in
+    "$LAB_REAL"/*) ;;
+    *) fail "resolved live-test path escaped the isolated fixture: $candidate -> $resolved" ;;
   esac
 done
 
