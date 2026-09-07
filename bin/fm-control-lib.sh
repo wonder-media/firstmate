@@ -282,7 +282,8 @@ _fm_control_claude_settings_is_one_object() {  # reads stdin
 }
 
 _fm_control_claude_owned_hook_program='
-  [(.hooks // {}) | .[]? | .[]? | (.hooks // [])[]? | .command // ""]
+  [(.hooks // {}) | .[]? | .[]?
+    | select((.hooks | type) == "array") | .hooks[] | .command // ""]
   | any(contains($marker))
 '
 
@@ -294,7 +295,7 @@ _fm_control_claude_owned_hook_program='
 # event that already declared nothing is the captain's and is left as it is.
 _fm_control_claude_prune_program='
   def fm_entry:
-    if (has("hooks") | not) or ((.hooks | length) == 0)
+    if (.hooks | type) != "array" or ((.hooks | length) == 0)
     then .
     else .hooks = (.hooks | map(select((.command // "") | contains($marker) | not)))
       | if (.hooks | length) == 0 then empty else . end

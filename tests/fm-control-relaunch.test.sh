@@ -540,7 +540,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
   # A file that IS one JSON object but whose `hooks` value has an inner shape the
   # prune program cannot walk must be reported unmergeable UP FRONT, so a caller
   # disarms instead of discovering the failure mid-write and refusing to launch.
-  for body in '{"hooks":{"Stop":["x"]}}' '{"hooks":{"Stop":[{"hooks":"str"}]}}' \
+  for body in '{"hooks":{"Stop":["x"]}}' \
               '{"hooks":{"Stop":{}}}' '{"hooks":{"Stop":""}}' '{"hooks":{"Stop":0}}'; do
     printf '%s\n' "$body" > "$settings"
     ! fm_control_claude_shared_settings_mergeable "$settings" \
@@ -680,6 +680,46 @@ test_claude_wiring_retirement_is_ownership_aware() {
     || fail "retirement deleted a captain event explicitly set to null"
   [ "$(jq -r '.hooks | has("Stop")' "$dir/home/.claude/settings.local.json")" = false ] \
     || fail "firstmate's own hook outlived a retirement beside a null captain event"
+
+  # A matcher ENTRY whose hook list is not an array is content firstmate does not
+  # own, at the level below the event: it keeps its own type and its own keys,
+  # blocks neither arming nor retirement, and hides no firstmate hook beside it.
+  printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"PreToolUse":[{"matcher":"B","hooks":{"a":{"type":"command","command":"captain-own"}}}],"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  rc=0
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  [ "$rc" = 0 ] \
+    || fail "a captain entry firstmate does not walk was reported as $rc, not as a clean retirement"
+  [ "$(jq -r '.hooks.PreToolUse[0].hooks | type' "$dir/home/.claude/settings.local.json")" = object ] \
+    || fail "retirement converted a captain entry's hook list into an array"
+  [ "$(jq -r '.hooks.PreToolUse[0].hooks | has("a")' "$dir/home/.claude/settings.local.json")" = true ] \
+    || fail "retirement discarded the captain's own key from an entry firstmate does not walk"
+  [ "$(jq -r '.hooks | has("Stop")' "$dir/home/.claude/settings.local.json")" = false ] \
+    || fail "firstmate's own hook outlived a retirement it could run"
+
+  printf '%s\n' '{"hooks":{"Stop":[{"matcher":"B","hooks":{"a":1}}],"SessionEnd":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  rc=0
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  [ "$rc" = 0 ] \
+    || fail "a captain entry holding a non-hook value was reported as $rc, not as a clean retirement"
+  [ "$(jq -c '.hooks.Stop' "$dir/home/.claude/settings.local.json")" = '[{"matcher":"B","hooks":{"a":1}}]' ] \
+    || fail "retirement rewrote a captain entry holding a non-hook value"
+  [ "$(jq -r '.hooks | has("SessionEnd")' "$dir/home/.claude/settings.local.json")" = false ] \
+    || fail "a captain entry firstmate does not walk hid firstmate's own hook from its retirement"
+
+  # An entry firstmate does not walk does not make the file unmergeable either:
+  # the merge only appends onto the event array beside it.
+  printf '%s\n' '{"hooks":{"Stop":[{"hooks":"str"}]}}' > "$settings"
+  fm_control_claude_shared_settings_mergeable "$settings" \
+    || fail "an entry firstmate does not walk was reported unmergeable"
+  fm_control_claude_hooks_write "$settings" \
+    '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' shared \
+    || fail "arming beside an entry firstmate does not walk must succeed"
+  [ "$(jq -r '.hooks.Stop[0].hooks' "$settings")" = str ] \
+    || fail "arming rewrote a captain entry firstmate does not walk"
+  [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
+    || fail "arming did not append firstmate's own entry beside the captain's"
 
   # A removal firstmate cannot perform is its own outcome, not a claim about
   # hooks surviving in the captain's settings file.
