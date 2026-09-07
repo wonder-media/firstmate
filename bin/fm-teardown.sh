@@ -2086,10 +2086,12 @@ EOF
   printf '%s\n' "$abs_home_path"
 }
 
-retire_secondmate_claude_hooks() {  # <home> <task-id> <harness>
+retire_secondmate_claude_hooks() {  # <home> <task-id>
   local settings=$1/.claude/settings.local.json
-  case "${3-}" in claude*) ;; *) return 0 ;; esac
   [ -f "$settings" ] || return 0
+  # The marker, not the task's currently recorded harness, is what says these
+  # entries are firstmate's: a mate relaunched onto another harness leaves the
+  # ones its Claude incarnation wrote behind in the same captain-owned file.
   grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$settings" 2>/dev/null || return 0
   # The prune reports success both when it ran and when it safely declined (no
   # jq, or a file it cannot walk), so the surviving marker - not the exit code -
@@ -2597,7 +2599,7 @@ cleanup_firstmate_home_children() {
       [ -n "$child_home" ] || child_home=$child_wt
       if [ -n "$child_home" ] && [ -d "$child_home" ]; then
         cleanup_firstmate_home_children "$child_home" || return $?
-        retire_secondmate_claude_hooks "$child_home" "$child_id" "$(meta_value "$child_meta" harness)"
+        retire_secondmate_claude_hooks "$child_home" "$child_id"
         remove_firstmate_home "$child_home" "child firstmate home" "$child_id" || return $?
       fi
     elif [ "$child_backend" = orca ]; then
@@ -2944,7 +2946,7 @@ if [ "$KIND" = secondmate ]; then
   # (see the crew branch above). Retire only firstmate's own lifecycle entries,
   # or a re-leased home keeps firing this retired task's turn-end signal
   # (bin/fm-control-lib.sh owns the prune and what it leaves behind).
-  retire_secondmate_claude_hooks "$HOME_PATH" "$ID" "$(meta_value "$META" harness)"
+  retire_secondmate_claude_hooks "$HOME_PATH" "$ID"
   remove_firstmate_home "$HOME_PATH" "secondmate home" "$ID" || exit $?
   remove_secondmate_registry_entry "$ID"
 fi

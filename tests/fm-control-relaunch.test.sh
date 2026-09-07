@@ -563,6 +563,11 @@ test_claude_wiring_retirement_is_ownership_aware() {
     || fail "retiring shared wiring over an empty captain object must succeed"
   [ -e "$settings" ] || fail "a guest retirement deleted a captain-owned settings file"
 
+  : > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring shared wiring over a zero-byte captain file must succeed"
+  [ -e "$settings" ] || fail "a guest retirement deleted a zero-byte captain-owned file"
+
   printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
     > "$settings"
   fm_control_claude_hooks_clear "$settings" shared \

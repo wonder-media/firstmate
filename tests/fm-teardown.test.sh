@@ -1711,7 +1711,7 @@ test_secondmate_teardown_retires_only_firstmate_hooks() {
 # A non-Claude secondmate never had firstmate hooks merged into its home, so
 # teardown must not touch that captain-owned file at all; and when the prune
 # cannot run, the surviving hooks must be reported rather than silently kept.
-test_secondmate_teardown_hook_retirement_scope_and_warning() {
+test_secondmate_teardown_retires_marked_hooks_and_reports_skips() {
   local case_dir home settings fmroot before nojq
   case_dir=$(make_case secondmate-hook-scope)
   write_meta "$case_dir" local-only secondmate
@@ -1737,6 +1737,38 @@ test_secondmate_teardown_hook_retirement_scope_and_warning() {
     || fail "hook-scope: teardown refused a clean codex secondmate teardown"
   [ "$(cat "$settings")" = "$before" ] \
     || fail "hook-scope: a codex secondmate's captain settings were rewritten"
+
+  # A mate relaunched off Claude still owns the entries its Claude incarnation
+  # merged in, so the marker - not the harness recorded last - decides.
+  case_dir=$(make_case secondmate-hook-relaunched)
+  write_meta "$case_dir" local-only secondmate
+  printf 'harness=codex\n' >> "$case_dir/state/task-x1.meta"
+  fmroot="$case_dir/fmroot"
+  git init -q "$fmroot"
+  git -C "$fmroot" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  home="$case_dir/secondmate-home"
+  git -C "$fmroot" worktree add -q -b secondmate-home "$home" >/dev/null 2>&1
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$home/.claude"
+  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
+  printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
+  settings="$home/.claude/settings.local.json"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s task-x1 idle"}]}]}}' \
+    > "$settings"
+
+  prepare_treehouse_test_double "$case_dir"
+  FM_ROOT_OVERRIDE="$fmroot" FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  FM_TREEHOUSE_OPERATION_LOCK="$case_dir/treehouse-operation.lock" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "hook-relaunched: teardown refused a clean relaunched secondmate teardown"
+  [ -e "$settings" ] || fail "hook-relaunched: the captain-owned settings file was deleted"
+  ! grep -q 'fm-busy-event.sh' "$settings" \
+    || fail "hook-relaunched: a firstmate hook survived teardown after a harness switch"
+  [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
+    || fail "hook-relaunched: the captain's own Stop hook was removed"
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "hook-relaunched: the captain's permissions were discarded"
 
   # Same home, Claude harness, but no jq on PATH: the prune cannot run, so the
   # surviving firstmate hook must be named instead of silently kept.
@@ -1767,7 +1799,7 @@ test_secondmate_teardown_hook_retirement_scope_and_warning() {
     || fail "hook-warning: teardown refused when the prune could not run"
   assert_grep "still in $settings" "$case_dir/stderr" \
     "hook-warning: a skipped retirement left the surviving hooks unreported"
-  pass "secondmate teardown scopes hook retirement to Claude and reports a skipped prune"
+  pass "secondmate teardown retires firstmate-marked hooks on any harness and reports a skipped prune"
 }
 
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes() {
@@ -3105,7 +3137,7 @@ test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence
 test_herdr_flat_teardown_preflight_refuses_before_changes
 test_secondmate_teardown_retires_only_firstmate_hooks
-test_secondmate_teardown_hook_retirement_scope_and_warning
+test_secondmate_teardown_retires_marked_hooks_and_reports_skips
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes
 test_forced_secondmate_teardown_holds_descendant_lifecycle_locks
 test_forced_secondmate_herdr_child_retains_records_when_close_unconfirmed

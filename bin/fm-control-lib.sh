@@ -329,7 +329,7 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
   local file=${1-} mode=${2:-owned} pruned
   [ -n "$file" ] || return 1
   [ -e "$file" ] || return 0
-  if [ "$mode" = shared ] && [ -s "$file" ]; then
+  if [ "$mode" = shared ]; then
     grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$file" 2>/dev/null || return 0
     fm_control_claude_shared_settings_mergeable "$file" || return 0
     pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
