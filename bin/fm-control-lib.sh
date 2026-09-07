@@ -267,7 +267,10 @@ fm_control_harness_turnend_auth_path() {  # <harness> <token>
 # unusable captain file mid-write and refusing the launch. When it cannot run,
 # the captain's file is left exactly as it was.
 # Only the owned mode ever deletes the file: a guest never removes a path it did
-# not create, and never rewrites one holding no firstmate entry at all.
+# not create, and never rewrites one holding no firstmate entry at all. What
+# counts as a firstmate entry is a question about the parsed hook COMMANDS, never
+# about the document's text: the captain's own permissions, env values or status
+# line can name the same script without firstmate owning anything in the file.
 FM_CONTROL_CLAUDE_HOOK_MARKER='bin/fm-busy-event.sh'
 
 # 0 when stdin is exactly one JSON object. jq exits 0 while printing nothing for
@@ -277,6 +280,11 @@ FM_CONTROL_CLAUDE_HOOK_MARKER='bin/fm-busy-event.sh'
 _fm_control_claude_settings_is_one_object() {  # reads stdin
   jq -e -s 'length == 1 and (.[0] | type) == "object"' >/dev/null 2>&1
 }
+
+_fm_control_claude_owned_hook_program='
+  [(.hooks // {}) | .[]? | .[]? | (.hooks // [])[]? | .command // ""]
+  | any(contains($marker))
+'
 
 _fm_control_claude_prune_program='
   def fm_owned: (.hooks // []) | map(.command // "") | any(contains($marker));
@@ -293,6 +301,15 @@ _fm_control_claude_prune_program='
 # question, so an input firstmate cannot handle disarms the wiring up front
 # instead of failing mid-write. Such a file is the captain's to repair, never
 # firstmate's to rewrite or to refuse a launch over.
+# 0 when <settings-file> holds at least one hook command firstmate installed.
+# Only meaningful once fm_control_claude_shared_settings_mergeable has passed,
+# which is what proves jq is present and the document walkable.
+fm_control_claude_hooks_owned() {  # <settings-file>
+  [ -s "${1-}" ] || return 1
+  jq -e --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+    "$_fm_control_claude_owned_hook_program" "$1" >/dev/null 2>&1
+}
+
 fm_control_claude_shared_settings_mergeable() {  # <settings-file>
   command -v jq >/dev/null 2>&1 || return 1
   [ -s "${1-}" ] || return 0
@@ -301,9 +318,22 @@ fm_control_claude_shared_settings_mergeable() {  # <settings-file>
     "$_fm_control_claude_prune_program" "$1" >/dev/null 2>&1
 }
 
+# The rename gives the target the temp file's umask-derived mode, so a
+# captain-owned settings file the captain hardened would silently come back
+# world-readable. Carry the existing mode over before the rename.
 _fm_control_claude_settings_replace() {  # <settings-file> <content>
-  local file=$1 content=$2 tmp=$1.tmp.$$
+  local file=$1 content=$2 tmp=$1.tmp.$$ mode=
+  if [ -f "$file" ]; then
+    if [ "$(uname)" = Darwin ]; then
+      mode=$(stat -f %Lp "$file" 2>/dev/null) || mode=
+    else
+      mode=$(stat -c %a "$file" 2>/dev/null) || mode=
+    fi
+  fi
   printf '%s\n' "$content" > "$tmp" || { rm -f -- "$tmp"; return 1; }
+  if [ -n "$mode" ]; then
+    chmod "$mode" "$tmp" || { rm -f -- "$tmp"; return 1; }
+  fi
   mv -f -- "$tmp" "$file" || { rm -f -- "$tmp"; return 1; }
 }
 
@@ -330,8 +360,8 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
   [ -n "$file" ] || return 1
   [ -e "$file" ] || return 0
   if [ "$mode" = shared ]; then
-    grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$file" 2>/dev/null || return 0
     fm_control_claude_shared_settings_mergeable "$file" || return 0
+    fm_control_claude_hooks_owned "$file" || return 0
     pruned=$(jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
       "$_fm_control_claude_prune_program"'
         | if (.hooks | length) == 0 then del(.hooks) else . end
@@ -347,10 +377,10 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
 # may have left in a secondmate's persistent, captain-owned home. The three
 # semantic adapters' artifacts are read from the wiring table above so this
 # stays one owner of where they live; the Claude settings file is the captain's
-# and is only ever pruned, never removed. Returns non-zero when a firstmate
-# hook is still there afterwards, which is the only proof the prune really ran
-# (it reports success both when it prunes and when it safely declines), so the
-# caller can name the home the captain has to repair by hand.
+# and is only ever pruned, never removed. Returns non-zero when a firstmate hook
+# is still there afterwards, or when the file cannot be inspected at all, since
+# the prune reports success both when it prunes and when it safely declines; the
+# caller can then name the home the captain has to repair by hand.
 fm_control_secondmate_lifecycle_retire() {  # <home> <state-dir> <task-id>
   local home=${1-} state=${2-} id=${3-} settings adapter path
   [ -n "$home" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
@@ -365,7 +395,8 @@ $(fm_control_harness_wiring_paths "$adapter" "$home" "$state" "$id")
 EOF
   done
   [ -f "$settings" ] || return 0
-  grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$settings" 2>/dev/null || return 0
+  fm_control_claude_shared_settings_mergeable "$settings" || return 1
+  fm_control_claude_hooks_owned "$settings" || return 0
   fm_control_claude_hooks_clear "$settings" shared >/dev/null 2>&1 || true
-  ! grep -q "$FM_CONTROL_CLAUDE_HOOK_MARKER" "$settings" 2>/dev/null
+  ! fm_control_claude_hooks_owned "$settings"
 }

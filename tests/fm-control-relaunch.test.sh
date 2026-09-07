@@ -469,8 +469,12 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
 # install must still relaunch). In a secondmate home firstmate is a guest, so
 # only its own entries go, and a missing jq skips the prune rather than failing a
 # previously working path or discarding captain-owned settings.
+settings_mode() {
+  if [ "$(uname)" = Darwin ]; then stat -f %Lp "$1"; else stat -c %a "$1"; fi
+}
+
 test_claude_wiring_retirement_is_ownership_aware() {
-  local dir settings foreign rc nojq t
+  local dir settings foreign rc nojq t before
   dir="$TMP_ROOT/claude-ownership-$RANDOM"
   nojq="$dir/nojq-bin"
   mkdir -p "$dir" "$nojq"
@@ -567,6 +571,27 @@ test_claude_wiring_retirement_is_ownership_aware() {
   fm_control_claude_hooks_clear "$settings" shared \
     || fail "retiring shared wiring over a zero-byte captain file must succeed"
   [ -e "$settings" ] || fail "a guest retirement deleted a zero-byte captain-owned file"
+
+  # Ownership is a question about the parsed hook commands: a captain permission
+  # or env value naming the same script owns nothing firstmate installed.
+  mkdir -p "$dir/home/.claude" "$dir/state"
+  printf '%s' '{"permissions":{"allow":["Bash(bin/fm-busy-event.sh read:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}' \
+    > "$dir/home/.claude/settings.local.json"
+  before=$(cat "$dir/home/.claude/settings.local.json")
+  fm_control_claude_hooks_clear "$dir/home/.claude/settings.local.json" shared \
+    || fail "retiring shared wiring over a captain permission naming the script must succeed"
+  [ "$(cat "$dir/home/.claude/settings.local.json")" = "$before" ] \
+    || fail "a captain permission naming the busy-event script triggered a rewrite"
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 \
+    || fail "a captain permission naming the busy-event script was reported as a surviving hook"
+
+  # The captain's chosen mode must survive the temp-and-rename replacement.
+  printf '%s\n' "$foreign" > "$settings"
+  chmod 600 "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring shared wiring over a hardened captain file must succeed"
+  [ "$(settings_mode "$settings")" = 600 ] \
+    || fail "the captain's file mode was widened to $(settings_mode "$settings") by the atomic replacement"
 
   printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
     > "$settings"
