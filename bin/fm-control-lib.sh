@@ -277,22 +277,28 @@ _fm_control_claude_settings_is_one_object() {  # reads stdin
   jq -e -s 'length == 1 and (.[0] | type) == "object"' >/dev/null 2>&1
 }
 
-# Whether the guest ("shared") merge into <settings-file> can run: jq is present
-# (optional for a tmux-only install, per bin/fm-backend.sh's required tools) and
-# the existing file, if any, is exactly one JSON object to merge into. A file
-# firstmate cannot parse is the captain's to repair, never firstmate's to
-# rewrite or to refuse a launch over.
-fm_control_claude_shared_settings_mergeable() {  # <settings-file>
-  command -v jq >/dev/null 2>&1 || return 1
-  [ -s "${1-}" ] || return 0
-  _fm_control_claude_settings_is_one_object < "$1"
-}
-
 _fm_control_claude_prune_program='
   def fm_owned: (.hooks // []) | map(.command // "") | any(contains($marker));
   .hooks = ((.hooks // {}) | with_entries(.value |= map(select(fm_owned | not))))
   | .hooks |= with_entries(select((.value | length) > 0))
 '
+
+# Whether the guest ("shared") merge into <settings-file> can run: jq is present
+# (optional for a tmux-only install, per bin/fm-backend.sh's required tools), the
+# existing file, if any, is exactly one JSON object to merge into, and the prune
+# program both helpers run actually accepts it - a `hooks` value of an unexpected
+# inner shape parses as one object but makes that program error. Proving
+# feasibility with the SAME program is what keeps this the single owner of the
+# question, so an input firstmate cannot handle disarms the wiring up front
+# instead of failing mid-write. Such a file is the captain's to repair, never
+# firstmate's to rewrite or to refuse a launch over.
+fm_control_claude_shared_settings_mergeable() {  # <settings-file>
+  command -v jq >/dev/null 2>&1 || return 1
+  [ -s "${1-}" ] || return 0
+  _fm_control_claude_settings_is_one_object < "$1" || return 1
+  jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
+    "$_fm_control_claude_prune_program" "$1" >/dev/null 2>&1
+}
 
 _fm_control_claude_settings_replace() {  # <settings-file> <content>
   local file=$1 content=$2 tmp=$1.tmp.$$

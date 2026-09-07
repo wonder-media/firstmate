@@ -1665,6 +1665,48 @@ SH
   chmod +x "$case_dir/fakebin/herdr"
 }
 
+# A secondmate home is captain-owned and comes back from the treehouse pool, so
+# teardown cannot delete its settings file the way a crew worktree's is deleted.
+# It must retire only firstmate's own lifecycle entries, or the next mate leased
+# into that home keeps firing this retired task's turn-end signal.
+test_secondmate_teardown_retires_only_firstmate_hooks() {
+  local case_dir home settings fmroot
+  case_dir=$(make_case secondmate-hook-retirement)
+  write_meta "$case_dir" local-only secondmate
+  # The home must be a registered worktree of the firstmate root, so teardown
+  # RETURNS it to the pool instead of deleting it - that is the only path on
+  # which a surviving hook can fire for the retired task.
+  fmroot="$case_dir/fmroot"
+  git init -q "$fmroot"
+  git -C "$fmroot" -c user.email=t@t -c user.name=t commit -q --allow-empty -m root
+  home="$case_dir/secondmate-home"
+  git -C "$fmroot" worktree add -q -b secondmate-home "$home" >/dev/null 2>&1
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" "$home/.claude"
+  printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
+  printf 'home=%s\n' "$home" >> "$case_dir/state/task-x1.meta"
+  settings="$home/.claude/settings.local.json"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s task-x1 idle"}]}]}}' \
+    > "$settings"
+
+  prepare_treehouse_test_double "$case_dir"
+  FM_ROOT_OVERRIDE="$fmroot" \
+  FM_STATE_OVERRIDE="$case_dir/state" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
+  FM_TREEHOUSE_OPERATION_LOCK="$case_dir/treehouse-operation.lock" \
+  PATH="$case_dir/fakebin:${FM_TEARDOWN_TEST_PATH:-$PATH}" \
+    "$TEARDOWN" task-x1 --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "secondmate-hook-retirement: teardown refused a clean forced secondmate teardown"
+
+  [ -e "$settings" ] || fail "secondmate-hook-retirement: the captain's settings file was deleted"
+  [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
+    || fail "secondmate-hook-retirement: the captain's permissions were discarded"
+  [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
+    || fail "secondmate-hook-retirement: the captain's own Stop hook was discarded"
+  [ "$(jq '.hooks.Stop | length' "$settings")" = 1 ] \
+    || fail "secondmate-hook-retirement: the retired task's lifecycle hook outlived its teardown"
+  pass "secondmate teardown retires firstmate's lifecycle hooks and keeps the captain's settings"
+}
+
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes() {
   local case_dir home log closed rc thlog
   case_dir=$(make_case herdr-child-preflight)
@@ -2999,6 +3041,7 @@ test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence
 test_herdr_flat_teardown_preflight_refuses_before_changes
+test_secondmate_teardown_retires_only_firstmate_hooks
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes
 test_forced_secondmate_teardown_holds_descendant_lifecycle_locks
 test_forced_secondmate_herdr_child_retains_records_when_close_unconfirmed

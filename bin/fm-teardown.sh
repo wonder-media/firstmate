@@ -2086,6 +2086,12 @@ EOF
   printf '%s\n' "$abs_home_path"
 }
 
+retire_secondmate_claude_hooks() {  # <home> <task-id>
+  local settings=$1/.claude/settings.local.json
+  fm_control_claude_hooks_clear "$settings" shared && return 0
+  echo "warning: could not retire firstmate lifecycle hooks from $settings for $2; remove them by hand so a re-leased home cannot signal for a retired task" >&2
+}
+
 remove_firstmate_home() {
   local home=$1 label=$2 expected_id=${3:-} abs_home_path process_event_backup
   [ -n "$home" ] || return 0
@@ -2582,6 +2588,7 @@ cleanup_firstmate_home_children() {
       [ -n "$child_home" ] || child_home=$child_wt
       if [ -n "$child_home" ] && [ -d "$child_home" ]; then
         cleanup_firstmate_home_children "$child_home" || return $?
+        retire_secondmate_claude_hooks "$child_home" "$child_id"
         remove_firstmate_home "$child_home" "child firstmate home" "$child_id" || return $?
       fi
     elif [ "$child_backend" = orca ]; then
@@ -2923,6 +2930,12 @@ if [ "$BACKEND" = herdr ]; then
 fi
 if [ "$KIND" = secondmate ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
+  # A secondmate home is captain-owned and survives teardown through the
+  # treehouse pool, so the file cannot be removed the way a crew worktree's is
+  # (see the crew branch above). Retire only firstmate's own lifecycle entries,
+  # or a re-leased home keeps firing this retired task's turn-end signal
+  # (bin/fm-control-lib.sh owns the prune and what it leaves behind).
+  retire_secondmate_claude_hooks "$HOME_PATH" "$ID"
   remove_firstmate_home "$HOME_PATH" "secondmate home" "$ID" || exit $?
   remove_secondmate_registry_entry "$ID"
 fi

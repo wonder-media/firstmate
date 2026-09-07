@@ -532,6 +532,23 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$rc" -ne 0 ] || fail "a merge yielding two JSON documents must not report success"
   [ "$(wc -l < "$settings")" -eq 2 ] \
     || fail "a merge yielding two JSON documents must leave the file untouched"
+
+  # A file that IS one JSON object but whose `hooks` value has an inner shape the
+  # prune program cannot walk must be reported unmergeable UP FRONT, so a caller
+  # disarms instead of discovering the failure mid-write and refusing to launch.
+  for body in '{"hooks":{"Stop":["x"]}}' '{"hooks":{"Stop":[{"hooks":"str"}]}}'; do
+    printf '%s\n' "$body" > "$settings"
+    ! fm_control_claude_shared_settings_mergeable "$settings" \
+      || fail "an unwalkable hooks value was reported mergeable: $body"
+    fm_control_claude_hooks_clear "$settings" shared \
+      || fail "retiring wiring over an unwalkable hooks value must not fail a working path: $body"
+    [ "$(cat "$settings")" = "$body" ] \
+      || fail "a skipped retirement must leave the captain's file untouched: $body"
+  done
+  printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}' \
+    > "$settings"
+  fm_control_claude_shared_settings_mergeable "$settings" \
+    || fail "a well-formed captain settings file must stay mergeable"
   pass "fm-control relaunch: claude settings retirement is ownership-aware, jq stays optional, and only one merged object is ever written"
 }
 
