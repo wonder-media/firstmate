@@ -1,45 +1,20 @@
-=== Secondmate current-state, as the captain reads it ===================
+# `bin/fm-crew-state.sh mate` - secondmate current state, one line per case
 
-1. coordinator busy (tmux, claude hook)        $ fm-crew-state.sh mate
-                                                 state: working · source: pane · secondmate coordinator active (claude-hook)
-
-2. healthy idle, nothing declared              $ fm-crew-state.sh mate
-                                                 state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)
-
-3. healthy idle (herdr, opencode plugin)       $ fm-crew-state.sh mate
-                                                 state: idle · source: pane · secondmate coordinator healthy idle (opencode-plugin)
-
-4. idle + open decision -> parked              $ fm-crew-state.sh mate
-                                                 state: parked · source: status-log · secondmate coordinator awaiting decision: pick the rollout window [key=rollout]
-
-5. decision resolved -> healthy idle again     $ fm-crew-state.sh mate
-                                                 state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)
-
-6. coordinator declared paused                 $ fm-crew-state.sh mate
-                                                 state: paused · source: status-log · waiting on the vendor release
-
-7. coordinator declared blocked                $ fm-crew-state.sh mate
-                                                 state: blocked · source: status-log · secondmate coordinator blocked: no API credentials
-
-8. later informational note -> idle again      $ fm-crew-state.sh mate
-                                                 state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)
-
-9. declared paused but live busy -> working    $ fm-crew-state.sh mate
-                                                 state: working · source: pane · secondmate coordinator active (claude-hook)
-
-10. stale lifecycle generation -> unknown      $ fm-crew-state.sh mate
-                                                 state: unknown · source: pane · secondmate lifecycle generation stale
-
-11. dead endpoint, nothing declared -> unknown $ fm-crew-state.sh mate
-                                                 state: unknown · source: none · secondmate endpoint state unavailable (dead)
-
-12. dead endpoint + declared paused -> paused  $ fm-crew-state.sh mate
-                                                 state: paused · source: status-log · waiting on the vendor release
-
-13. unsupported harness, no lifecycle -> unknown $ fm-crew-state.sh mate
-                                                 state: unknown · source: pane · secondmate lifecycle generation unavailable
-
-14. remote secondmate unreachable -> unknown   $ fm-crew-state.sh mate
-                                                 state: unknown · source: none · remote secondmate current-state source unavailable
-
-=== end ================================================================
+healthy idle (claude on tmux)                    state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)
+healthy idle (claude on herdr)                   state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)
+healthy idle (opencode on tmux)                  state: idle · source: pane · secondmate coordinator healthy idle (opencode-plugin)
+healthy idle (pi on tmux)                        state: idle · source: pane · secondmate coordinator healthy idle (pi-ext)
+busy coordinator                                 state: working · source: pane · secondmate coordinator active (claude-hook)
+open decision + later note                       state: parked · source: status-log · secondmate coordinator awaiting decision: choose scope
+open blocker + later note                        state: blocked · source: status-log · secondmate coordinator blocked: waiting on infra
+decision resolved -> back to healthy idle        state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)
+declared paused outranks older blocker           state: paused · source: status-log · awaiting the upstream release
+declared failed                                  state: failed · source: status-log · secondmate coordinator failed: cannot reach the upstream repo
+declared paused on unsupported harness           state: paused · source: status-log · awaiting the upstream release
+pause superseded by later note -> idle           state: idle · source: pane · secondmate coordinator healthy idle (claude-hook)
+live busy outranks a declaration                 state: working · source: pane · secondmate coordinator active (claude-hook)
+stale lifecycle generation                       state: unknown · source: pane · secondmate lifecycle generation stale
+dead endpoint                                    state: unknown · source: none · secondmate endpoint state unavailable (dead)
+harness with no lifecycle adapter                state: unknown · source: pane · secondmate lifecycle generation unavailable
+backend not proven for recovery                  state: unknown · source: none · secondmate endpoint state unavailable (unverified)
+remote source unreachable                        state: unknown · source: none · remote secondmate current-state source unavailable

@@ -1,55 +1,231 @@
-=== Captain-owned secondmate settings survive arm + retire =============
+################ CASE A - well-formed captain settings ################
+--- 1. captain's home before firstmate touches it (mode 600) ---
+{
+  "permissions": { "allow": ["Bash(git status:*)"], "deny": ["Bash(rm:*)"] },
+  "env": { "CAPTAIN_TOKEN": "keep-me" },
+  "statusLine": { "type": "command", "command": "captain-statusline" },
+  "hooks": {
+    "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "captain-pretooluse" } ] },
+                    { "matcher": "Write", "hooks": [] } ],
+    "Stop": [ { "hooks": [ { "type": "command", "command": "captain-own-stop" } ] } ],
+    "SessionStart": []
+  }
+}
 
---- A. captain permissions + their own PreToolUse hook
-  captain's file BEFORE firstmate arms:
-    {"permissions":{"allow":["Bash(git status)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"captain-guard.sh"}]}]},"statusLine":{"type":"command","command":"my-status.sh"}}
-  WHILE a firstmate secondmate is armed:
-    {"permissions":{"allow":["Bash(git status)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"captain-guard.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]},"statusLine":{"type":"command","command":"my-status.sh"}}
-  retire exit: 0
-  captain's file AFTER teardown retires firstmate:
-    {"permissions":{"allow":["Bash(git status)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"captain-guard.sh"}]}]},"statusLine":{"type":"command","command":"my-status.sh"}}
+--- 2. spawn ---
+gate: mergeable -> arm the semantic lifecycle wiring
+merge: ok (mode still 600)
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)"
+    ],
+    "deny": [
+      "Bash(rm:*)"
+    ]
+  },
+  "env": {
+    "CAPTAIN_TOKEN": "keep-me"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "captain-statusline"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "captain-pretooluse"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": []
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "captain-own-stop"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<FIRSTMATE LIFECYCLE HOOK>"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<FIRSTMATE LIFECYCLE HOOK>"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<FIRSTMATE LIFECYCLE HOOK>"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "<FIRSTMATE LIFECYCLE HOOK>"
+          }
+        ]
+      }
+    ]
+  }
+}
 
---- B. captain command sitting INSIDE firstmate's Stop entry
-  captain's file BEFORE firstmate arms:
-    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop.sh"}]}]}}
-  WHILE a firstmate secondmate is armed:
-    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop.sh"}]},{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]}}
-  retire exit: 0
-  captain's file AFTER teardown retires firstmate:
-    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop.sh"}]}]}}
+--- 3. respawn into the same home ---
+merge: ok
+file byte-identical to step 2: yes (idempotent)
 
---- C. captain entry that declares an EMPTY hooks array
-  captain's file BEFORE firstmate arms:
-    {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}]}}
-  WHILE a firstmate secondmate is armed:
-    {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}],"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]}}
-  retire exit: 0
-  captain's file AFTER teardown retires firstmate:
-    {"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}]}}
+--- 4. teardown: retire firstmate hooks ---
+retire rc=0  (0 = nothing firstmate-owned left)
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)"
+    ],
+    "deny": [
+      "Bash(rm:*)"
+    ]
+  },
+  "env": {
+    "CAPTAIN_TOKEN": "keep-me"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "captain-statusline"
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "captain-pretooluse"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": []
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "captain-own-stop"
+          }
+        ]
+      }
+    ],
+    "SessionStart": []
+  }
+}
+mode after retire: 600
 
---- D. captain event that is an EMPTY array (untouched by firstmate)
-  captain's file BEFORE firstmate arms:
-    {"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
-  WHILE a firstmate secondmate is armed:
-    {"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}],"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]}}
-  retire exit: 0
-  captain's file AFTER teardown retires firstmate:
-    {"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
+--- 5. captain content after the full spawn/respawn/teardown cycle ---
+{"permissions":{"allow":["Bash(git status:*)"],"deny":["Bash(rm:*)"]},"env":{"CAPTAIN_TOKEN":"keep-me"},"statusLine":{"type":"command","command":"captain-statusline"},"captain_hook_commands":["captain-statusline","captain-pretooluse","captain-own-stop"],"empty_entry_kept":true,"empty_event_kept":true,"hand_edited_event":"n/a"}
 
---- E. captain EMPTY Stop event, the one firstmate merges into
-  captain's file BEFORE firstmate arms:
-    {"hooks":{"Stop":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
-  WHILE a firstmate secondmate is armed:
-    {"hooks":{"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
-  retire exit: 0
-  captain's file AFTER teardown retires firstmate:
-    {"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}
+################ CASE B - captain hand-edited an event into a non-array ################
+--- 1. captain's home before firstmate touches it (mode 600) ---
+{
+  "permissions": { "allow": ["Bash(git status:*)"], "deny": ["Bash(rm:*)"] },
+  "env": { "CAPTAIN_TOKEN": "keep-me" },
+  "statusLine": { "type": "command", "command": "captain-statusline" },
+  "hooks": {
+    "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "captain-pretooluse" } ] },
+                    { "matcher": "Write", "hooks": [] } ],
+    "Stop": [ { "hooks": [ { "type": "command", "command": "captain-own-stop" } ] } ],
+    "SessionStart": [],
+    "Notification": { "captain": "hand-edited, not an array" }
+  }
+}
 
-=== jq stays optional on a tmux-only install ===========================
+--- 2. spawn ---
+gate: NOT mergeable -> warn, spawn continues with semantic wiring disarmed
+      (captain's file left byte-for-byte untouched, launch NOT refused)
+{
+  "permissions": { "allow": ["Bash(git status:*)"], "deny": ["Bash(rm:*)"] },
+  "env": { "CAPTAIN_TOKEN": "keep-me" },
+  "statusLine": { "type": "command", "command": "captain-statusline" },
+  "hooks": {
+    "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "captain-pretooluse" } ] },
+                    { "matcher": "Write", "hooks": [] } ],
+    "Stop": [ { "hooks": [ { "type": "command", "command": "captain-own-stop" } ] } ],
+    "SessionStart": [],
+    "Notification": { "captain": "hand-edited, not an array" }
+  }
+}
 
-  jq on PATH: no
-  ordinary crew worktree arm: ok (file written)
-  ordinary crew worktree relaunch clear: ok
-  file removed: ok
+--- 3. respawn into the same home ---
+gate: NOT mergeable -> still disarmed, no write
+file byte-identical to step 2: yes (idempotent)
 
-=== end ================================================================
+--- 4. teardown: retire firstmate hooks ---
+retire rc=0  (0 = nothing firstmate-owned left)
+{
+  "permissions": { "allow": ["Bash(git status:*)"], "deny": ["Bash(rm:*)"] },
+  "env": { "CAPTAIN_TOKEN": "keep-me" },
+  "statusLine": { "type": "command", "command": "captain-statusline" },
+  "hooks": {
+    "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "captain-pretooluse" } ] },
+                    { "matcher": "Write", "hooks": [] } ],
+    "Stop": [ { "hooks": [ { "type": "command", "command": "captain-own-stop" } ] } ],
+    "SessionStart": [],
+    "Notification": { "captain": "hand-edited, not an array" }
+  }
+}
+mode after retire: 600
+
+--- 5. captain content after the full spawn/respawn/teardown cycle ---
+{"permissions":{"allow":["Bash(git status:*)"],"deny":["Bash(rm:*)"]},"env":{"CAPTAIN_TOKEN":"keep-me"},"statusLine":{"type":"command","command":"captain-statusline"},"captain_hook_commands":["captain-statusline","captain-pretooluse","captain-own-stop"],"empty_entry_kept":true,"empty_event_kept":true,"hand_edited_event":{"captain":"hand-edited, not an array"}}
+
+################ CASE C - armed home, then a captain hand-edit ################
+--- before teardown ---
+{"hooks":{
+  "Notification":{"matcher":"Bash","hooks":[{"type":"command","command":"captain-hand-edit"}]},
+  "Stop":[{"hooks":[{"type":"command","command":"<FIRSTMATE LIFECYCLE HOOK>"}]}]}}
+--- after teardown (retire rc=0) ---
+{
+  "hooks": {
+    "Notification": {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "captain-hand-edit"
+        }
+      ]
+    }
+  }
+}
+firstmate hook commands still installed: 0

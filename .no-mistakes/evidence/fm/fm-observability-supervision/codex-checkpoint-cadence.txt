@@ -1,0 +1,13 @@
+$ bin/fm-supervision-instructions.sh --harness codex   # checkpoint cadence lines
+  8:- Ordinary wake: take the next foreground bin/fm-watch-checkpoint.sh checkpoint as directed below.
+  10:Mode: Codex foreground checkpoint.
+  16:3. First cycle: run one foreground watcher checkpoint with `bin/fm-watch-checkpoint.sh --seconds "${FM_CODEX_WATCH_CHECKPOINT:-300}"`.
+  17:4. Ordinary wake: if the command prints `signal:`, `stale:`, `check:`, or `heartbeat`, drain queued wakes, handle that wake, then start the next checkpoint.
+  18:5. If the command prints `checkpoint:` or exits 124 with no wake, drain queued wakes anyway, process any queued user message now visible to Codex, then start the next checkpoint.
+  22:8. Failure or missing cycle only: drain queued wakes, inspect the failure, then start a fresh foreground checkpoint.
+  25:The bounded checkpoint returns control regularly so user messages and queued wakes can be handled without relying on background-task wake semantics.
+  26:The 300-second default produces 12 quiet checkpoint returns per hour, down from 20 at the former 180-second default; `FM_CODEX_WATCH_CHECKPOINT` remains the supported explicit cadence override.
+  27:An actionable watcher event still ends the current checkpoint as soon as it is detected; the checkpoint bound controls quiet recurring model turns and the maximum delay before Codex can service captain input received during the foreground call.
+
+$ bin/fm-watch-checkpoint.sh --help   # shipped default
+  Usage: fm-watch-checkpoint.sh [--seconds <n>]

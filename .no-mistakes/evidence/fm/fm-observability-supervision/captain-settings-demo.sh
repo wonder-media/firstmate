@@ -1,65 +1,113 @@
 #!/usr/bin/env bash
-# Operator-view demo: a captain's own ~/.claude/settings.local.json in a
-# long-lived secondmate home, before firstmate arms its lifecycle hooks, while
-# armed, and after firstmate retires them on teardown.
+# Evidence driver: a captain-owned secondmate home whose .claude/settings.local.json
+# already carries the captain's permissions, env, statusLine and hooks - including a
+# captain command sharing Firstmate's own Stop entry, an entry that declares an empty
+# hooks array, and an already-empty event. Runs the SHIPPED helpers for spawn (merge),
+# respawn (idempotent), teardown (retire), and prints the real file at each step.
+# Case B repeats it on a home the captain hand-edited into a shape the merge cannot
+# walk, to show the warn-and-continue path.
 set -u
-ROOT=${FM_DEMO_ROOT:?}
-. "$ROOT/bin/fm-control-lib.sh"
-TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-caps-demo.XXXXXX"); trap 'rm -rf "$TMP"' EXIT
+REPO=${1:?repo root}
+. "$REPO/bin/fm-control-lib.sh"
 
-HOOKS='{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"touch /s/mate.turn-ended; /fm/bin/fm-busy-event.sh apply /s mate idle --gen G1"}]}]}}'
+mode() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
 
-roundtrip() {  # <label> <captain-json>
-  local label=$1 home="$TMP/$2" f
-  mkdir -p "$home/.claude"; f="$home/.claude/settings.local.json"
-  printf '%s\n' "$3" | jq . > "$f"
-  echo "--- $label"
-  echo "  captain's file BEFORE firstmate arms:"; jq -c . "$f" | sed 's/^/    /'
-  fm_control_claude_hooks_write "$f" "$HOOKS" shared || echo "    (arm declined)"
-  echo "  WHILE a firstmate secondmate is armed:"; jq -c . "$f" | sed 's/^/    /'
-  fm_control_secondmate_lifecycle_retire "$home" /s mate; echo "  retire exit: $?"
-  echo "  captain's file AFTER teardown retires firstmate:"; jq -c . "$f" | sed 's/^/    /'
+run_case() {  # <label> <settings-json-heredoc-file>
+  local label=$1 seed=$2 home state set_ before
+  home=$(mktemp -d -t fm-captain-home); state=$(mktemp -d -t fm-captain-state)
+  set_=$home/.claude/settings.local.json
+  mkdir -p "$home/.claude"; cp "$seed" "$set_"; chmod 600 "$set_"
+
+  local hooks
+  hooks='{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"'"$REPO"'/bin/fm-busy-event.sh apply '"$state"' mate busy --gen G1 --source claude-hook --event user-prompt-submit 2>/dev/null || true"}]}],"Stop":[{"hooks":[{"type":"command","command":"touch '"$state"'/mate.turn-ended; '"$REPO"'/bin/fm-busy-event.sh apply '"$state"' mate idle --gen G1 --source claude-hook --event stop 2>/dev/null || true"}]}],"StopFailure":[{"hooks":[{"type":"command","command":"'"$REPO"'/bin/fm-busy-event.sh apply '"$state"' mate idle --gen G1 --source claude-hook --event stop-failure 2>/dev/null || true"}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"'"$REPO"'/bin/fm-busy-event.sh apply '"$state"' mate idle --gen G1 --source claude-hook --event session-end 2>/dev/null || true"}]}]}}'
+
+  # Fold firstmate's long absolute commands to a short tag so the file reads.
+  show() { sed "s|[^\"]*fm-busy-event.sh[^\"]*|<FIRSTMATE LIFECYCLE HOOK>|g" "$set_"; }
+
+  echo "################ $label ################"
+  echo "--- 1. captain's home before firstmate touches it (mode $(mode "$set_")) ---"
+  show
+
   echo
+  echo "--- 2. spawn ---"
+  if fm_control_claude_shared_settings_mergeable "$set_"; then
+    echo "gate: mergeable -> arm the semantic lifecycle wiring"
+    fm_control_claude_hooks_write "$set_" "$hooks" shared \
+      && echo "merge: ok (mode still $(mode "$set_"))" || echo "merge: FAILED"
+  else
+    echo "gate: NOT mergeable -> warn, spawn continues with semantic wiring disarmed"
+    echo "      (captain's file left byte-for-byte untouched, launch NOT refused)"
+  fi
+  show
+
+  echo
+  echo "--- 3. respawn into the same home ---"
+  before=$(cat "$set_")
+  if fm_control_claude_shared_settings_mergeable "$set_"; then
+    fm_control_claude_hooks_write "$set_" "$hooks" shared >/dev/null && echo "merge: ok"
+  else
+    echo "gate: NOT mergeable -> still disarmed, no write"
+  fi
+  [ "$before" = "$(cat "$set_")" ] \
+    && echo "file byte-identical to step 2: yes (idempotent)" \
+    || echo "file changed: NOT idempotent"
+
+  echo
+  echo "--- 4. teardown: retire firstmate hooks ---"
+  local rc=0
+  fm_control_secondmate_lifecycle_retire "$home" "$state" mate || rc=$?
+  echo "retire rc=$rc  (0 = nothing firstmate-owned left)"
+  show
+  echo "mode after retire: $(mode "$set_")"
+
+  echo
+  echo "--- 5. captain content after the full spawn/respawn/teardown cycle ---"
+  jq -c '{permissions,env,statusLine,
+          captain_hook_commands: [.. | objects | select(has("command")) | .command
+                                  | select(test("fm-busy-event")|not)],
+          empty_entry_kept: (((.hooks.PreToolUse // [])[]? | select(type=="object" and .matcher=="Write")) != null),
+          empty_event_kept: (.hooks | has("SessionStart")),
+          hand_edited_event: (.hooks.Notification // "n/a")}' "$set_"
+  echo
+  rm -rf "$home" "$state"
 }
 
-echo "=== Captain-owned secondmate settings survive arm + retire ============="
-echo
+seedA=$(mktemp -t fm-seedA); seedB=$(mktemp -t fm-seedB)
+cat > "$seedA" <<'JSON'
+{
+  "permissions": { "allow": ["Bash(git status:*)"], "deny": ["Bash(rm:*)"] },
+  "env": { "CAPTAIN_TOKEN": "keep-me" },
+  "statusLine": { "type": "command", "command": "captain-statusline" },
+  "hooks": {
+    "PreToolUse": [ { "matcher": "Bash", "hooks": [ { "type": "command", "command": "captain-pretooluse" } ] },
+                    { "matcher": "Write", "hooks": [] } ],
+    "Stop": [ { "hooks": [ { "type": "command", "command": "captain-own-stop" } ] } ],
+    "SessionStart": []
+  }
+}
+JSON
+sed 's/"SessionStart": \[\]/"SessionStart": [],\n    "Notification": { "captain": "hand-edited, not an array" }/' "$seedA" > "$seedB"
 
-roundtrip "A. captain permissions + their own PreToolUse hook" a \
-  '{"permissions":{"allow":["Bash(git status)"]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"captain-guard.sh"}]}]},"statusLine":{"type":"command","command":"my-status.sh"}}'
+run_case "CASE A - well-formed captain settings" "$seedA"
+run_case "CASE B - captain hand-edited an event into a non-array" "$seedB"
+rm -f "$seedA" "$seedB"
 
-roundtrip "B. captain command sitting INSIDE firstmate's Stop entry" b \
-  '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop.sh"}]}]}}'
-
-roundtrip "C. captain entry that declares an EMPTY hooks array" c \
-  '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}]}}'
-
-roundtrip "D. captain event that is an EMPTY array (untouched by firstmate)" d \
-  '{"hooks":{"PreToolUse":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}'
-
-# Note: when the captain's EMPTY event is the very event firstmate merges into
-# (Stop), the merge fills it and the retire empties it again, so the bare `[]`
-# declaration is not restored. Nothing executable is lost - an empty event list
-# runs no hook - and this is the accepted contract: only structures made empty
-# by removing firstmate's own commands are dropped.
-roundtrip "E. captain EMPTY Stop event, the one firstmate merges into" e \
-  '{"hooks":{"Stop":[],"SessionStart":[{"hooks":[{"type":"command","command":"captain-start.sh"}]}]}}'
-
-echo "=== jq stays optional on a tmux-only install ==========================="
-echo
-NOJQ="$TMP/nojq"; mkdir -p "$NOJQ"
-for t in bash printf mkdir rm mv chmod stat uname dirname cat sed; do
-  r=$(command -v "$t" 2>/dev/null) && ln -sf "$r" "$NOJQ/$t"
-done
-CREWWT="$TMP/crew"; mkdir -p "$CREWWT/.claude"
-env -i PATH="$NOJQ" HOME="$TMP" bash -c '
-  . "'"$ROOT"'/bin/fm-control-lib.sh"
-  f="'"$CREWWT"'/.claude/settings.local.json"
-  command -v jq >/dev/null 2>&1 && { echo "jq unexpectedly present"; exit 1; }
-  echo "  jq on PATH: no"
-  fm_control_claude_hooks_write "$f" '"'$HOOKS'"' owned && echo "  ordinary crew worktree arm: ok (file written)"
-  fm_control_claude_hooks_clear "$f" owned && echo "  ordinary crew worktree relaunch clear: ok"
-  [ -e "$f" ] && echo "  file still present (BAD)" || echo "  file removed: ok"
-'
-echo
-echo "=== end ================================================================"
+# CASE C - the regression the last fix commit closes: firstmate armed while the
+# file was well-formed, THEN the captain hand-edited an event into a non-array.
+# Teardown must still prune firstmate's own hook instead of claiming a clean
+# retirement while the hook keeps firing for the next mate leased into the home.
+homeC=$(mktemp -d -t fm-captain-homeC); stateC=$(mktemp -d -t fm-captain-stateC)
+setC=$homeC/.claude/settings.local.json; mkdir -p "$homeC/.claude"
+cat > "$setC" <<JSON
+{"hooks":{
+  "Notification":{"matcher":"Bash","hooks":[{"type":"command","command":"captain-hand-edit"}]},
+  "Stop":[{"hooks":[{"type":"command","command":"touch $stateC/mate.turn-ended; $REPO/bin/fm-busy-event.sh apply $stateC mate idle --gen G1 --source claude-hook --event stop"}]}]}}
+JSON
+echo "################ CASE C - armed home, then a captain hand-edit ################"
+echo "--- before teardown ---"
+sed "s|[^\"]*fm-busy-event.sh[^\"]*|<FIRSTMATE LIFECYCLE HOOK>|g" "$setC"
+rcC=0; fm_control_secondmate_lifecycle_retire "$homeC" "$stateC" mate || rcC=$?
+echo "--- after teardown (retire rc=$rcC) ---"
+sed "s|[^\"]*fm-busy-event.sh[^\"]*|<FIRSTMATE LIFECYCLE HOOK>|g" "$setC"
+echo "firstmate hook commands still installed: $(jq '[.. | objects | select(has("command")) | .command | select(test("fm-busy-event"))] | length' "$setC")"
+rm -rf "$homeC" "$stateC"

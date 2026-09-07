@@ -1,0 +1,20 @@
+=== linked home, fully wired by firstmate ===
+$ git status --short
+  (no output above = clean)
+$ git check-ignore -v .claude/settings.local.json .fm-grok-turnend
+  .gitignore:12:.claude/settings.local.json	.claude/settings.local.json
+  .gitignore:15:.fm-grok-turnend	.fm-grok-turnend
+firstmate dirty_status verdict: ''  (empty = safe to sync)
+
+=== clone home, fully wired by firstmate ===
+$ git status --short
+  (no output above = clean)
+$ git check-ignore -v .claude/settings.local.json .fm-grok-turnend
+  .gitignore:12:.claude/settings.local.json	.claude/settings.local.json
+  .gitignore:15:.fm-grok-turnend	.fm-grok-turnend
+firstmate dirty_status verdict: ''  (empty = safe to sync)
+
+=== a real captain edit is still dirty ===
+$ git status --short
+   M AGENTS.md
+firstmate dirty_status verdict: ' M AGENTS.md'  (non-empty = sync refused)
