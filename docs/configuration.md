@@ -220,7 +220,7 @@ New harnesses get verified through a supervised trial task before joining the se
 The verified adapter evidence - each harness's busy-state source, interrupt and exit behavior, skill-invocation syntax, and per-harness quirks - lives in [`.agents/skills/harness-adapters/SKILL.md`](../.agents/skills/harness-adapters/SKILL.md).
 Direct secondmate coordinator state is currently supported only for Claude, OpenCode, Pi, and pi-signed, whose existing structured lifecycle sources are wired into secondmate launches.
 It additionally requires the recovery-grade tmux or Herdr endpoint classifier, and a Claude secondmate also requires `jq`, because its hooks are merged into the captain-owned home settings rather than replacing them.
-`jq` stays optional: a host without it arms no wiring and reports `unknown` instead of refusing the launch.
+`jq` stays optional, and so does a settings file firstmate can parse: when either is missing the mate launches with no wiring and reports `unknown`, the captain's file is left exactly as it was, and a warning names it, rather than the spawn or relaunch refusing to run.
 Every other harness or backend, and every remote secondmate whose generation cannot be proved locally, remains explicitly `unknown`; launch support alone is not a current-state claim.
 The executable interrupt and exit mechanics live in [`bin/fm-control-lib.sh`](../bin/fm-control-lib.sh), and [`docs/agent-control.md`](agent-control.md) owns their lifecycle-control architecture.
 Launch mechanics, including the verified command templates, live in [`bin/fm-spawn.sh`](../bin/fm-spawn.sh).

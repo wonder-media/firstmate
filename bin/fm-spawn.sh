@@ -2645,12 +2645,18 @@ if [ "$KIND" = secondmate ] && ! fm_control_backend_state_verified "$BACKEND"; t
   SEMANTIC_BUSY_WIRING=0
 fi
 # A Claude secondmate's home is captain-owned, so its hooks can only be installed
-# through the guest merge, and that merge needs jq. jq stays optional on tmux, so
-# a host without it arms no wiring and the reader reports unknown, rather than
+# through the guest merge, which needs jq and a settings file it can parse. Both
+# are the captain's to provide: when either is missing this arms no wiring and
+# the reader reports unknown, rather than rewriting the captain's file or
 # refusing to launch a mate that launched fine before.
-if [ "$KIND" = secondmate ] && ! fm_control_claude_shared_merge_supported; then
+if [ "$KIND" = secondmate ]; then
   case "$HARNESS" in
-    claude*) SEMANTIC_BUSY_WIRING=0 ;;
+    claude*)
+      if ! fm_control_claude_shared_settings_mergeable "$WT/.claude/settings.local.json"; then
+        echo "warning: task $ID launches without claude lifecycle wiring and reports state unknown: $WT/.claude/settings.local.json is not one JSON object firstmate can merge into, or jq is unavailable; the file is left untouched" >&2
+        SEMANTIC_BUSY_WIRING=0
+      fi
+      ;;
   esac
 fi
 if [ "$KIND" != secondmate ] || [ "$SEMANTIC_BUSY_WIRING" -eq 1 ]; then

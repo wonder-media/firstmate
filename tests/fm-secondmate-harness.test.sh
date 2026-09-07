@@ -698,6 +698,33 @@ test_spawn_secondmate_claude_settings_are_merged_not_replaced() {
   pass "B5d spawn: Claude lifecycle arming merges into a captain-owned secondmate settings file"
 }
 
+# A captain-owned settings file firstmate cannot parse is the captain's to repair.
+# The spawn still lands, the file survives byte for byte, and the mate simply
+# carries no lifecycle wiring, instead of the spawn refusing to run at all.
+test_spawn_secondmate_survives_unparseable_captain_settings() {
+  local w sm settings before after
+  w="$TMP_ROOT/spawn-unparseable-settings"
+  sm="$w/sm"
+  make_seeded_home "$sm" sm
+  settings="$sm/.claude/settings.local.json"
+  mkdir -p "$sm/.claude"
+  printf '%s\n' '{"permissions":{"allow":["Bash(git status:*)"]}' > "$settings"
+  before=$(cksum < "$settings")
+
+  spawn_secondmate "$w" sm "$sm" claude
+
+  [ -f "$w/home/state/sm.meta" ] \
+    || fail "unparseable-settings: the spawn refused to launch over a file firstmate cannot parse"
+  after=$(cksum < "$settings")
+  [ "$before" = "$after" ] \
+    || fail "unparseable-settings: the captain's own settings file was rewritten"
+  grep -q '^busy_gen=' "$w/home/state/sm.meta" 2>/dev/null \
+    && fail "unparseable-settings: a lifecycle generation was bound with no hooks to report it"
+  [ -e "$w/home/state/sm.busy-gen" ] \
+    && fail "unparseable-settings: a lifecycle generation sidecar was armed"
+  pass "B5f spawn: an unparseable captain settings file disables wiring instead of the spawn"
+}
+
 # The unverified-adapter guard holds on the resolved secondmate path: an unknown
 # config/secondmate-harness aborts the spawn (no meta written) and names the source.
 test_spawn_unverified_secondmate_harness_refused() {
@@ -2679,6 +2706,7 @@ test_spawn_explicit_harness_wins
 test_spawn_secondmate_semantic_lifecycle_wiring
 test_spawn_secondmate_skips_wiring_on_an_unprovable_backend
 test_spawn_secondmate_claude_settings_are_merged_not_replaced
+test_spawn_secondmate_survives_unparseable_captain_settings
 test_spawn_unverified_secondmate_harness_refused
 test_spawn_cursor_secondmate_launches_with_its_primary_contract
 test_spawn_backend_precedence_over_inherited_config
