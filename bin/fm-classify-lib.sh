@@ -1097,18 +1097,25 @@ signal_reason_is_actionable() {  # <file> ...
 #             pause (paused:), which is EXPECTED to idle;
 #   none    - neither, so the wake must surface (a stopped/finished/parked/failed/
 #             torn-down/unknown crew, or an unreadable verdict).
+# Passing kind=secondmate additionally reports the mate's own parked and blocked
+# states under their own tokens instead of collapsing them into none, because a
+# coordinator's already-surfaced decision is a KNOWN state its bare turn-end may be
+# absorbed on. Every other caller omits the argument and keeps the four tokens above.
 # One fm-crew-state.sh read serves BOTH absorb reasons at once. Reading the state
 # authoritatively (not the status log) is what keeps run-step precedence: a crew
 # that appended paused: but then STARTED a run reports working, never paused.
 # NOT a pure read: fm-crew-state.sh may make a bounded no-mistakes call, so callers
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # FM_CREW_STATE_BIN lets tests stub the verdict.
-crew_absorb_class() {  # <id>
-  local id=$1 line state src
+crew_absorb_class() {  # <id> [kind]
+  local id=$1 kind=${2-} line state src
   [ -n "$id" ] || { printf 'none'; return; }
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
+  if [ "$kind" = secondmate ]; then
+    case "$state" in parked|blocked) printf '%s' "$state"; return ;; esac
+  fi
   if [ "$state" = idle ]; then
     src=${line#*source: }; src=${src%% *}
     [ "$src" = pane ] && { printf 'idle'; return; }
@@ -1149,8 +1156,12 @@ crew_is_paused() {  # <id>
 # is parent-directed content the supervisor must read (a routed reply, a newly
 # raised decision, a mirrored remote line), and a busy mate agent makes its note
 # more current, not less deliverable. Scoped to .status files - a mate's bare
-# turn-ended ping is also absorbable when the mate has positive healthy-idle
-# evidence, so informational coordinator stops do not become false alarms.
+# turn-ended ping is absorbable whenever its current state is KNOWN (healthy idle,
+# still coordinating, declared pause, or an already-surfaced decision or blocker),
+# because every new decision, blocker or routed reply arrives on the .status
+# channel above and wakes the captain there exactly once. Only an unknown mate
+# surfaces on a bare turn-end, so informational coordinator stops and a decision
+# that stays open across later turns do not become per-turn false alarms.
 signal_crew_provably_working() {  # <file> ...
   local f base dir task kind class seen=""
   for f in "$@"; do
@@ -1173,8 +1184,8 @@ signal_crew_provably_working() {  # <file> ...
     esac
     case " $seen " in *" $task "*) continue ;; esac
     seen="$seen $task"
-    class=$(crew_absorb_class "$task")
-    [ "$class" = working ] || { [ "$kind" = secondmate ] && [ "$class" = idle ]; } || return 1
+    class=$(crew_absorb_class "$task" "$kind")
+    [ "$class" = working ] || { [ "$kind" = secondmate ] && [ "$class" != none ]; } || return 1
   done
   [ -n "$seen" ] || return 1
   return 0
