@@ -374,13 +374,17 @@ fi
 SH
   chmod +x "$WORLD/fakebin/fm-crew-state.sh"
 
+  # The budget also covers the scan's own process start, so a 1s budget can
+  # expire before the first child is reached and no cursor is ever recorded.
+  # 3s is far above that start cost and far below the 30s stall, so both scans
+  # are decided by the stall these assertions are about, not by machine load.
   started=$(date +%s)
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
   elapsed=$(( $(date +%s) - started ))
-  [ "$elapsed" -le 3 ] || fail "stalled state read exceeded aggregate scan budget (${elapsed}s)"
+  [ "$elapsed" -le 6 ] || fail "stalled state read exceeded aggregate scan budget (${elapsed}s)"
 
   write_child "$MAIN" b 'done: green'
-  FM_INACTIVE_RECONCILE_BUDGET_SECS=1 run_reconcile "$MAIN" --startup
+  FM_INACTIVE_RECONCILE_BUDGET_SECS=3 run_reconcile "$MAIN" --startup
   grep -Fq 'child=b state=done' "$MAIN/state/.wake-queue" \
     || fail "next bounded scan did not resume with the following child"
   pass "stalled state reads are bounded without starving later children"

@@ -16,6 +16,11 @@
 # ROOT is exported as the firstmate repo root (this file lives in tests/), so a
 # sourcing test can use "$ROOT/bin/..." without recomputing it.
 
+# Resolve the repo root from this library's own location. Consumed by sourcing
+# test files and by the direct-invocation isolation boundary.
+# shellcheck disable=SC2034
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 # Idempotent guard: behavior-area helper files (secondmate-helpers.sh,
 # wake-helpers.sh) source this library for ROOT/fail/pass, and the test that
 # includes them may also source it directly. Re-sourcing must not wipe the
@@ -25,6 +30,23 @@ if [ -n "${FM_TEST_LIB_SOURCED:-}" ]; then
 fi
 FM_TEST_LIB_SOURCED=1
 
+# Canonical runners establish this boundary before executing a test. A child
+# of an already isolated test keeps the fixtures its parent installed and only
+# revalidates that every effective path is still disposable. Direct invocations
+# establish the boundary here. Either failure ends the process.
+# shellcheck source=bin/fm-test-env-lib.sh
+. "$ROOT/bin/fm-test-env-lib.sh"
+FM_TEST_DIRECT_ENV_ROOT=
+if [ "${FM_TEST_ENV_ISOLATED:-}" = 1 ]; then
+  fm_test_env_assert_inherited || exit 1
+else
+  FM_TEST_DIRECT_ENV_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-direct.XXXXXX") || exit 1
+  fm_test_env_prepare "$FM_TEST_DIRECT_ENV_ROOT" || {
+    rm -rf "$FM_TEST_DIRECT_ENV_ROOT"
+    exit 1
+  }
+fi
+
 # Exempt firstmate's own test suite from the gate-lifecycle refusal
 # (bin/fm-gate-refuse-lib.sh). The no-mistakes gate runs this suite FROM a gate
 # worktree - the exact environment that guard refuses - so without this every
@@ -33,11 +55,6 @@ FM_TEST_LIB_SOURCED=1
 # the boundary against the real hazard is unaffected. tests/fm-gate-refuse.test.sh
 # strips this to verify real refusal.
 export FM_GATE_REFUSE_BYPASS=1
-
-# Resolve the repo root from this library's own location. Consumed by sourcing
-# test files, not by this library, so it reads as "unused" here.
-# shellcheck disable=SC2034
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # --- reporters --------------------------------------------------------------
 
@@ -70,6 +87,9 @@ pass() {
 
 FM_TEST_CLEANUP_DIRS=()
 FM_TEST_CLEANUP_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/.fm-test-cleanup.$$.XXXXXX") || return 1
+if [ -n "$FM_TEST_DIRECT_ENV_ROOT" ]; then
+  printf '%s\n' "$FM_TEST_DIRECT_ENV_ROOT" >> "$FM_TEST_CLEANUP_REGISTRY" || return 1
+fi
 
 fm_test_pid_identity() {
   local pid=$1

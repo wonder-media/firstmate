@@ -8,12 +8,13 @@
 #   - /updatefirstmate (bin/fm-update.sh) pulls from origin: base_mode "origin".
 #   - the local-HEAD secondmate sync (bin/fm-spawn.sh on launch, bin/fm-bootstrap.sh
 #     on startup) follows the PRIMARY checkout's current default-branch commit:
-#     base_mode is that local commit, with NO fetch and no origin dependency.
+#     base_mode is that local commit, with no origin dependency.
 #
 # A linked-worktree secondmate home already holds the primary's commit in the
-# shared object store, so its local-HEAD sync is a purely local fast-forward that
-# never touches the network. A standalone clone moves through that path only when
-# it already has the target; otherwise it is skipped until the origin path updates it.
+# shared object store, so its local-HEAD sync is a purely local fast-forward.
+# A validated standalone clone that lacks the target may fetch only the primary's
+# local default-branch ref through the bounded local-object acquisition below.
+# Neither placement contacts an origin or any other network route.
 # A tracked-files fast-forward never touches the gitignored operational dirs
 # (data/, state/, config/, projects/, .no-mistakes/), so it cannot disturb a
 # secondmate's backlog, projects, or in-flight work.
@@ -27,6 +28,8 @@
 SUB_HOME_MARKER="${SUB_HOME_MARKER:-.fm-secondmate-home}"
 # shellcheck source=bin/fm-secondmate-registry-lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-secondmate-registry-lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
 
 # --- helpers ---------------------------------------------------------------
 
@@ -192,7 +195,7 @@ validate_secondmate_home() {
 
 # A single fetch refreshes every worktree that shares an object store, so fetch
 # each distinct git-common-dir at most once. Used ONLY by the origin base mode;
-# the local-HEAD sync never fetches.
+# the local-HEAD sync never calls it and never takes a network route.
 FETCHED=""
 fetch_once() {
   local dir=$1 common
@@ -207,6 +210,50 @@ fetch_once() {
     return 0
   fi
   return 1
+}
+
+LOCAL_OBJECT_ACQUIRE_ERROR=""
+LOCAL_OBJECT_ACQUIRE_TIMEOUT=15
+
+# Acquire one missing local-HEAD target from the validated primary checkout.
+# The source must be a local directory whose default-branch tip is exactly the
+# requested commit. The fetch writes no refs or FETCH_HEAD, has a fixed
+# 15-second process-group bound, and never consults the target's origin.
+acquire_local_base() {  # <target-dir> <base-commit> <primary-dir>
+  local dir=$1 base=$2 source=$3 source_real source_default source_tip rc
+  LOCAL_OBJECT_ACQUIRE_ERROR=""
+  source_real=$(resolved_existing_dir "$source") || {
+    LOCAL_OBJECT_ACQUIRE_ERROR="primary checkout is not a local directory"
+    return 1
+  }
+  git -C "$source_real" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+    LOCAL_OBJECT_ACQUIRE_ERROR="primary checkout is not a git repo"
+    return 1
+  }
+  source_default=$(default_branch "$source_real") || {
+    LOCAL_OBJECT_ACQUIRE_ERROR="cannot determine primary default branch"
+    return 1
+  }
+  source_tip=$(git -C "$source_real" rev-parse --verify --quiet "refs/heads/$source_default^{commit}" 2>/dev/null) || {
+    LOCAL_OBJECT_ACQUIRE_ERROR="cannot read primary default-branch tip"
+    return 1
+  }
+  [ "$source_tip" = "$base" ] || {
+    LOCAL_OBJECT_ACQUIRE_ERROR="requested commit is not the primary default-branch tip"
+    return 1
+  }
+  fm_run_timed "$LOCAL_OBJECT_ACQUIRE_TIMEOUT" git -C "$dir" fetch --no-tags --quiet --no-write-fetch-head \
+    "$source_real" "refs/heads/$source_default" </dev/null >/dev/null 2>&1
+  rc=$?
+  case "$rc" in
+    0) ;;
+    124) LOCAL_OBJECT_ACQUIRE_ERROR="timed out after ${LOCAL_OBJECT_ACQUIRE_TIMEOUT}s"; return 1 ;;
+    *) LOCAL_OBJECT_ACQUIRE_ERROR="local fetch failed"; return 1 ;;
+  esac
+  git -C "$dir" rev-parse --verify --quiet "$base^{commit}" >/dev/null 2>&1 || {
+    LOCAL_OBJECT_ACQUIRE_ERROR="primary target was not acquired"
+    return 1
+  }
 }
 
 # Which watched instruction paths changed between HEAD and BASE (comma list).
@@ -261,17 +308,16 @@ live_secondmate_meta_records() {
 # base_mode selects where the fast-forward base comes from:
 #   origin       - fetch origin and advance to origin/<default> (the /updatefirstmate
 #                  path); requires an origin remote and network reachability.
-#   <commit-ish> - advance to that LOCAL commit with NO fetch and no origin
-#                  dependency (the local-HEAD secondmate sync). The commit must
-#                  already exist in the target's object store, which it always does
-#                  for a worktree of this same repo; a standalone clone that lacks
-#                  it is skipped rather than fetched.
+#   <commit-ish> - advance to that LOCAL commit with no origin dependency (the
+#                  local-HEAD secondmate sync). A linked worktree already shares
+#                  the object. When local_source is supplied, a standalone clone
+#                  may acquire a missing object only from that local checkout.
 # Guards are identical in both modes: ff-only (never force/merge/stash); skip a
 # dirty, diverged, or wrong-branch target and leave its work untouched.
 FF_STATUS=""
 FF_INSTR=""
 ff_target() {
-  local dir=$1 label=$2 base_mode=$3 allow_detached=${4:-no} ignore_seed_marker=${5:-no}
+  local dir=$1 label=$2 base_mode=$3 allow_detached=${4:-no} ignore_seed_marker=${5:-no} local_source=${6:-}
   FF_STATUS="skipped"
   FF_INSTR=""
 
@@ -305,11 +351,6 @@ ff_target() {
     base="$base_mode"
   fi
 
-  if ! git -C "$dir" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
-    echo "$label: skipped: $base does not exist"
-    return 0
-  fi
-
   cur=$(git -C "$dir" symbolic-ref --short HEAD 2>/dev/null || echo "")
   if [ -z "$cur" ] && [ "$allow_detached" != yes ]; then
     echo "$label: skipped: detached HEAD, expected $default"
@@ -323,6 +364,18 @@ ff_target() {
   if [ -n "$(dirty_status "$dir" "$ignore_seed_marker")" ]; then
     echo "$label: skipped: dirty working tree"
     return 0
+  fi
+
+  if ! git -C "$dir" rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
+    if [ "$base_mode" != origin ] && [ -n "$local_source" ]; then
+      if ! acquire_local_base "$dir" "$base" "$local_source"; then
+        echo "$label: skipped: cannot acquire $base from primary: $LOCAL_OBJECT_ACQUIRE_ERROR"
+        return 0
+      fi
+    else
+      echo "$label: skipped: $base does not exist"
+      return 0
+    fi
   fi
 
   local_rev=$(git -C "$dir" rev-parse HEAD 2>/dev/null) || {
@@ -392,7 +445,11 @@ process_secondmate() {
   esac
   FF_SEEN_HOMES="$FF_SEEN_HOMES $home_real"
 
-  ff_target "$home_real" "secondmate $id" "$base_mode" yes yes
+  if [ "$base_mode" = origin ]; then
+    ff_target "$home_real" "secondmate $id" "$base_mode" yes yes
+  else
+    ff_target "$home_real" "secondmate $id" "$base_mode" yes yes "$FM_ROOT"
+  fi
   if [ "$FF_STATUS" = "updated" ] && [ -n "$window" ]; then
     if [ "$nudge_requires_instr" = yes ] && [ -z "$FF_INSTR" ]; then
       return 0

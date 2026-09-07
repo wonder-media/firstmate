@@ -7,8 +7,8 @@
 # `tasks-axi update --help` exposes --archive-body for recoverable note rewrites,
 # and `tasks-axi mv --help` exposes [<id>...] for atomic multi-ID moves required
 # by secondmate handoffs.
-# FM_TASKS_AXI_MIN follows the axi-family floor policy owned beside the floor
-# constants in bin/fm-bootstrap.sh.
+# FM_TASKS_AXI_MIN is sourced from bin/fm-tool-versions-lib.sh, the compatibility
+# floor owner shared with the explicit maintenance inventory.
 # The feature probes are a separate concern and stay as defense in depth for
 # stripped or forked builds that advertise a current version without those flags.
 # `config/backlog-backend=manual` opts out of tasks-axi for routine firstmate
@@ -16,8 +16,7 @@
 # Absent or any other value keeps the default tasks-axi backend path, falling
 # back to manual mutation when the tool is not compatible.
 #
-# This file is the single owner of FM_TASKS_AXI_MIN. bin/fm-bootstrap.sh turns a
-# failing check into the operator-facing MISSING diagnostic.
+# bin/fm-bootstrap.sh turns a failing check into the operator-facing MISSING diagnostic.
 #
 # COMPATIBILITY VERDICT REUSE. fm_tasks_axi_compatible costs three tasks-axi
 # subprocesses, and one session start needs the same verdict twice: once in
@@ -34,7 +33,8 @@
 # Both layers are bounded by process lifetime, so a tasks-axi install or upgrade
 # is picked up by the next process rather than being cached to disk.
 
-FM_TASKS_AXI_MIN=0.2.4
+# shellcheck source=bin/fm-tool-versions-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-tool-versions-lib.sh"
 
 FM_TASKS_AXI_COMPATIBLE_MEMO=${FM_TASKS_AXI_COMPATIBLE:-}
 unset FM_TASKS_AXI_COMPATIBLE

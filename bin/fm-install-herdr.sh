@@ -15,14 +15,16 @@
 # at or above the required floor (16 for the real-Herdr family).
 set -eu
 
-# Exact pin - change only with a re-verified real-Herdr matrix.
-FM_HERDR_CI_VERSION=0.7.4
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/fm-tool-versions-lib.sh
+. "$SCRIPT_DIR/fm-tool-versions-lib.sh"
+
+# Exact pin - owned by fm-tool-versions-lib.sh and changed only with a
+# re-verified real-Herdr matrix.
 FM_HERDR_CI_TAG="v${FM_HERDR_CI_VERSION}"
 FM_HERDR_CI_MIN_PROTOCOL=16
 # Bounded download ceiling (bytes). The largest official 0.7.4 asset is under 20 MiB.
 FM_HERDR_CI_MAX_BYTES=25000000
-FM_HERDR_CI_REPO=ogulcancelik/herdr
-
 die() {
   printf 'fm-install-herdr.sh: %s\n' "$*" >&2
   exit 1

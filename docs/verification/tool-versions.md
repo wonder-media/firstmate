@@ -1,0 +1,37 @@
+# Tool compatibility and freshness verification
+
+This record verifies that startup compatibility gates and opt-in release freshness are separate mechanisms.
+[`bin/fm-tool-versions-lib.sh`](../../bin/fm-tool-versions-lib.sh) owns verified support baselines, exact release-channel identities, and intentional CI pins.
+[`bin/fm-version-inventory.sh`](../../bin/fm-version-inventory.sh) reads those values and performs the bounded maintenance comparison without installing or changing any tool.
+
+## Current verification
+
+Verified 2026-09-06 from a disposable Firstmate worktree, after the final bound and refusal fixes on this branch.
+
+The deterministic regression used only isolated fake executables and no real network:
+
+```text
+tests/fm-version-inventory.test.sh
+# all fm-version-inventory tests passed
+```
+
+The regression proves exact repository routing for `kunchenguid/no-mistakes`, `kunchenguid/treehouse`, and `ogulcancelik/herdr`; exact npm package routing for the five axi tools; separate compatibility and freshness verdicts; `unknown/offline`; intentional CI pins; and hard per-request bounds.
+
+The companion convergence regression uses two independent repositories so the standalone secondmate begins without the primary target object:
+
+```text
+tests/fm-secondmate-sync.test.sh
+# all fm-secondmate-sync tests passed
+```
+
+That regression also covers linked worktrees, a standalone clone that acquires the missing commit from the local primary, dirty refusal before acquisition, divergence refusal after acquisition, and identity refusal before acquisition.
+
+Run the live read-only inventory only during explicit maintenance:
+
+```text
+bin/fm-version-inventory.sh
+```
+
+Its current machine-specific output belongs in the maintenance report or PR evidence rather than this tracked behavioral record, because installed and published versions can change independently of Firstmate code.
+When a release channel is absent, unreachable, or slower than the bound, that tool keeps its installed and compatibility fields while its stable version and freshness verdict read `unknown/offline`.
+The command never queries a live Herdr server; it reports Herdr's protocol floor and leaves compatibility unknown until an independently authorized live protocol check exists.
