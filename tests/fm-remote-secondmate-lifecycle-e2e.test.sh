@@ -1020,8 +1020,16 @@ printf 'remote update probe\n' > "$REMOTE_SEED/REMOTE_UPDATE_PROBE"
 git -C "$REMOTE_SEED" add REMOTE_UPDATE_PROBE
 git -C "$REMOTE_SEED" commit -qm 'advance remote code root'
 git -C "$REMOTE_SEED" push -q origin main
+# firstmate's own lifecycle wiring lives in the persistent home and is never the
+# captain's work, so it must not read as a dirty checkout and strand the home.
+mkdir -p "$REMOTE_HOME/.claude" "$REMOTE_HOME/.opencode/plugins"
+printf '{"hooks":{}}\n' > "$REMOTE_HOME/.claude/settings.local.json"
+printf '// firstmate\n' > "$REMOTE_HOME/.opencode/plugins/fm-busy-state.js"
 UPDATE_OUT=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh update ios)
 assert_contains "$UPDATE_OUT" 'synced:' "remote update did not report a host-local fast-forward"
+[ -f "$REMOTE_HOME/.claude/settings.local.json" ] \
+  && [ -f "$REMOTE_HOME/.opencode/plugins/fm-busy-state.js" ] \
+  || fail "the remote fast-forward discarded firstmate's own lifecycle wiring"
 [ "$(git -C "$REMOTE_HOME" rev-parse HEAD)" = "$(git -C "$REMOTE_ROOT" rev-parse HEAD)" ] \
   || fail "remote persistent home did not fast-forward to its code-root commit"
 assert_present "$REMOTE_HOME/REMOTE_UPDATE_PROBE" "remote update did not materialize the code-root commit"

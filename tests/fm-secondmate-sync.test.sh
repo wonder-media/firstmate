@@ -201,6 +201,45 @@ test_ff_ignores_firstmate_lifecycle_artifacts() {
   pass "T3b lifecycle wiring: firstmate's own home files never block the sync, a real edit still does"
 }
 
+# --- T3c: the remote home sync honours the same cleanliness contract ---------
+test_remote_sync_ignores_firstmate_lifecycle_artifacts() {
+  local w root home base out rc
+  w=$(new_world remote-sync-artifacts)
+  root="$w/main"
+  mkdir -p "$root/.claude" "$root/.opencode/plugins"
+  printf '{}\n' > "$root/.claude/settings.json"
+  printf '// primary\n' > "$root/.opencode/plugins/fm-primary.js"
+  git -C "$root" add -A
+  git -C "$root" commit -qm "tracked harness config"
+  home="$w/remote-home"
+  git -C "$root" worktree add -q --detach "$home" HEAD
+  printf 'ios\n' > "$home/.fm-secondmate-home"
+  bump_primary "$w" instr
+  base=$(head_of "$root")
+  # Exactly what bin/fm-spawn.sh lays down in the persistent home on launch.
+  mkdir -p "$home/.opencode/plugins"
+  printf '{"hooks":{}}\n' > "$home/.claude/settings.local.json"
+  printf '// firstmate\n' > "$home/.opencode/plugins/fm-busy-state.js"
+
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+    "$ROOT/bin/fm-remote-secondmate-control.sh" sync ios 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] \
+    || fail "remote sync refused a home holding only firstmate's own lifecycle wiring: $out"
+  assert_contains "$out" "synced:" "remote sync did not report a fast-forward"
+  [ "$(head_of "$home")" = "$base" ] || fail "the remote home did not advance to the code root HEAD"
+  [ -f "$home/.claude/settings.local.json" ] \
+    || fail "the remote sync discarded firstmate's own claude settings"
+
+  printf 'uncommitted local edit\n' >> "$home/AGENTS.md"
+  rc=0
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+    "$ROOT/bin/fm-remote-secondmate-control.sh" sync ios 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "remote sync accepted a genuinely dirty home"
+  assert_contains "$out" "checkout is dirty" "a real uncommitted edit must still refuse the remote sync"
+  pass "T3c remote sync: firstmate's own home files never block it, a real edit still does"
+}
+
 # --- T3: dirty - a home with uncommitted edits is skipped, edit preserved ----
 test_ff_dirty() {
   local w c1 base before
@@ -887,6 +926,7 @@ test_seed_marker_does_not_mask_real_dirt() {
 test_ff_updated
 test_ff_current
 test_ff_ignores_firstmate_lifecycle_artifacts
+test_remote_sync_ignores_firstmate_lifecycle_artifacts
 test_ff_dirty
 test_ff_diverged
 test_ff_inflight_feature_branch
