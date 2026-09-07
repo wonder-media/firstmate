@@ -290,8 +290,8 @@ _fm_control_claude_owned_hook_program='
 # its Stop entry carries no matcher, so a captain hand-editing that event adds
 # their command beside firstmate's rather than in an entry of their own.
 # Retirement therefore drops matching commands, and drops the entry and the
-# event only when firstmate's own removal is what emptied them: an entry that
-# already declared no commands is the captain's and is left exactly as it is.
+# event only when firstmate's own removal is what emptied them: an entry or an
+# event that already declared nothing is the captain's and is left as it is.
 _fm_control_claude_prune_program='
   def fm_entry:
     if (has("hooks") | not) or ((.hooks | length) == 0)
@@ -299,8 +299,9 @@ _fm_control_claude_prune_program='
     else .hooks = (.hooks | map(select((.command // "") | contains($marker) | not)))
       | if (.hooks | length) == 0 then empty else . end
     end;
-  .hooks = ((.hooks // {}) | with_entries(.value |= map(fm_entry)))
-  | .hooks |= with_entries(select((.value | length) > 0))
+  .hooks = ((.hooks // {}) | with_entries(.value |= (
+      if length == 0 then . else (map(fm_entry) | if length == 0 then null else . end) end)))
+  | .hooks |= with_entries(select(.value != null))
 '
 
 # Whether the guest ("shared") merge into <settings-file> can run: jq is present
@@ -390,19 +391,24 @@ fm_control_claude_hooks_clear() {  # <settings-file> [owned|shared]
 # stays one owner of where they live; the Claude settings file is the captain's
 # and is only ever pruned, never removed. The prune reports success both when it
 # ran and when it safely declined, so the outcome is reported here instead: 0
-# when nothing firstmate-owned is left, 2 when the captain's file cannot be
-# inspected at all (no jq, or a document the prune program cannot walk) and
-# nothing can be claimed about it either way, and 1 when the prune ran and a
-# firstmate hook is still there - the only case the captain must repair by hand.
+# when nothing firstmate-owned is left, 3 when one of the adapter artifacts could
+# not be removed (the path is left in FM_CONTROL_RETIRE_FAILED_PATH and the
+# Claude prune never ran), 2 when the captain's file cannot be inspected at all
+# (no jq, or a document the prune program cannot walk) and nothing can be claimed
+# about it either way, and 1 when the prune ran and a firstmate hook is still
+# there - the only case that needs the captain to edit that file by hand.
+FM_CONTROL_RETIRE_FAILED_PATH=
+
 fm_control_secondmate_lifecycle_retire() {  # <home> <state-dir> <task-id>
   local home=${1-} state=${2-} id=${3-} settings adapter path
+  FM_CONTROL_RETIRE_FAILED_PATH=
   [ -n "$home" ] && [ -n "$state" ] && [ -n "$id" ] || return 1
   settings=$home/.claude/settings.local.json
   for adapter in claude opencode pi; do
     while IFS= read -r path; do
       [ -n "$path" ] || continue
       [ "$path" != "$settings" ] || continue
-      rm -f -- "$path" || return 1
+      rm -f -- "$path" || { FM_CONTROL_RETIRE_FAILED_PATH=$path; return 3; }
     done <<EOF
 $(fm_control_harness_wiring_paths "$adapter" "$home" "$state" "$id")
 EOF

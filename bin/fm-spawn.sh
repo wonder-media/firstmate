@@ -2674,6 +2674,7 @@ if [ "$KIND" = secondmate ] && [ "$SEMANTIC_BUSY_WIRING" -eq 0 ]; then
   case "$RETIRE_RC" in
     0) ;;
     2) echo "warning: firstmate lifecycle hooks in $WT/.claude/settings.local.json could not be checked for task $ID: jq is unavailable, or the file is not one JSON object firstmate can parse; the file is left untouched" >&2 ;;
+    3) echo "warning: firstmate could not remove its own lifecycle artifact $FM_CONTROL_RETIRE_FAILED_PATH for task $ID; remove it by hand, or this home keeps signalling turn ends the reader cannot absorb" >&2 ;;
     *) echo "warning: firstmate lifecycle hooks are still in $WT/.claude/settings.local.json for task $ID; remove them by hand, or this home keeps signalling turn ends the reader cannot absorb" >&2 ;;
   esac
 fi

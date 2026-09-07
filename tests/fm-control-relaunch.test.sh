@@ -613,6 +613,30 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$(jq -r 'has("hooks") and (.hooks | has("Stop"))' "$settings")" = false ] \
     || fail "the event firstmate emptied outlived its retirement"
 
+  printf '%s\n' '{"hooks":{"Stop":[],"PreToolUse":[{"matcher":"B","hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh x"}]}]}}' \
+    > "$settings"
+  fm_control_claude_hooks_clear "$settings" shared \
+    || fail "retiring wiring beside a captain event declaring no entries must succeed"
+  [ "$(jq -r '.hooks | has("Stop")' "$settings")" = true ] \
+    && [ "$(jq -r '.hooks.Stop | length' "$settings")" = 0 ] \
+    || fail "retirement discarded a captain event that declares no entries"
+  [ "$(jq -r '.hooks | has("PreToolUse")' "$settings")" = false ] \
+    || fail "the event firstmate emptied outlived its retirement"
+
+  # A removal firstmate cannot perform is its own outcome, not a claim about
+  # hooks surviving in the captain's settings file.
+  mkdir -p "$dir/home/.opencode/plugins"
+  printf '// firstmate\n' > "$dir/home/.opencode/plugins/fm-busy-state.js"
+  printf '%s' '{"permissions":{"allow":["x"]}}' > "$dir/home/.claude/settings.local.json"
+  chmod 500 "$dir/home/.opencode/plugins"
+  rc=0
+  fm_control_secondmate_lifecycle_retire "$dir/home" "$dir/state" t1 || rc=$?
+  chmod 700 "$dir/home/.opencode/plugins"
+  [ "$rc" = 3 ] \
+    || fail "an artifact firstmate could not remove was reported as $rc, not as a removal failure"
+  [ "$FM_CONTROL_RETIRE_FAILED_PATH" = "$dir/home/.opencode/plugins/fm-busy-state.js" ] \
+    || fail "the removal failure named '$FM_CONTROL_RETIRE_FAILED_PATH' instead of the artifact it could not remove"
+
   printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"},{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G1"}]}]}}' \
     > "$settings"
   fm_control_claude_hooks_write "$settings" \

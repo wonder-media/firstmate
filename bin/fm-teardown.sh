@@ -2096,6 +2096,7 @@ retire_secondmate_lifecycle_wiring() {  # <home> <state-dir> <task-id>
   case "$rc" in
     0) return 0 ;;
     2) echo "warning: firstmate lifecycle hooks in $1/.claude/settings.local.json could not be checked while retiring $3: jq is unavailable, or the file is not one JSON object firstmate can parse; the file is left untouched" >&2 ;;
+    3) echo "warning: firstmate could not remove its own lifecycle artifact $FM_CONTROL_RETIRE_FAILED_PATH while retiring $3; remove it by hand, or a re-leased home will keep signalling for a retired task" >&2 ;;
     *) echo "warning: firstmate lifecycle hooks are still in $1/.claude/settings.local.json after retiring $3; remove them by hand, or a re-leased home will keep signalling for a retired task" >&2 ;;
   esac
 }
