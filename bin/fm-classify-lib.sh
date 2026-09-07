@@ -283,10 +283,6 @@ _fm_decision_drop_r() {  # <open-set> <key> -> _FM_R = set without <key>, no tra
   done
   _FM_R=${out%$'\n'}
 }
-_fm_decision_drop() {  # <open-set> <key>
-  _fm_decision_drop_r "$1" "$2"
-  printf '%s' "${_FM_R:+$_FM_R$'\n'}"
-}
 # Fold ONE status line into an existing "<key>\t<verb>\t<note>\n"-per-line open
 # set, applying the same needs-decision/blocked-opens, resolved/captain-held-closes
 # rule status_open_decisions documents above. Pure text transform, no file I/O.
@@ -1046,17 +1042,18 @@ _fm_status_open_activities_stream() {
   while IFS= read -r line || [ -n "$line" ]; do
     stripped=${line//[[:space:]]/}
     [ -n "$stripped" ] || continue
-    verb=$(status_line_verb "$line")
-    key=$(_fm_decision_key "$line") || continue
+    _fm_status_line_verb_r "$line"; verb=$_FM_R
+    _fm_decision_key_r "$line" || continue
+    key=$_FM_R
     case "$verb" in
       working|"$pause")
-        note=$(status_line_note "$line")
-        open=$(_fm_decision_drop "$open" "$key")
+        _fm_status_line_note_r "$line"; note=$_FM_R
+        _fm_decision_drop_r "$open" "$key"; open=$_FM_R
         [ -n "$open" ] && open="${open}"$'\n'
         open="${open}${key}"$'\t'"${verb}"$'\t'"${note}"$'\n'
         ;;
       done|failed|needs-decision|blocked|"$resolve"|"$held")
-        open=$(_fm_decision_drop "$open" "$key")
+        _fm_decision_drop_r "$open" "$key"; open=$_FM_R
         [ -n "$open" ] && open="${open}"$'\n'
         ;;
     esac
