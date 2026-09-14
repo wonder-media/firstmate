@@ -327,10 +327,13 @@ _fm_decision_key_transition_allowed() {  # <key> <note>
 }
 
 _fm_decision_fold_line_r() {  # <open-set> <status-line> <resolve-verb> <held-verb> -> _FM_R
-  local open=$1 line=$2 resolve=$3 held=$4 verb key note stripped
-  stripped=${line//[[:space:]]/}
-  [ -n "$stripped" ] || { _FM_R=$open; return 0; }
+  local open=$1 line=$2 resolve=$3 held=$4 verb key note
+  [ -n "$line" ] || { _FM_R=$open; return 0; }
   _fm_status_line_verb_r "$line"; verb=$_FM_R
+  case "$verb" in
+    needs-decision|blocked|"$resolve"|"$held") : ;;
+    *) _FM_R=$open; return 0 ;;
+  esac
   _fm_decision_key_r "$line" || { _FM_R=$open; return 0; }
   key=$_FM_R
   _fm_status_line_note_r "$line"; note=$_FM_R

@@ -850,7 +850,7 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
       # flag on top, so this check is correctly scoped even when the caller's
       # own ambient session (e.g. the primary firstmate's default session) is
       # a DIFFERENT one than the target's.
-      fm_backend_herdr_cli "$session" pane get "$pane" >/dev/null 2>&1
+      [ "$(fm_backend_herdr_pane_presence_state "$session" "$pane")" = present ]
       ;;
     zellij)
       fm_backend_source zellij || return 1

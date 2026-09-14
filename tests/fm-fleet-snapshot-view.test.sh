@@ -52,7 +52,23 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-}" in
+  "status --json") printf '{"server":{"running":true}}\n' ;;
+  "pane get")
+    pane=${3:-}
+    if [ "$pane" = "${FM_FAKE_HERDR_HANG_PANE:-}" ]; then
+      while :; do sleep 1; done
+    fi
+    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$pane"
+    ;;
+  "pane read") printf 'quiet terminal\n' ;;
+  "agent get") printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
+esac
+SH
+  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -202,6 +218,44 @@ test_fixture_snapshot_json() {
     | .state == "done" and .pr_url == "https://github.com/kunchenguid/firstmate/pull/7"
   ' >/dev/null || fail "done backlog PR row missing"
   pass "fixture snapshot covers task rows, backlog rows, pointers, and stable ordering"
+}
+
+test_five_herdr_secondmates_isolate_one_timed_out_endpoint() {
+  local home fakebin id gen out start elapsed
+  home=$(make_home five-herdr-secondmates)
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  for id in one two three four five; do
+    mkdir -p "$home/$id-home"
+    gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" "$id")
+    "$ROOT/bin/fm-busy-event.sh" apply "$home/state" "$id" idle --gen "$gen" \
+      --source claude-hook --event stop
+    fm_write_meta "$home/state/$id.meta" \
+      "window=lab:w-${id}:p1" \
+      "worktree=$home/$id-home" \
+      "project=$home/$id-home" \
+      "harness=claude" \
+      "kind=secondmate" \
+      "backend=herdr" \
+      "busy_gen=$gen"
+  done
+  awk 'BEGIN { payload=sprintf("%04000d",0); for (i=0;i<200;i++) print "note: " payload }' \
+    > "$home/state/one.status"
+  fakebin=$(make_fakebin "$home")
+  start=$SECONDS
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_BACKEND_HERDR_READ_TIMEOUT=1 \
+    FM_FAKE_HERDR_HANG_PANE=w-three:p1 "$SNAPSHOT" --json)
+  elapsed=$((SECONDS - start))
+  printf '%s' "$out" | jq -e '
+    (.tasks | length) == 5
+      and ([.tasks[] | select(.id != "three") | select(.current_state.state == "idle" and .endpoint.agent_alive == "alive")] | length) == 4
+      and (.tasks[] | select(.id == "three")
+        | .current_state.state == "unknown"
+          and (.current_state.detail | contains("endpoint state unavailable (unreadable)"))
+          and .endpoint.exists == null
+          and .endpoint.agent_alive == "unknown")
+  ' >/dev/null || fail "one timed-out Herdr endpoint contaminated the five-mate snapshot: $out"
+  [ "$elapsed" -lt 6 ] || fail "five-mate snapshot did not isolate the one-second endpoint bound (${elapsed}s)"
+  pass "five Herdr secondmates complete promptly while one timed-out endpoint alone becomes unknown"
 }
 
 # R1 owner contract: main_inventory discloses orphan in-flight and unstructured
@@ -788,6 +842,7 @@ test_parked_scout_decision_stays_pending() {
 
 test_empty_fleet_json
 test_fixture_snapshot_json
+test_five_herdr_secondmates_isolate_one_timed_out_endpoint
 test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness
 test_event_hints_follow_reconciled_current_state

@@ -79,6 +79,7 @@ case "$SNAPSHOT_EPOCH" in ''|*[!0-9]*) SNAPSHOT_EPOCH=$(date +%s) ;; esac
 # hang or explode the parent snapshot.
 FM_SNAPSHOT_SECONDMATES=${FM_SNAPSHOT_SECONDMATES:-20}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
+FM_SNAPSHOT_CREW_STATE_TIMEOUT=${FM_SNAPSHOT_CREW_STATE_TIMEOUT:-4}
 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
 FM_SNAPSHOT_SECONDMATE_CHILDREN=${FM_SNAPSHOT_SECONDMATE_CHILDREN:-20}
 FM_SNAPSHOT_SECONDMATE_QUEUED=${FM_SNAPSHOT_SECONDMATE_QUEUED:-20}
@@ -109,6 +110,7 @@ case "$FM_SNAPSHOT_SECONDMATES" in
     ;;
 esac
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_TIMEOUT "$FM_SNAPSHOT_SECONDMATE_TIMEOUT"
+validate_positive_bound FM_SNAPSHOT_CREW_STATE_TIMEOUT "$FM_SNAPSHOT_CREW_STATE_TIMEOUT"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_MAX_BYTES "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_CHILDREN "$FM_SNAPSHOT_SECONDMATE_CHILDREN"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_QUEUED "$FM_SNAPSHOT_SECONDMATE_QUEUED"
@@ -155,6 +157,8 @@ queued with hold_reason, hold_kind, and plural blocker fields for downstream
 projections. A captain hold is actionable only when every blocker is Done.
 Cross-home reads use FM_SNAPSHOT_SECONDMATES (default 20, 0 lifts the count
 bound), FM_SNAPSHOT_SECONDMATE_TIMEOUT, and FM_SNAPSHOT_SECONDMATE_MAX_BYTES.
+Each task's current-state read uses FM_SNAPSHOT_CREW_STATE_TIMEOUT as a hard
+whole-read bound, independent of backend-specific command deadlines.
 Terminal contradiction evidence uses
 FM_SNAPSHOT_TERMINAL_LINES, FM_SNAPSHOT_TERMINAL_BYTES, and
 FM_SNAPSHOT_TERMINAL_TIMEOUT and never becomes canonical current state.
@@ -198,34 +202,32 @@ last_nonempty_line() {  # <file>
 }
 
 crew_state_json() {  # <id>
-  local id=$1 raw rest state source detail sep
-  raw=$(
-    FM_ROOT_OVERRIDE="$FM_ROOT" \
+  local id=$1 raw rc detail
+  raw=$(fm_run_timed "$FM_SNAPSHOT_CREW_STATE_TIMEOUT" env \
+      FM_ROOT_OVERRIDE="$FM_ROOT" \
       FM_HOME="$FM_HOME" \
       FM_STATE_OVERRIDE="$STATE" \
       FM_DATA_OVERRIDE="$DATA" \
       FM_PROJECTS_OVERRIDE="$PROJECTS" \
       FM_CONFIG_OVERRIDE="$CONFIG" \
-      "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null || true
+      "$SCRIPT_DIR/fm-crew-state.sh" --json "$id" 2>/dev/null
   )
-  raw=$(printf '%s\n' "$raw" | head -1)
-  sep=' · '
-  state=unknown
-  source=none
-  detail=
-  case "$raw" in
-    state:\ *"$sep"source:\ *)
-      rest=${raw#state: }
-      state=${rest%%"$sep"source: *}
-      rest=${rest#*"$sep"source: }
-      case "$rest" in
-        *"$sep"*) source=${rest%%"$sep"*}; detail=${rest#*"$sep"} ;;
-        *) source=$rest ;;
-      esac
-      ;;
-  esac
-  jq -n --arg raw "$raw" --arg state "$state" --arg source "$source" --arg detail "$detail" \
-    '{state:$state,source:$source,detail:$detail,raw:$raw}'
+  rc=$?
+  if printf '%s' "$raw" | jq -e '
+    .current_state.state and .current_state.source
+    and (.endpoint.exists == null or (.endpoint.exists | type) == "boolean")
+    and (.endpoint.agent_alive | type) == "string"
+  ' >/dev/null 2>&1; then
+    printf '%s' "$raw"
+  else
+    if [ "$rc" -eq 124 ]; then
+      detail="current-state read timed out after ${FM_SNAPSHOT_CREW_STATE_TIMEOUT}s"
+    else
+      detail="current-state read unavailable"
+    fi
+    jq -n --arg raw "$raw" --arg detail "$detail" \
+      '{current_state:{state:"unknown",source:"none",detail:$detail,raw:$raw},endpoint:{exists:null,agent_alive:"unknown"}}'
+  fi
 }
 
 status_event_json() {  # <status-log>
@@ -403,7 +405,7 @@ backlog_json() {  # [<backlog-path>] - defaults to this home's $BACKLOG
 task_json_lines() {
   local meta id kind harness mode yolo project worktree home projects backend target status_log report_path
   local remote_host remote_root remote_state remote_rc remote_home_present
-  local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
+  local pr pr_source event_json observation_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json
 
@@ -443,7 +445,8 @@ task_json_lines() {
       pr_source=absent
     fi
 
-    current_json=$(crew_state_json "$id")
+    observation_json=$(crew_state_json "$id")
+    current_json=$(printf '%s' "$observation_json" | jq -c '.current_state')
     event_json=$(status_event_json "$status_log")
     last_event_raw=$(printf '%s' "$event_json" | jq -r '.last_event.raw // ""')
     current_state=$(printf '%s' "$current_json" | jq -r '.state // ""')
@@ -502,6 +505,9 @@ task_json_lines() {
         endpoint_exists=null
         agent_alive=unknown
       fi
+    elif [ "$kind" = secondmate ]; then
+      endpoint_exists=$(printf '%s' "$observation_json" | jq -c '.endpoint.exists')
+      agent_alive=$(printf '%s' "$observation_json" | jq -r '.endpoint.agent_alive')
     else
       if [ -n "$target" ]; then
         if fm_backend_target_exists "$backend" "$target" "fm-$id" >/dev/null 2>&1; then
@@ -509,9 +515,6 @@ task_json_lines() {
         else
           endpoint_exists=false
         fi
-      fi
-      if [ "$kind" = secondmate ] && [ -n "$target" ]; then
-        agent_alive=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null || printf unknown)
       fi
     fi
 

@@ -91,6 +91,13 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # maintenance inventory.
 # shellcheck source=bin/fm-tool-versions-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-tool-versions-lib.sh"
+# Passive endpoint reads must not inherit an unbounded vendor CLI wait.
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$FM_BACKEND_HERDR_ROOT/bin/fm-timeout-lib.sh"
+FM_BACKEND_HERDR_READ_TIMEOUT=${FM_BACKEND_HERDR_READ_TIMEOUT:-3}
+case "$FM_BACKEND_HERDR_READ_TIMEOUT" in
+  ''|*[!0-9]*|0) FM_BACKEND_HERDR_READ_TIMEOUT=3 ;;
+esac
 # events.subscribe (the native pane.agent_status_changed push stream) and its
 # subscription_event schema first shipped at protocol 16 (verified: herdr
 # 0.7.3). Below this, or with the events surface absent from `herdr api schema`,
@@ -407,6 +414,21 @@ fm_backend_herdr_cli() {  # <session> <herdr-subcommand-and-args...>
   local session=$1
   shift
   HERDR_SESSION="$session" herdr "$@" --session "$session"
+}
+
+# fm_backend_herdr_read_cli: hard-bounded, read-only sibling of
+# fm_backend_herdr_cli for passive current-state probes. A timeout is an
+# unreadable observation, never evidence that an endpoint is dead or idle.
+fm_backend_herdr_read_cli() {  # <session> <herdr-subcommand-and-args...>
+  local session=$1
+  shift
+  (
+    # The adapter's polling tests intentionally override sleep in their caller.
+    # The timeout watchdog is infrastructure, not part of that poll cadence.
+    unset -f sleep 2>/dev/null || true
+    fm_run_bash_timeout "$FM_BACKEND_HERDR_READ_TIMEOUT" \
+      fm_backend_herdr_cli "$session" "$@"
+  )
 }
 
 # fm_backend_herdr_tool_check: refuse loudly if herdr or jq is missing.
@@ -2015,7 +2037,7 @@ fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace> [<launcher-
 # as dead|present|unknown from its JSON body, never from process exit status.
 fm_backend_herdr_pane_presence_state() {  # <session> <pane_id>
   local session=$1 pane_id=$2 out code pid
-  out=$(fm_backend_herdr_cli "$session" pane get "$pane_id" 2>&1)
+  out=$(fm_backend_herdr_read_cli "$session" pane get "$pane_id" 2>&1)
   code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
   if [ -n "$code" ]; then
     [ "$code" = "pane_not_found" ] && printf 'dead' || printf 'unknown'
@@ -2089,7 +2111,7 @@ fm_backend_herdr_pane_agent_state() {  # <session> <pane_id>
     esac
     return 0
   fi
-  out=$(fm_backend_herdr_cli "$session" agent get "$pane_id" 2>&1)
+  out=$(fm_backend_herdr_read_cli "$session" agent get "$pane_id" 2>&1)
   code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
   if [ -n "$code" ]; then
     [ "$code" = "agent_not_found" ] && printf 'no-agent' || printf 'unknown'
@@ -3126,7 +3148,7 @@ fm_backend_herdr_classify_submit_agent_status() {  # <raw-agent_status>
 # only add latency without adding safety.
 fm_backend_herdr_agent_status_raw() {  # <session> <pane_id>
   local session=$1 pane_id=$2 out
-  out=$(fm_backend_herdr_cli "$session" agent get "$pane_id" 2>/dev/null) || { printf ''; return 0; }
+  out=$(fm_backend_herdr_read_cli "$session" agent get "$pane_id" 2>/dev/null) || { printf ''; return 0; }
   printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null
 }
 
@@ -3136,7 +3158,7 @@ fm_backend_herdr_agent_status_raw() {  # <session> <pane_id>
 # fm_backend_herdr_classify_agent_status for the status->busy/idle/unknown
 # mapping.
 fm_backend_herdr_busy_state() {  # <target>
-  fm_backend_herdr_target_ready "$1" || { printf 'unknown'; return 0; }
+  fm_backend_herdr_parse_target "$1" || { printf 'unknown'; return 0; }
   fm_backend_herdr_classify_agent_status \
     "$(fm_backend_herdr_agent_status_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")"
 }

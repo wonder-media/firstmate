@@ -57,8 +57,10 @@
 #      rather than trusting a stale status log; a secondmate instead keeps its own
 #      declared paused/blocked/failed line, per item 4.
 #
-# Read-only and side-effect free. Always exits 0 on a successful read regardless
-# of state; exit 2 only on a usage error (no id).
+# Read-only and side-effect free. `--json` adds the endpoint evidence already
+# observed while classifying a secondmate, so structured callers never repeat
+# the same potentially slow backend probe. Always exits 0 on a successful read
+# regardless of state; exit 2 only on a usage error (no id).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,8 +79,13 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
 
+OUTPUT_MODE=line
+if [ "${1:-}" = --json ]; then
+  OUTPUT_MODE=json
+  shift
+fi
 ID=${1:-}
-[ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
+[ -n "$ID" ] || { echo "usage: fm-crew-state.sh [--json] <id>" >&2; exit 2; }
 
 META="$STATE/$ID.meta"
 LOG="$STATE/$ID.status"
@@ -91,12 +98,37 @@ case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
 FM_CREW_STATE_RUNS_LIMIT=${FM_CREW_STATE_RUNS_LIMIT:-200}
 case "$FM_CREW_STATE_RUNS_LIMIT" in ''|*[!0-9]*) FM_CREW_STATE_RUNS_LIMIT=200 ;; esac
 SEP=' · '
+ENDPOINT_EXISTS=null
+AGENT_ALIVE=not_checked
+ENDPOINT_STATE=
+
+observe_secondmate_endpoint() {
+  [ "${KIND:-}" = secondmate ] || return 0
+  [ -n "${BACKEND_TARGET:-}" ] || return 0
+  [ -z "$(meta_value remote_host)" ] || { AGENT_ALIVE=unknown; return 0; }
+  [ -z "$ENDPOINT_STATE" ] || return 0
+  ENDPOINT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")
+  case "$ENDPOINT_STATE" in
+    alive) ENDPOINT_EXISTS=true; AGENT_ALIVE=alive ;;
+    dead) ENDPOINT_EXISTS=true; AGENT_ALIVE=dead ;;
+    missing) ENDPOINT_EXISTS=false; AGENT_ALIVE=dead ;;
+    *) ENDPOINT_EXISTS=null; AGENT_ALIVE=unknown ;;
+  esac
+}
 
 # Emit the one canonical line and exit 0. Detail is optional.
 emit() {  # <state> <source> [detail]
-  local line="state: $1${SEP}source: $2"
-  [ -n "${3:-}" ] && line="$line${SEP}$3"
-  printf '%s\n' "$line"
+  local state=$1 source=$2 detail=${3:-} line="state: $1${SEP}source: $2"
+  [ -n "$detail" ] && line="$line${SEP}$detail"
+  if [ "$OUTPUT_MODE" = json ]; then
+    observe_secondmate_endpoint
+    command -v jq >/dev/null 2>&1 || { echo "fm-crew-state: jq not found for --json" >&2; exit 1; }
+    jq -n --arg state "$state" --arg source "$source" --arg detail "$detail" \
+      --arg raw "$line" --arg alive "$AGENT_ALIVE" --argjson exists "$ENDPOINT_EXISTS" \
+      '{current_state:{state:$state,source:$source,detail:$detail,raw:$raw},endpoint:{exists:$exists,agent_alive:$alive}}'
+  else
+    printf '%s\n' "$line"
+  fi
   exit 0
 }
 
@@ -112,6 +144,9 @@ WT=$(meta_value worktree)
 KIND=$(meta_value kind)
 HARNESS=$(meta_value harness)
 [ -n "$KIND" ] || KIND=ship
+TASK_BACKEND=$(fm_backend_of_meta "$META")
+BACKEND_TARGET=$(fm_backend_target_of_meta "$META")
+EXPECTED_LABEL="fm-$ID"
 
 # A torn-down (or never-created) worktree has no current state to read.
 if [ -z "$WT" ] || [ ! -d "$WT" ]; then
@@ -153,13 +188,12 @@ LOG_VERB=$(status_line_verb "$LOG_LINE")
 # shell - so a finished crew whose endpoint has closed still reports its run-step
 # state (e.g. done) instead of being masked as unknown. Backend-aware
 # (fm_backend_of_meta defaults absent backend= to tmux, the P1 contract): a
-# herdr task is read through fm_backend_capture instead of a bare tmux probe.
-TASK_BACKEND=$(fm_backend_of_meta "$META")
-BACKEND_TARGET=$(fm_backend_target_of_meta "$META")
-EXPECTED_LABEL="fm-$ID"
+# Herdr task uses the bounded, passive endpoint-presence read so this nominally
+# read-only helper never starts a missing server merely to inspect current state.
 pane_readable() {  # <target>
   case "$TASK_BACKEND" in
     tmux) tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1 ;;
+    herdr) fm_backend_target_exists "$TASK_BACKEND" "$1" "$EXPECTED_LABEL" ;;
     *) fm_backend_capture "$TASK_BACKEND" "$1" 1 "$EXPECTED_LABEL" >/dev/null 2>&1 ;;
   esac
 }
@@ -587,7 +621,7 @@ if [ "$KIND" = secondmate ]; then
   REMOTE_HOST=$(meta_value remote_host)
   [ -z "$REMOTE_HOST" ] \
     || emit_secondmate_declared_or unknown none "remote secondmate current-state source unavailable"
-  ENDPOINT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")
+  observe_secondmate_endpoint
   [ "$ENDPOINT_STATE" = alive ] \
     || emit_secondmate_declared_or unknown none "secondmate endpoint state unavailable ($ENDPOINT_STATE)"
 
