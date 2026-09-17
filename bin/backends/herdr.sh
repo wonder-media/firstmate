@@ -94,9 +94,9 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # Passive endpoint reads must not inherit an unbounded vendor CLI wait.
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-timeout-lib.sh"
-FM_BACKEND_HERDR_READ_TIMEOUT=${FM_BACKEND_HERDR_READ_TIMEOUT:-3}
+FM_BACKEND_HERDR_READ_TIMEOUT=${FM_BACKEND_HERDR_READ_TIMEOUT:-1}
 case "$FM_BACKEND_HERDR_READ_TIMEOUT" in
-  ''|*[!0-9]*|0) FM_BACKEND_HERDR_READ_TIMEOUT=3 ;;
+  ''|*[!0-9]*|0) FM_BACKEND_HERDR_READ_TIMEOUT=1 ;;
 esac
 # events.subscribe (the native pane.agent_status_changed push stream) and its
 # subscription_event schema first shipped at protocol 16 (verified: herdr
@@ -417,18 +417,14 @@ fm_backend_herdr_cli() {  # <session> <herdr-subcommand-and-args...>
 }
 
 # fm_backend_herdr_read_cli: hard-bounded, read-only sibling of
-# fm_backend_herdr_cli for passive current-state probes. A timeout is an
-# unreadable observation, never evidence that an endpoint is dead or idle.
+# fm_backend_herdr_cli for passive current-state probes, bounded by the shared
+# runner (fm_run_timed). A timeout is an unreadable observation, never evidence
+# that an endpoint is dead or idle.
 fm_backend_herdr_read_cli() {  # <session> <herdr-subcommand-and-args...>
   local session=$1
   shift
-  (
-    # The adapter's polling tests intentionally override sleep in their caller.
-    # The timeout watchdog is infrastructure, not part of that poll cadence.
-    unset -f sleep 2>/dev/null || true
-    fm_run_bash_timeout "$FM_BACKEND_HERDR_READ_TIMEOUT" \
-      fm_backend_herdr_cli "$session" "$@"
-  )
+  fm_run_timed "$FM_BACKEND_HERDR_READ_TIMEOUT" \
+    env HERDR_SESSION="$session" herdr "$@" --session "$session"
 }
 
 # fm_backend_herdr_tool_check: refuse loudly if herdr or jq is missing.

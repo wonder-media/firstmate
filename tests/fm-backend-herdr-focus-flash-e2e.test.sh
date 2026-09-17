@@ -171,6 +171,7 @@ B_OUT=$(PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" FM_FLASH_CALL_LOG="$CALL_LOG" bash 
     printf "%s\n" "$*" >> "$FM_FLASH_CALL_LOG"
     HERDR_SESSION="$session" herdr "$@" --session "$session"
   }
+  fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
   fm_backend_herdr_projection_close_pane_focus_preserving "$2" "$3"
 ' _ "$ROOT" "$HERDR_LAB_SESSION" "$B_DOOMED_PANE" 2>&1)
 B_STATUS=$?
@@ -305,6 +306,7 @@ C_OUT=$(PATH="$FAKEBIN:$HERDR_ORIGINAL_PATH" FM_FLASH_CALL_LOG="$C_CALL_LOG" \
     printf "%s\n" "$*" >> "$FM_FLASH_CALL_LOG"
     HERDR_SESSION="$session" herdr "$@" --session "$session"
   }
+  fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
   fm_backend_herdr_projection_close_pane_focus_preserving "$2" "$3"
 ' _ "$ROOT" "$HERDR_LAB_SESSION" "$C_DOOMED_PANE" 2>&1)
 C_STATUS=$?

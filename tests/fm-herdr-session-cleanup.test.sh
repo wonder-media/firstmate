@@ -42,12 +42,14 @@ LINUX_PROCESS_INFO='{"result":{"type":"pane_process_info","process_info":{"pane_
 argv_pid=$(
   # shellcheck disable=SC2329 # invoked indirectly by the idle-shell proof.
   fm_backend_herdr_cli() { printf '%s\n' "$LINUX_PROCESS_INFO"; }
+  fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
   FM_HERDR_PS_BIN="$FAKE_PS" fm_backend_herdr_pane_idle_shell_pid test w2:p1
 ) || fail "Linux Herdr process argv array was not accepted"
 [ "$argv_pid" = 67 ] || fail "idle-shell proof printed the wrong shell pid: $argv_pid"
 if (
   # shellcheck disable=SC2329 # invoked indirectly by the idle-shell proof.
   fm_backend_herdr_cli() { printf '%s\n' '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w2:p1","shell_pid":67,"foreground_process_group_id":67,"foreground_processes":[{"argv":[67],"name":"sh","pid":67}]}}}'; }
+  fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
   FM_HERDR_PS_BIN="$FAKE_PS" FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 \
     fm_backend_herdr_pane_idle_shell_pid test w2:p1
 ) >/dev/null 2>&1; then
@@ -185,6 +187,7 @@ fm_backend_herdr_cli() {
     *) return 1 ;;
   esac
 }
+fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
 
 fm_backend_herdr_projection_close_pane_focus_preserving() {
   [ ! -e "$FIXTURE_DIR/focus-refuse" ] || return 1

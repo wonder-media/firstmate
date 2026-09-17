@@ -157,8 +157,10 @@ queued with hold_reason, hold_kind, and plural blocker fields for downstream
 projections. A captain hold is actionable only when every blocker is Done.
 Cross-home reads use FM_SNAPSHOT_SECONDMATES (default 20, 0 lifts the count
 bound), FM_SNAPSHOT_SECONDMATE_TIMEOUT, and FM_SNAPSHOT_SECONDMATE_MAX_BYTES.
-Each task's current-state read uses FM_SNAPSHOT_CREW_STATE_TIMEOUT as a hard
-whole-read bound, independent of backend-specific command deadlines.
+Each task's current-state read uses FM_SNAPSHOT_CREW_STATE_TIMEOUT (default 4)
+as a hard whole-read bound. It must cover the at most three sequential Herdr
+endpoint reads one read performs, each bounded by FM_BACKEND_HERDR_READ_TIMEOUT
+(default 1).
 Terminal contradiction evidence uses
 FM_SNAPSHOT_TERMINAL_LINES, FM_SNAPSHOT_TERMINAL_BYTES, and
 FM_SNAPSHOT_TERMINAL_TIMEOUT and never becomes canonical current state.

@@ -183,18 +183,32 @@ map_log_state() {  # <line>
 LOG_LINE=$(log_last_line || true)
 LOG_VERB=$(status_line_verb "$LOG_LINE")
 
-# pane_readable is consulted ONLY in the no-run fallback below. The run-step path
+# target_presence is consulted ONLY in the no-run fallback below. The run-step path
 # stays authoritative regardless of pane liveness - judge by the run-step, not the
 # shell - so a finished crew whose endpoint has closed still reports its run-step
 # state (e.g. done) instead of being masked as unknown. Backend-aware
 # (fm_backend_of_meta defaults absent backend= to tmux, the P1 contract): a
 # Herdr task uses the bounded, passive endpoint-presence read so this nominally
-# read-only helper never starts a missing server merely to inspect current state.
-pane_readable() {  # <target>
+# read-only helper never starts a missing server merely to inspect current
+# state, and only a structured pane_not_found reads as gone; a timed-out or
+# malformed read is unreadable, never evidence of a dead endpoint.
+target_presence() {  # <target> -> present|gone|unreadable
   case "$TASK_BACKEND" in
-    tmux) tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1 ;;
-    herdr) fm_backend_target_exists "$TASK_BACKEND" "$1" "$EXPECTED_LABEL" ;;
-    *) fm_backend_capture "$TASK_BACKEND" "$1" 1 "$EXPECTED_LABEL" >/dev/null 2>&1 ;;
+    tmux)
+      tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1 && printf present || printf gone
+      ;;
+    herdr)
+      fm_backend_source herdr || { printf unreadable; return 0; }
+      fm_backend_herdr_parse_target "$1" || { printf unreadable; return 0; }
+      case "$(fm_backend_herdr_pane_presence_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" in
+        present) printf present ;;
+        dead) printf gone ;;
+        *) printf unreadable ;;
+      esac
+      ;;
+    *)
+      fm_backend_capture "$TASK_BACKEND" "$1" 1 "$EXPECTED_LABEL" >/dev/null 2>&1 && printf present || printf gone
+      ;;
   esac
 }
 # crew_busy_verdict: the crew's semantic busy state from the one contract
@@ -656,7 +670,11 @@ if [ "$KIND" = secondmate ]; then
   esac
 fi
 
-pane_readable "$BACKEND_TARGET" || emit unknown none "backend target gone: $BACKEND_TARGET"
+case "$(target_presence "$BACKEND_TARGET")" in
+  present) ;;
+  gone) emit unknown none "backend target gone: $BACKEND_TARGET" ;;
+  *) emit unknown none "backend target unreadable: $BACKEND_TARGET" ;;
+esac
 
 # Only an exact busy verdict reports working here, and only an exact idle
 # verdict permits the status-log fallback below. Missing, malformed, stale, or
