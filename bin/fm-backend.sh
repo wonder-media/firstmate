@@ -828,29 +828,49 @@ fm_backend_composer_state() {  # <backend> <target> [expected-label] -> empty|pe
 # probe). A gone tmux window or an unqueryable herdr pane (server down, pane
 # closed), missing zellij pane, or unreadable Orca terminal simply fails, which
 # IS "does not exist" for this purpose.
-# Mirrors fm-crew-state.sh's pane_readable check; exists here as one shared
+# Mirrors fm-crew-state.sh's target_presence check; exists here as one shared
 # primitive so callers that only need a fast alive/dead read (recovery
 # digests, the session-start fleet digest) do not re-derive it inline.
+# Callers that must not mistake an unreadable endpoint for an absent one use
+# fm_backend_target_presence below instead.
+#
+# fm_backend_target_presence <backend> <target> [expected-label] prints
+# present|gone|unknown. Only Herdr distinguishes unknown: its structured
+# pane get separates pane_not_found (gone) from a timed-out or malformed read
+# (unknown), and that read is scoped with the required --session flag
+# (fm_backend_herdr_cli, not a bare HERDR_SESSION env var), verified
+# empirically (docs/herdr-backend.md "Session targeting") because the env var
+# alone is silently ignored once another herdr server is bound on the machine.
+# Other backends only have a yes/no probe, so they never print unknown.
+fm_backend_target_presence() {  # <backend> <target> [expected-label]
+  local backend=$1 target=$2 expected_label=${3:-}
+  case "$backend" in
+    herdr)
+      fm_backend_source herdr || { printf 'unknown'; return 0; }
+      fm_backend_herdr_parse_target "$target" || { printf 'unknown'; return 0; }
+      case "$(fm_backend_herdr_pane_presence_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" in
+        present) printf 'present' ;;
+        dead) printf 'gone' ;;
+        *) printf 'unknown' ;;
+      esac
+      ;;
+    *)
+      if fm_backend_target_exists "$backend" "$target" "$expected_label"; then
+        printf 'present'
+      else
+        printf 'gone'
+      fi
+      ;;
+  esac
+}
 fm_backend_target_exists() {  # <backend> <target> [expected-label]
-  local backend=$1 target=$2 expected_label=${3:-} session pane
+  local backend=$1 target=$2 expected_label=${3:-}
   case "$backend" in
     tmux)
       tmux display-message -p -t "$target" '#{pane_id}' >/dev/null 2>&1
       ;;
     herdr)
-      fm_backend_source herdr || return 1
-      session=${target%%:*}
-      pane=${target#*:}
-      [ -n "$session" ] && [ -n "$pane" ] && [ "$pane" != "$target" ] || return 1
-      # fm_backend_herdr_cli (not a raw HERDR_SESSION-only call): verified
-      # empirically (docs/herdr-backend.md "Session targeting") that the bare
-      # env var alone is NOT reliably honored once another herdr server is
-      # already bound on the machine - it silently queries whatever server IS
-      # running instead. fm_backend_herdr_cli appends the required --session
-      # flag on top, so this check is correctly scoped even when the caller's
-      # own ambient session (e.g. the primary firstmate's default session) is
-      # a DIFFERENT one than the target's.
-      [ "$(fm_backend_herdr_pane_presence_state "$session" "$pane")" = present ]
+      [ "$(fm_backend_target_presence herdr "$target" "$expected_label")" = present ]
       ;;
     zellij)
       fm_backend_source zellij || return 1

@@ -79,7 +79,7 @@ case "$SNAPSHOT_EPOCH" in ''|*[!0-9]*) SNAPSHOT_EPOCH=$(date +%s) ;; esac
 # hang or explode the parent snapshot.
 FM_SNAPSHOT_SECONDMATES=${FM_SNAPSHOT_SECONDMATES:-20}
 FM_SNAPSHOT_SECONDMATE_TIMEOUT=${FM_SNAPSHOT_SECONDMATE_TIMEOUT:-8}
-FM_SNAPSHOT_CREW_STATE_TIMEOUT=${FM_SNAPSHOT_CREW_STATE_TIMEOUT:-4}
+FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT=${FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT:-2}
 FM_SNAPSHOT_SECONDMATE_MAX_BYTES=${FM_SNAPSHOT_SECONDMATE_MAX_BYTES:-262144}
 FM_SNAPSHOT_SECONDMATE_CHILDREN=${FM_SNAPSHOT_SECONDMATE_CHILDREN:-20}
 FM_SNAPSHOT_SECONDMATE_QUEUED=${FM_SNAPSHOT_SECONDMATE_QUEUED:-20}
@@ -110,7 +110,7 @@ case "$FM_SNAPSHOT_SECONDMATES" in
     ;;
 esac
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_TIMEOUT "$FM_SNAPSHOT_SECONDMATE_TIMEOUT"
-validate_positive_bound FM_SNAPSHOT_CREW_STATE_TIMEOUT "$FM_SNAPSHOT_CREW_STATE_TIMEOUT"
+validate_positive_bound FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT "$FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_MAX_BYTES "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_CHILDREN "$FM_SNAPSHOT_SECONDMATE_CHILDREN"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_QUEUED "$FM_SNAPSHOT_SECONDMATE_QUEUED"
@@ -140,6 +140,13 @@ validate_positive_bound FM_SNAPSHOT_REGISTRY_TIMEOUT "$FM_SNAPSHOT_REGISTRY_TIME
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-timeout-lib.sh"  # fm_run_timed: the shared hard bound
 
+# One crew-state read performs, in sequence, at most two snapshot-scoped run
+# lookups and at most three Herdr endpoint reads, each already bounded. The
+# whole-read bound is derived from those inner bounds so it always covers them.
+fm_backend_source herdr  # FM_BACKEND_HERDR_READ_TIMEOUT: the per-endpoint read bound
+FM_SNAPSHOT_CREW_STATE_TIMEOUT=${FM_SNAPSHOT_CREW_STATE_TIMEOUT:-$((2 * FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT + 3 * FM_BACKEND_HERDR_READ_TIMEOUT + 1))}
+validate_positive_bound FM_SNAPSHOT_CREW_STATE_TIMEOUT "$FM_SNAPSHOT_CREW_STATE_TIMEOUT"
+
 usage() {
   cat <<'EOF'
 usage: fm-fleet-snapshot.sh --json
@@ -157,10 +164,12 @@ queued with hold_reason, hold_kind, and plural blocker fields for downstream
 projections. A captain hold is actionable only when every blocker is Done.
 Cross-home reads use FM_SNAPSHOT_SECONDMATES (default 20, 0 lifts the count
 bound), FM_SNAPSHOT_SECONDMATE_TIMEOUT, and FM_SNAPSHOT_SECONDMATE_MAX_BYTES.
-Each task's current-state read uses FM_SNAPSHOT_CREW_STATE_TIMEOUT (default 4)
-as a hard whole-read bound. It must cover the at most three sequential Herdr
-endpoint reads one read performs, each bounded by FM_BACKEND_HERDR_READ_TIMEOUT
-(default 1).
+Each task's current-state read is a hard-bounded whole read. Its no-mistakes
+run lookups use FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT (default 2) each and its Herdr
+endpoint reads use FM_BACKEND_HERDR_READ_TIMEOUT (default 3) each; the whole
+bound FM_SNAPSHOT_CREW_STATE_TIMEOUT defaults to two run lookups plus three
+endpoint reads plus one second so it always covers the reads it contains. A
+whole read that still overruns is disclosed as unknown for that task only.
 Terminal contradiction evidence uses
 FM_SNAPSHOT_TERMINAL_LINES, FM_SNAPSHOT_TERMINAL_BYTES, and
 FM_SNAPSHOT_TERMINAL_TIMEOUT and never becomes canonical current state.
@@ -212,6 +221,7 @@ crew_state_json() {  # <id>
       FM_DATA_OVERRIDE="$DATA" \
       FM_PROJECTS_OVERRIDE="$PROJECTS" \
       FM_CONFIG_OVERRIDE="$CONFIG" \
+      FM_CREW_STATE_NM_TIMEOUT="$FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT" \
       "$SCRIPT_DIR/fm-crew-state.sh" --json "$id" 2>/dev/null
   )
   rc=$?
@@ -512,11 +522,11 @@ task_json_lines() {
       agent_alive=$(printf '%s' "$observation_json" | jq -r '.endpoint.agent_alive')
     else
       if [ -n "$target" ]; then
-        if fm_backend_target_exists "$backend" "$target" "fm-$id" >/dev/null 2>&1; then
-          endpoint_exists=true
-        else
-          endpoint_exists=false
-        fi
+        case "$(fm_backend_target_presence "$backend" "$target" "fm-$id" 2>/dev/null)" in
+          present) endpoint_exists=true ;;
+          gone) endpoint_exists=false ;;
+          *) endpoint_exists=null ;;
+        esac
       fi
     fi
 

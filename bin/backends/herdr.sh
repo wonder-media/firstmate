@@ -94,9 +94,9 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # Passive endpoint reads must not inherit an unbounded vendor CLI wait.
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-timeout-lib.sh"
-FM_BACKEND_HERDR_READ_TIMEOUT=${FM_BACKEND_HERDR_READ_TIMEOUT:-1}
+FM_BACKEND_HERDR_READ_TIMEOUT=${FM_BACKEND_HERDR_READ_TIMEOUT:-3}
 case "$FM_BACKEND_HERDR_READ_TIMEOUT" in
-  ''|*[!0-9]*|0) FM_BACKEND_HERDR_READ_TIMEOUT=1 ;;
+  ''|*[!0-9]*|0) FM_BACKEND_HERDR_READ_TIMEOUT=3 ;;
 esac
 # events.subscribe (the native pane.agent_status_changed push stream) and its
 # subscription_event schema first shipped at protocol 16 (verified: herdr

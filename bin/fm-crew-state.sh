@@ -198,11 +198,9 @@ target_presence() {  # <target> -> present|gone|unreadable
       tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1 && printf present || printf gone
       ;;
     herdr)
-      fm_backend_source herdr || { printf unreadable; return 0; }
-      fm_backend_herdr_parse_target "$1" || { printf unreadable; return 0; }
-      case "$(fm_backend_herdr_pane_presence_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" in
+      case "$(fm_backend_target_presence "$TASK_BACKEND" "$1" "$EXPECTED_LABEL")" in
         present) printf present ;;
-        dead) printf gone ;;
+        gone) printf gone ;;
         *) printf unreadable ;;
       esac
       ;;
