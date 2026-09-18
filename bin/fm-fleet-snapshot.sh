@@ -21,17 +21,23 @@
 #     captain_actionable fields. Repeated blocker tokens remain ordered; a blocker
 #     resolves only when its structured record is Done, and missing ids stay open.
 #   tasks[]: one row per state/<id>.meta, sorted by id.
-#     current_state is parsed from bin/fm-crew-state.sh <id> and preserves
-#     state, source, detail, and raw line separately.
+#     current_state is read from bin/fm-crew-state.sh --json <id> under the
+#     whole-read bound FM_SNAPSHOT_CREW_STATE_TIMEOUT (see --help) and preserves
+#     state, source, detail, and raw line separately; a read that overruns or
+#     returns malformed output is disclosed as unknown for that task only.
 #     paths.status_log.last_event is historical wake-event data only, never
 #     current state.
 #     hints.open_decisions is the keyed open-decision set returned by
 #     fm-classify-lib.sh's authoritative status_open_decisions fold and reconciled
 #     against current_state; hints.pending_decision and hints.blocked_event are
 #     booleans derived from that set.
-#     endpoint.exists is the cheap backend endpoint-presence read.
+#     endpoint.exists is the bounded backend endpoint-presence read: true,
+#     false only on confirmed absence, null when the read timed out or was
+#     otherwise unreadable (never false on a timeout).
 #     endpoint.agent_alive is populated for secondmates only, where it is useful
-#     return-channel supervision data; other tasks use "not_checked".
+#     return-channel supervision data; other tasks use "not_checked". For a
+#     secondmate both endpoint fields come from the same fm-crew-state.sh --json
+#     observation, so the endpoint is probed once per task, not twice.
 #   scout_reports[]: present data/<id>/report.md pointers.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json

@@ -299,7 +299,8 @@ test_ship_run_lookup_is_snapshot_scoped() {
   printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
   mkdir -p "$home/projects/ship-worktree"
   git -C "$home/projects/ship-worktree" init -q
-  git -C "$home/projects/ship-worktree" commit -q --allow-empty -m init
+  git -C "$home/projects/ship-worktree" -c user.name=fmtest -c user.email=fmtest@example.invalid \
+    commit -q --allow-empty -m init
   git -C "$home/projects/ship-worktree" checkout -q -b fm/ship-task
   fm_write_meta "$home/state/ship-task.meta" \
     "window=firstmate:fm-ship-task" \

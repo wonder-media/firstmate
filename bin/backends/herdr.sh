@@ -3133,15 +3133,15 @@ fm_backend_herdr_classify_submit_agent_status() {  # <raw-agent_status>
   esac
 }
 
-# fm_backend_herdr_agent_status_raw: one `agent get` read, echoing the raw
-# agent_status string (working/idle/done/blocked/...), or empty on any
-# failure. Deliberately skips fm_backend_herdr_target_ready's server-ensure
-# round trip (an extra `status --json` call) that fm_backend_herdr_busy_state
-# pays on every call: fm_backend_herdr_wait_for_working polls this in a tight
-# loop right after a caller has already parsed the target and confirmed the
-# server is live (e.g. fm_backend_herdr_send_text_submit, immediately after a
-# successful send-text), so re-checking server liveness on every poll would
-# only add latency without adding safety.
+# fm_backend_herdr_agent_status_raw: one bounded `agent get` read, echoing the
+# raw agent_status string (working/idle/done/blocked/...), or empty on any
+# failure including a timeout. Deliberately skips fm_backend_herdr_target_ready's
+# server-ensure round trip (an extra `status --json` call):
+# fm_backend_herdr_wait_for_working polls this in a tight loop right after a
+# caller has already parsed the target and confirmed the server is live (e.g.
+# fm_backend_herdr_send_text_submit, immediately after a successful send-text),
+# so re-checking server liveness on every poll would only add latency without
+# adding safety.
 fm_backend_herdr_agent_status_raw() {  # <session> <pane_id>
   local session=$1 pane_id=$2 out
   out=$(fm_backend_herdr_read_cli "$session" agent get "$pane_id" 2>/dev/null) || { printf ''; return 0; }
@@ -3150,9 +3150,11 @@ fm_backend_herdr_agent_status_raw() {  # <session> <pane_id>
 
 # fm_backend_herdr_busy_state: semantic busy state from herdr's native
 # agent-state detection (agent.get), the "first backend where fm_session_busy_state
-# gets real semantics" per the design report. See
-# fm_backend_herdr_classify_agent_status for the status->busy/idle/unknown
-# mapping.
+# gets real semantics" per the design report. A passive read: it only parses
+# the target and never ensures (auto-starts) the server, so a current-state
+# probe cannot start a missing server as a side effect; a down server or a
+# timed-out read is unknown. See fm_backend_herdr_classify_agent_status for
+# the status->busy/idle/unknown mapping.
 fm_backend_herdr_busy_state() {  # <target>
   fm_backend_herdr_parse_target "$1" || { printf 'unknown'; return 0; }
   fm_backend_herdr_classify_agent_status \

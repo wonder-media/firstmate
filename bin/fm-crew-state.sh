@@ -54,8 +54,10 @@
 #      such as `resolved` never become current state or detail.
 #   6. Missing meta or torn-down worktree: report unknown · none. For an ORDINARY
 #      crew with no attributed run, a dead endpoint also reports unknown · none
-#      rather than trusting a stale status log; a secondmate instead keeps its own
-#      declared paused/blocked/failed line, per item 4.
+#      rather than trusting a stale status log, and an unreadable (timed-out)
+#      endpoint reports unknown · none with a distinct "unreadable" detail,
+#      never "gone"; a secondmate instead keeps its own declared
+#      paused/blocked/failed line, per item 4.
 #
 # Read-only and side-effect free. `--json` adds the endpoint evidence already
 # observed while classifying a secondmate, so structured callers never repeat
