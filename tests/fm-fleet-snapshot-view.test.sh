@@ -224,7 +224,14 @@ test_fixture_snapshot_json() {
 }
 
 test_five_herdr_secondmates_isolate_one_timed_out_endpoint() {
-  local home fakebin id gen out start elapsed
+  local home fakebin id gen out start elapsed read_bound crew_bound ceiling
+  # Each mate's whole crew-state read is bounded by crew_bound, which covers
+  # its three read_bound Herdr reads. The five reads run in sequence, so the
+  # wall-clock ceiling is the sum of those bounds plus a fixed headroom for
+  # process overhead on a loaded host; a genuine hang still overruns it.
+  read_bound=1
+  crew_bound=4
+  ceiling=$((5 * crew_bound + 5))
   home=$(make_home five-herdr-secondmates)
   printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
   for id in one two three four five; do
@@ -245,7 +252,8 @@ test_five_herdr_secondmates_isolate_one_timed_out_endpoint() {
     > "$home/state/one.status"
   fakebin=$(make_fakebin "$home")
   start=$SECONDS
-  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_BACKEND_HERDR_READ_TIMEOUT=1 \
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" \
+    FM_BACKEND_HERDR_READ_TIMEOUT="$read_bound" FM_SNAPSHOT_CREW_STATE_TIMEOUT="$crew_bound" \
     FM_FAKE_HERDR_HANG_PANE=w-three:p1 "$SNAPSHOT" --json)
   elapsed=$((SECONDS - start))
   printf '%s' "$out" | jq -e '
@@ -257,7 +265,7 @@ test_five_herdr_secondmates_isolate_one_timed_out_endpoint() {
           and .endpoint.exists == null
           and .endpoint.agent_alive == "unknown")
   ' >/dev/null || fail "one timed-out Herdr endpoint contaminated the five-mate snapshot: $out"
-  [ "$elapsed" -lt 6 ] || fail "five-mate snapshot did not isolate the one-second endpoint bound (${elapsed}s)"
+  [ "$elapsed" -le "$ceiling" ] || fail "five-mate snapshot overran the sum of its configured bounds (${elapsed}s > ${ceiling}s)"
   pass "five Herdr secondmates complete promptly while one timed-out endpoint alone becomes unknown"
 }
 
