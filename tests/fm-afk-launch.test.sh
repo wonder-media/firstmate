@@ -343,6 +343,7 @@ unit_herdr_partial_create_recovery() {
         printf %s '\''{"result":{"panes":[{"pane_id":"pane-exact"}]}}'\''
       fi
     }
+    fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
     fm_afk_launch_record_write() { printf "%s:%s:%s" "$1" "$2" "$3" > "$RECORDED"; }
     fm_afk_launch_create_herdr lab:captain herdr
   ' _ "$LAUNCH"
@@ -371,6 +372,7 @@ unit_herdr_error_with_exact_ids_closes_exact() {
       fi
       return 2
     }
+    fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
     ! fm_afk_launch_create_herdr lab:captain herdr
   ' _ "$LAUNCH"
   if [ "$(cut -f2 "$st/state/.afk-daemon-terminal" 2>/dev/null || true)" = "lab:pane-exact" ]; then
@@ -400,6 +402,7 @@ unit_herdr_run_failure_preserves_unconfirmed_record() {
       fi
       return 2
     }
+    fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
     ! fm_afk_launch_create_herdr lab:captain herdr
   ' _ "$LAUNCH"
   if [ "$(cut -f2 "$st/state/.afk-daemon-terminal" 2>/dev/null || true)" = "lab:pane-exact" ]; then

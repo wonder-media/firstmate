@@ -524,7 +524,17 @@ try:
     preserved_answer=answer_post[1]['answers'][0]['answer_id']
     mutate('update answers set ready_at=? where answer_id=?',(time.time()+3600,preserved_answer))
     hold_one='11111111-1111-4111-8111-111111111111'
+    # A reconcile can spend most of its budget in a read-only fleet snapshot.
+    # Its single-flight lock must never cover HTTP lifecycle writes.
+    slow_calls=len(calls(home,'fm-crew-state.sh'))
+    (home/'delay').write_text('4');(home/'state/alpha.status').touch()
+    wait(lambda:len(calls(home,'fm-crew-state.sh'))>slow_calls,10)
+    lifecycle_started=time.monotonic()
     queued=request('/lifecycle',lifecycle('Main','lifecycle',0,'hold',hold_one));assert queued[0]==200,queued
+    assert time.monotonic()-lifecycle_started<2,'lifecycle POST waited behind the running ingest'
+    assert sql('select request_id,state from lifecycle_requests where request_id=?',(hold_one,))==[{'request_id':hold_one,'state':'queued'}]
+    (home/'delay').unlink()
+    passed('a lifecycle POST commits while a periodic ingest is still blocked in its snapshot read')
     assert queued[1]['lifecycle']['pending_action']=='hold'
     assert request('/lifecycle',{'action':'undo','request_id':hold_one})[0]==200
     after_undo=next(d for d in request()[1]['decisions'] if d['task_id']=='lifecycle')['lifecycle']

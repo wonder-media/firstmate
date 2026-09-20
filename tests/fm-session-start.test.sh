@@ -483,9 +483,10 @@ SH
   chmod +x "$fakebin/herdr"
 }
 
-# make_fake_herdr <fakebin> <live-pane>: `herdr pane get <pane>` succeeds only
-# for the given pane id - the exact primitive fm_backend_target_exists uses
-# for a herdr endpoint liveness read. No version/server-start calls: a
+# make_fake_herdr <fakebin> <live-pane>: `herdr pane get <pane>` answers the
+# structured present response only for the given pane id and pane_not_found
+# otherwise - the exact primitive fm_backend_target_exists uses for a herdr
+# endpoint liveness read. No version/server-start calls: a
 # liveness check must never auto-start a server (fm-backend.sh's contract).
 make_fake_herdr() {
   local fakebin=$1 live=$2
@@ -493,7 +494,11 @@ make_fake_herdr() {
 #!/usr/bin/env bash
 set -u
 if [ "\${1:-}" = pane ] && [ "\${2:-}" = get ]; then
-  [ "\${3:-}" = "$live" ] && exit 0
+  if [ "\${3:-}" = "$live" ]; then
+    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$live"
+    exit 0
+  fi
+  printf '{"error":{"code":"pane_not_found"}}\n'
   exit 1
 fi
 exit 1

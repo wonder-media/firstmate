@@ -17,6 +17,9 @@ make_fakebin() {  # <dir>
   fb=$(fm_fakebin "$1")
   cat > "$fb/no-mistakes" <<'SH'
 #!/usr/bin/env bash
+if [ "${FM_FAKE_NM_HANG:-0}" = 1 ]; then
+  while :; do sleep 1; done
+fi
 exit 0
 SH
   cat > "$fb/tmux" <<'SH'
@@ -52,7 +55,23 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-} ${2:-}" in
+  "status --json") printf '{"server":{"running":true}}\n' ;;
+  "pane get")
+    pane=${3:-}
+    if [ "$pane" = "${FM_FAKE_HERDR_HANG_PANE:-}" ]; then
+      while :; do sleep 1; done
+    fi
+    printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$pane"
+    ;;
+  "pane read") printf 'quiet terminal\n' ;;
+  "agent get") printf '{"result":{"agent":{"agent_status":"idle"}}}\n' ;;
+esac
+SH
+  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -202,6 +221,104 @@ test_fixture_snapshot_json() {
     | .state == "done" and .pr_url == "https://github.com/kunchenguid/firstmate/pull/7"
   ' >/dev/null || fail "done backlog PR row missing"
   pass "fixture snapshot covers task rows, backlog rows, pointers, and stable ordering"
+}
+
+test_five_herdr_secondmates_isolate_one_timed_out_endpoint() {
+  local home fakebin id gen out start elapsed read_bound crew_bound ceiling
+  # Each mate's whole crew-state read is bounded by crew_bound, which covers
+  # its three read_bound Herdr reads. The five reads run in sequence, so the
+  # wall-clock ceiling is the sum of those bounds plus a fixed headroom for
+  # process overhead on a loaded host; a genuine hang still overruns it.
+  read_bound=1
+  crew_bound=4
+  ceiling=$((5 * crew_bound + 5))
+  home=$(make_home five-herdr-secondmates)
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  for id in one two three four five; do
+    mkdir -p "$home/$id-home"
+    gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" "$id")
+    "$ROOT/bin/fm-busy-event.sh" apply "$home/state" "$id" idle --gen "$gen" \
+      --source claude-hook --event stop
+    fm_write_meta "$home/state/$id.meta" \
+      "window=lab:w-${id}:p1" \
+      "worktree=$home/$id-home" \
+      "project=$home/$id-home" \
+      "harness=claude" \
+      "kind=secondmate" \
+      "backend=herdr" \
+      "busy_gen=$gen"
+  done
+  awk 'BEGIN { payload=sprintf("%04000d",0); for (i=0;i<200;i++) print "note: " payload }' \
+    > "$home/state/one.status"
+  fakebin=$(make_fakebin "$home")
+  start=$SECONDS
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" \
+    FM_BACKEND_HERDR_READ_TIMEOUT="$read_bound" FM_SNAPSHOT_CREW_STATE_TIMEOUT="$crew_bound" \
+    FM_FAKE_HERDR_HANG_PANE=w-three:p1 "$SNAPSHOT" --json)
+  elapsed=$((SECONDS - start))
+  printf '%s' "$out" | jq -e '
+    (.tasks | length) == 5
+      and ([.tasks[] | select(.id != "three") | select(.current_state.state == "idle" and .endpoint.agent_alive == "alive")] | length) == 4
+      and (.tasks[] | select(.id == "three")
+        | .current_state.state == "unknown"
+          and (.current_state.detail | contains("endpoint state unavailable (unreadable)"))
+          and .endpoint.exists == null
+          and .endpoint.agent_alive == "unknown")
+  ' >/dev/null || fail "one timed-out Herdr endpoint contaminated the five-mate snapshot: $out"
+  [ "$elapsed" -le "$ceiling" ] || fail "five-mate snapshot overran the sum of its configured bounds (${elapsed}s > ${ceiling}s)"
+  pass "five Herdr secondmates complete promptly while one timed-out endpoint alone becomes unknown"
+}
+
+test_herdr_ship_timed_out_presence_is_null_not_absent() {
+  local home fakebin out
+  home=$(make_home herdr-ship-presence)
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  mkdir -p "$home/projects/ship-worktree"
+  fm_write_meta "$home/state/slow-ship.meta" \
+    "window=lab:w-slow:p1" \
+    "worktree=$home/projects/ship-worktree" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=ship" \
+    "backend=herdr"
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_BACKEND_HERDR_READ_TIMEOUT=1 \
+    FM_FAKE_HERDR_HANG_PANE=w-slow:p1 "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .tasks[] | select(.id == "slow-ship")
+      | .current_state.state == "unknown"
+        and (.current_state.detail | contains("backend target unreadable"))
+        and .endpoint.exists == null
+  ' >/dev/null || fail "a timed-out Herdr presence read was reported as absent or invented state: $out"
+  pass "a timed-out Herdr ship presence read stays null and unreadable, never exists=false"
+}
+
+test_ship_run_lookup_is_snapshot_scoped() {
+  local home fakebin out gen
+  home=$(make_home ship-run-lookup)
+  printf '## In flight\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  mkdir -p "$home/projects/ship-worktree"
+  git -C "$home/projects/ship-worktree" init -q
+  git -C "$home/projects/ship-worktree" -c user.name=fmtest -c user.email=fmtest@example.invalid \
+    commit -q --allow-empty -m init
+  git -C "$home/projects/ship-worktree" checkout -q -b fm/ship-task
+  fm_write_meta "$home/state/ship-task.meta" \
+    "window=firstmate:fm-ship-task" \
+    "worktree=$home/projects/ship-worktree" \
+    "project=alpha" \
+    "harness=claude" \
+    "kind=ship"
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$home/state" ship-task)
+  "$ROOT/bin/fm-busy-event.sh" apply "$home/state" ship-task busy --gen "$gen" \
+    --source claude-hook --event user-prompt-submit
+  fakebin=$(make_fakebin "$home")
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_NM_HANG=1 \
+    FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT=1 FM_SNAPSHOT_CREW_STATE_TIMEOUT=3 "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e '
+    .tasks[] | select(.id == "ship-task")
+      | .current_state.state == "working" and .current_state.source == "pane"
+  ' >/dev/null || fail "a hung no-mistakes lookup was not bounded inside the whole crew-state read: $out"
+  pass "a ship's run lookup uses the snapshot-scoped bound inside the whole crew-state read"
 }
 
 # R1 owner contract: main_inventory discloses orphan in-flight and unstructured
@@ -788,6 +905,9 @@ test_parked_scout_decision_stays_pending() {
 
 test_empty_fleet_json
 test_fixture_snapshot_json
+test_five_herdr_secondmates_isolate_one_timed_out_endpoint
+test_herdr_ship_timed_out_presence_is_null_not_absent
+test_ship_run_lookup_is_snapshot_scoped
 test_main_inventory_orphan_and_unstructured_disclosure
 test_normalized_roles_and_plural_blocker_readiness
 test_event_hints_follow_reconciled_current_state

@@ -1565,6 +1565,7 @@ test_projection_close_rechecks_required_agent_state_at_boundary() {
         "pane get") printf "{\"result\":{\"pane\":{\"pane_id\":\"w9:p2\",\"tab_id\":\"w9:t2\"}}}\n" ;;
       esac
     }
+    fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
     set +e
     fm_backend_herdr_projection_close_pane_focus_preserving fmtest w9:p2 no-agent
     rc=$?
@@ -1804,6 +1805,7 @@ test_projection_close_plain_without_move_requires_structured_removal() {
         "pane get") printf "{\"result\":{\"pane\":{\"pane_id\":\"w2:p2\",\"tab_id\":\"w2:t2\",\"workspace_id\":\"w2\"}}}\n" ;;
       esac
     }
+    fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
     fm_backend_herdr_projection_close_pane_focus_preserving fmtest w2:p2
   ' 2>&1)
   status=$?
@@ -2202,6 +2204,7 @@ test_kill_emptying_non_focused_uses_pane_death() {
         [ -e "$FM_FAKE_LOCK_HELD" ] || return 97
         fm_backend_herdr_cli_locked "$@"
       }
+      fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
       fm_backend_herdr_kill fmtest:w2:p2
     ' "$ROOT" 2>&1)
   status=$?
@@ -2266,6 +2269,7 @@ test_kill_refuses_when_presentation_lock_is_unavailable() {
         printf "%s\n" "$*" >> "$CLI_LOG"
         return 0
       }
+      fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
       sleep() { :; }
       fm_backend_herdr_kill fmtest:w2:p2
     ' 2>&1)
@@ -2289,6 +2293,7 @@ test_endpoint_confirmed_gone_gates_on_structured_presence() {
   out=$(bash -c '
     . "$0/bin/backends/herdr.sh"
     fm_backend_herdr_cli() { printf "%s\n" "$FM_FAKE_PRESENCE_RESPONSE"; return "${FM_FAKE_PRESENCE_STATUS:-0}"; }
+    fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
     check() {  # <label> <response> <status> <mode> <expected-rc>
       FM_FAKE_PRESENCE_RESPONSE=$2 FM_FAKE_PRESENCE_STATUS=$3
       rc=0
@@ -2767,6 +2772,7 @@ test_projection_reclaim_refusal_matrix_is_non_mutating() {
     bash -c '
       . "$ROOT/bin/backends/herdr.sh"
       fm_backend_herdr_cli() { printf "%s\n" "$*" >> "$MUTATIONS"; return 1; }
+      fm_backend_herdr_read_cli() { fm_backend_herdr_cli "$@"; }
       run_case() {
         mode=$1; journal=$2; home=$3
         fm_backend_herdr_projection_live_binding_matches() {

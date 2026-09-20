@@ -103,6 +103,9 @@ SH
   cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
+if [ "${FM_FAKE_HERDR_HANG:-0}" = 1 ] && [ "${1:-}" = pane ] && [ "${2:-}" = get ]; then
+  while :; do sleep 1; done
+fi
 case "${1:-}" in
   status)
     [ "${2:-}" = --json ] && {
@@ -210,10 +213,11 @@ reset_fakes() {
   FM_FAKE_HERDR_MISSING=0
   FM_FAKE_HERDR_NO_AGENT=0
   FM_FAKE_HERDR_AGENT_STATUS=""
+  FM_FAKE_HERDR_HANG=0
   FM_FAKE_CI_LOGS=""
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING
   export FM_FAKE_TMUX_WINDOW FM_FAKE_TMUX_COMMAND
-  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_NO_AGENT FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_CI_LOGS
+  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_NO_AGENT FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_HANG FM_FAKE_CI_LOGS
 }
 
 # --- run-object fixtures (TOON, as `no-mistakes axi status` emits) -----------
@@ -1203,6 +1207,51 @@ ROWS
   pass "secondmate state: current lifecycle distinguishes active, healthy idle, decision, blocked, stale, dead, remote, and unsupported cases"
 }
 
+test_secondmate_herdr_read_timeout_is_bounded_unknown() {
+  command -v jq >/dev/null 2>&1 || { pass "secondmate herdr timeout skipped without jq"; return; }
+  reset_fakes
+  local d out start elapsed
+  d=$(make_secondmate_lifecycle_case secondmate-herdr-timeout claude claude-hook idle herdr)
+  FM_FAKE_HERDR_HANG=1
+  export FM_FAKE_HERDR_HANG
+  start=$SECONDS
+  out=$(PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" \
+    FM_BACKEND_HERDR_READ_TIMEOUT=1 "$CREW_STATE" mate)
+  elapsed=$((SECONDS - start))
+  assert_contains "$out" "state: unknown" "a timed-out endpoint must not invent current state"
+  assert_contains "$out" "endpoint state unavailable (unreadable)" "the endpoint timeout must be disclosed as unreadable"
+  [ "$elapsed" -lt 4 ] || fail "one Herdr endpoint read exceeded its short bound (${elapsed}s)"
+  pass "a blocked Herdr endpoint read is bounded and degrades only that secondmate to disclosed unknown"
+}
+
+test_no_run_herdr_presence_distinguishes_gone_from_unreadable() {
+  command -v jq >/dev/null 2>&1 || { pass "herdr presence disclosure skipped without jq"; return; }
+  reset_fakes
+  local d out start elapsed
+  d=$(new_case herdr-presence)
+  make_repo_on_branch "$d/wt" fm/feat-herdr-presence
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-herdr-presence.meta" "window=default:w1:p9" "worktree=$d/wt" "kind=ship" \
+    "backend=herdr" "harness=claude"
+  FM_FAKE_AXI_STATUS=""
+  FM_FAKE_RUNS_LIST=""
+  FM_FAKE_TMUX_MISSING=1
+  FM_FAKE_HERDR_MISSING=1
+  out=$(run_crew_state "$d" feat-herdr-presence)
+  assert_contains "$out" "state: unknown" "a structurally gone Herdr pane has no current state"
+  assert_contains "$out" "backend target gone: default:w1:p9" "a pane_not_found read is disclosed as gone"
+  FM_FAKE_HERDR_MISSING=0
+  FM_FAKE_HERDR_HANG=1
+  start=$SECONDS
+  out=$(FM_BACKEND_HERDR_READ_TIMEOUT=1 run_crew_state "$d" feat-herdr-presence)
+  elapsed=$((SECONDS - start))
+  assert_contains "$out" "state: unknown" "a timed-out presence read must not invent current state"
+  assert_contains "$out" "backend target unreadable: default:w1:p9" "a timed-out presence read is disclosed as unreadable"
+  assert_not_contains "$out" "backend target gone" "a timed-out presence read must not claim the target is gone"
+  [ "$elapsed" -lt 4 ] || fail "the no-run presence read exceeded its short bound (${elapsed}s)"
+  pass "a Herdr crew with no run distinguishes a gone pane from an unreadable presence read"
+}
+
 test_dead_window_ignores_stale_status_log() {
   reset_fakes
   local d; d=$(new_case dead-window)
@@ -1517,6 +1566,8 @@ test_no_run_idle_pane_uses_keyed_log
 test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
 test_secondmate_current_state_contract
+test_secondmate_herdr_read_timeout_is_bounded_unknown
+test_no_run_herdr_presence_distinguishes_gone_from_unreadable
 test_dead_window_ignores_stale_status_log
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step
