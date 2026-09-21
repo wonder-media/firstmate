@@ -1,0 +1,22 @@
+bin/fm-test-run.sh <script>  (all exit=0, failed=0)
+tests/fm-control.test.sh
+  ok - fm-control dormant: verified stop, durable convergence record, idempotent repeat
+  ok - fm-control dormant: secondmate-home in-flight work refuses before stop
+  ok - fm-control wake: normal spawn delegation, verified alive postcondition, marker clearing
+  ok - fm-control: remote secondmates refused for interrupt/exit/relaunch/dormant/wake
+tests/fm-turnend-guard.test.sh
+  ok - fm-supervision-status: dormant secondmates are excluded narrowly
+  ok - fm-turnend-guard: dormant-only parent home needs no watcher
+  ok - fm-turnend-guard: blocks with the exact required reason in the primary when unhealthy (<=2 lines, beacon age kept)
+tests/fm-secondmate-liveness.test.sh
+  ok - sweep: dormant is healthy expected stopped state and survives session start
+tests/fm-secondmate-sync.test.sh
+  ok - T3f dormant: the sweep defers convergence and reports it only under verbose facts
+tests/fm-secondmate-harness.test.sh
+  ok - B12b config-push skips dormant homes and retains wake-time convergence debt
+  ok - B12d a direct secondmate launch clears the dormant marker
+  ok - B25 spawn quarantines stale rereads without blocking relaunch (pending nudge marker discarded)
+tests/fm-session-start.test.sh
+  ok - session start: fleet digest reports dormant distinctly and liveness stays non-actionable
+tests/fm-secondmate-lifecycle-e2e.test.sh
+  ok - teardown: removes the home, then clears meta, the dormant marker, and the registry route

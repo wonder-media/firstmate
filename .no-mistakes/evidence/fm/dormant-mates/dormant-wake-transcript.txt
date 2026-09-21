@@ -1,0 +1,82 @@
+=== 1. dormant: stop an idle local secondmate and record dormancy ===
+
+$ fm-control.sh domain dormant
+dormant domain exit=stopped marker=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/home/state/domain.dormant worktree=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/wt-domain
+[exit=0]
+
+$ cat state/domain.dormant
+v1
+id=domain
+set_at=<utc timestamp>
+reason=explicit control-plane request
+pending_tracked_sync=1
+pending_inherited_material=1
+
+$ bytes typed into the agent pane
+/exit
+
+=== 2. dormant again: idempotent, no extra keystrokes ===
+
+$ fm-control.sh domain dormant
+already-dormant domain marker=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/home/state/domain.dormant worktree=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/wt-domain
+[exit=0]
+
+$ bytes typed into the agent pane (unchanged)
+/exit
+
+=== 3. supervision: a dormant-only home does not need a watcher ===
+
+$ fm_supervision_status $FM_HOME/state
+FM_SUP_IN_FLIGHT=0 FM_SUP_NEEDED=false
+
+$ session-start style digest line for the dormant mate
+endpoint: dormant (expected stopped state; marker=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/home/state/domain.dormant)
+
+=== 4. turn-end guard: dormant-only parent home ends silently; real work blocks in 2 lines ===
+
+$ fm-turnend-guard.sh  (state: domain.meta + domain.dormant only)
+[exit=0] stderr lines=0
+
+$ fm-turnend-guard.sh  (state: + task1.meta in flight, no watcher)
+TURN WOULD END BLIND - 1 task(s) in flight; no live watcher holds this home lock (last beat: never).
+watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+[exit=2] stderr lines=2
+
+=== 5. wake: normal fm-spawn recovery path, proven alive, marker cleared ===
+
+$ fm-control.sh domain wake
+awake domain backend=tmux endpoint=fmses:fm-domain worktree=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/wt-domain
+[exit=0]
+
+$ spawn calls made
+fm-spawn.sh domain --secondmate
+
+$ ls state/domain.dormant
+ls: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/home/state/domain.dormant: No such file or directory
+
+=== 6. wake when already awake and not dormant ===
+
+$ fm-control.sh domain wake
+already-awake domain backend=tmux endpoint=fmses:fm-domain worktree=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev-17723/wt-domain
+[exit=0]
+
+=== 7. refusals: in-flight child work, remote secondmate, non-secondmate ===
+
+$ fm-control.sh domain dormant
+error: secondmate domain still has in-flight work in /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev2-616/wt-domain/state (child.meta); let that home finish before making it dormant
+[exit=1]
+
+$ state/domain.dormant exists?
+ls: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/ev-dormant.s2c393/ev2-616/home/state/domain.dormant: No such file or directory
+
+$ fm-control.sh rmate dormant
+error: task rmate is a remotely placed secondmate on box.example; its agent runs outside this home, so no lifecycle action here could verify that it interrupted, stopped, or came back. Drive its lifecycle on that host, and reconcile it through the secondmate recovery path rather than this plane
+[exit=1]
+
+$ fm-control.sh rmate wake
+error: task rmate is a remotely placed secondmate on box.example; its agent runs outside this home, so no lifecycle action here could verify that it interrupted, stopped, or came back. Drive its lifecycle on that host, and reconcile it through the secondmate recovery path rather than this plane
+[exit=1]
+
+$ fm-control.sh ship1 dormant
+error: 'dormant' applies only to a kind=secondmate task; task ship1 records kind 'ship'
+[exit=1]
