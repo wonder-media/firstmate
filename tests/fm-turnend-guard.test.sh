@@ -44,6 +44,23 @@ test_predicate_unhealthy_no_beacon() {
   pass "fm_supervision_unhealthy: true with in-flight task and no beacon ever"
 }
 
+test_predicate_dormant_secondmates_do_not_need_supervision() {
+  local state="$TMP_ROOT/pred-dormant/state"
+  mkdir -p "$state"
+  printf 'kind=secondmate\n' > "$state/domain.meta"
+  printf 'v1\nid=domain\n' > "$state/domain.dormant"
+  if fm_supervision_needed "$state" 300; then
+    fail "a home with only dormant secondmate metadata must not need supervision"
+  fi
+  [ "$FM_SUP_IN_FLIGHT" -eq 0 ] || fail "dormant secondmate metadata counted as in-flight"
+  [ "$FM_SUP_NEEDED" = false ] || fail "dormant-only home should report FM_SUP_NEEDED=false"
+
+  printf 'kind=secondmate\n' > "$state/live-domain.meta"
+  fm_supervision_needed "$state" 300 || fail "a live secondmate meta must still need supervision"
+  [ "$FM_SUP_IN_FLIGHT" -eq 1 ] || fail "only the live secondmate should count as in-flight"
+  pass "fm-supervision-status: dormant secondmates are excluded narrowly"
+}
+
 test_predicate_unhealthy_stale_beacon() {
   local state="$TMP_ROOT/pred-stale/state"
   mkdir -p "$state"
@@ -353,14 +370,28 @@ test_hook_blocks_with_live_lock_and_stale_beacon() {
 }
 
 test_hook_blocks_when_unhealthy_in_primary() {
-  local dir out status
+  local dir out status lines
   dir=$(make_primary_dir "$TMP_ROOT/hook-block")
   : > "$dir/state/task1.meta"
   out=$(run_hook "$dir" false); status=$?
   expect_code 2 "$status" "hook must block (exit 2) when in-flight work has no live watcher"
   assert_contains "$out" "$REQUIRED_REASON" "block reason must contain the exact required instruction"
   assert_contains "$out" "TURN WOULD END BLIND" "block banner must read as an alarm"
+  assert_contains "$out" "last beat: never" "block output must retain beacon age"
+  lines=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+  [ "$lines" -le 2 ] || fail "block output must be at most two lines, got $lines: $out"
   pass "fm-turnend-guard: blocks with the exact required reason in the primary when unhealthy"
+}
+
+test_hook_allows_dormant_only_parent_home() {
+  local dir out status
+  dir=$(make_primary_dir "$TMP_ROOT/hook-dormant-only")
+  printf 'kind=secondmate\n' > "$dir/state/domain.meta"
+  printf 'v1\nid=domain\n' > "$dir/state/domain.dormant"
+  out=$(run_hook "$dir" false); status=$?
+  expect_code 0 "$status" "hook must allow a parent home whose only meta is a dormant secondmate"
+  [ -z "$out" ] || fail "dormant-only parent should end silently, got: $out"
+  pass "fm-turnend-guard: dormant-only parent home needs no watcher"
 }
 
 test_hook_blocks_from_fm_home_state() {
@@ -1603,6 +1634,7 @@ test_hook_claude_mode_secondmate_reblocks_like_primary() {
 
 test_predicate_healthy_no_inflight
 test_predicate_unhealthy_no_beacon
+test_predicate_dormant_secondmates_do_not_need_supervision
 test_predicate_unhealthy_stale_beacon
 test_predicate_healthy_fresh_beacon
 test_predicate_queue_pending_flag
@@ -1616,6 +1648,7 @@ test_hook_silent_with_live_lock_and_fresh_beacon
 test_hook_non_claude_health_ignores_claude_budget_contention
 test_hook_blocks_with_live_lock_and_stale_beacon
 test_hook_blocks_when_unhealthy_in_primary
+test_hook_allows_dormant_only_parent_home
 test_hook_blocks_from_fm_home_state
 test_hook_x_mode_reason_sources_cadence
 test_hook_x_mode_only_blocks_in_default_mode

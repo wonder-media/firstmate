@@ -212,6 +212,7 @@ phase_recovery() {
 phase_teardown() {
   local teardown_out
   : > "$LOG"
+  printf 'v1\nid=design\nreason=test\n' > "$HOME_DIR/state/design.dormant"
   teardown_out=$(PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" FM_FAKE_TMUX_LOG="$LOG" FM_FAKE_TMUX_CAPTURE="$PANE" \
     "$ROOT/bin/fm-teardown.sh" design 2>&1) \
     || fail "teardown failed for the empty secondmate home"
@@ -219,6 +220,7 @@ phase_teardown() {
     && fail "secondmate teardown emitted a main-backlog completion reminder"
   assert_absent "$SUB" "teardown did not remove the retired secondmate home"
   assert_absent "$HOME_DIR/state/design.meta" "teardown did not clear the parent meta"
+  assert_absent "$HOME_DIR/state/design.dormant" "teardown did not clear the dormant marker"
   assert_no_grep '- design ' "$HOME_DIR/data/secondmates.md" "teardown did not remove the registry route"
   # The parent's source projects are untouched (no write through a parent home).
   assert_present "$HOME_DIR/projects/alpha" "teardown disturbed a parent project"

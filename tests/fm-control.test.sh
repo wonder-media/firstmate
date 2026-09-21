@@ -502,7 +502,7 @@ test_record_bound_to_another_task_is_refused() {
 # refuses, and none of them reaches a local endpoint.
 test_remote_secondmate_is_refused_by_placement() {
   local dir out rc verb
-  for verb in interrupt exit relaunch; do
+  for verb in interrupt exit relaunch dormant wake; do
     dir=$(new_case "remote-$verb")
     add_task "$dir" t1 claude secondmate
     alive_as "$dir" claude
@@ -870,6 +870,101 @@ test_fm_send_still_marks_the_same_secondmate_task() {
   pass "fm-control's arrival leaves fm-send's from-firstmate marking untouched"
 }
 
+# --- 7. durable secondmate dormancy ----------------------------------------
+
+test_secondmate_dormant_stops_marks_and_is_idempotent() {
+  local dir out rc marker before
+  dir=$(new_case dormant-roundtrip)
+  add_task "$dir" domain claude secondmate
+  mkdir -p "$dir/wt-domain/state"
+  printf '%s\n' domain > "$dir/wt-domain/.fm-secondmate-home"
+  alive_as "$dir" claude
+
+  out=$(run_control "$dir" domain dormant); rc=$?
+  expect_code 0 "$rc" "dormant should stop and mark an idle local secondmate"
+  marker="$dir/home/state/domain.dormant"
+  [ -f "$marker" ] || fail "dormant did not publish its durable marker"
+  assert_contains "$(cat "$marker")" "set_at=" "dormant marker must record when it was set"
+  assert_contains "$(cat "$marker")" "reason=explicit control-plane request" \
+    "dormant marker must record why it was set"
+  assert_contains "$(cat "$marker")" "pending_tracked_sync=1" \
+    "dormant marker must record tracked convergence owed"
+  assert_contains "$(cat "$marker")" "pending_inherited_material=1" \
+    "dormant marker must record inherited convergence owed"
+  [ "$(cat "$dir/fake/command")" = zsh ] || fail "dormant did not stop the agent through exit"
+  assert_contains "$out" "dormant domain exit=stopped" "dormant result should name the verified stop"
+
+  before=$(cat "$marker")
+  out=$(run_control "$dir" domain dormant); rc=$?
+  expect_code 0 "$rc" "repeated dormant should be a clean no-op"
+  assert_contains "$out" "already-dormant domain" "repeated dormant should report idempotent success"
+  [ "$before" = "$(cat "$marker")" ] || fail "repeated dormant rewrote the durable record"
+  [ "$(literals "$dir")" = /exit ] || fail "repeated dormant sent another lifecycle command"
+  pass "fm-control dormant: verified stop, durable convergence record, idempotent repeat"
+}
+
+test_secondmate_dormant_refuses_child_work() {
+  local dir out rc
+  dir=$(new_case dormant-inflight)
+  add_task "$dir" domain claude secondmate
+  mkdir -p "$dir/wt-domain/state"
+  : > "$dir/wt-domain/state/child.meta"
+  printf '%s\n' domain > "$dir/wt-domain/.fm-secondmate-home"
+  alive_as "$dir" claude
+  out=$(run_control "$dir" domain dormant); rc=$?
+  expect_code 1 "$rc" "dormant must refuse while the secondmate home has in-flight work"
+  assert_contains "$out" "still has in-flight work" "refusal should name the secondmate-home safety check"
+  assert_contains "$out" "child.meta" "refusal should name the blocking child record"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "in-flight refusal stopped the agent"
+  [ ! -e "$dir/home/state/domain.dormant" ] || fail "in-flight refusal wrote a dormant marker"
+  pass "fm-control dormant: secondmate-home in-flight work refuses before stop"
+}
+
+run_control_with_stub_spawn() { # <case-dir> <args...>
+  local dir=$1 testroot="$1/control-root"
+  shift
+  mkdir -p "$testroot"
+  if [ ! -d "$testroot/bin" ]; then
+    cp -R "$ROOT/bin" "$testroot/bin"
+    cat > "$testroot/bin/fm-spawn.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_DIR/spawn-log"
+printf 'claude' > "$FM_FAKE_DIR/command"
+exit 0
+SH
+    chmod +x "$testroot/bin/fm-spawn.sh"
+  fi
+  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    FM_CONTROL_POLL=0.01 FM_CONTROL_LAUNCH_WAIT=0.05 \
+    "$testroot/bin/fm-control.sh" "$@" 2>&1
+}
+
+test_secondmate_wake_delegates_and_clears_only_after_alive() {
+  local dir out rc
+  dir=$(new_case wake-roundtrip)
+  add_task "$dir" domain claude secondmate
+  mkdir -p "$dir/wt-domain/state"
+  printf '%s\n' domain > "$dir/wt-domain/.fm-secondmate-home"
+  printf 'v1\nid=domain\npending_tracked_sync=1\npending_inherited_material=1\n' \
+    > "$dir/home/state/domain.dormant"
+  alive_as "$dir" zsh
+
+  out=$(run_control_with_stub_spawn "$dir" domain wake); rc=$?
+  expect_code 0 "$rc" "wake should use the normal secondmate spawn path"
+  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate" ] \
+    || fail "wake did not delegate exactly to fm-spawn <id> --secondmate"
+  [ ! -e "$dir/home/state/domain.dormant" ] || fail "wake left the dormant marker after proving the agent alive"
+  assert_contains "$out" "awake domain" "wake should report verified alive success"
+
+  alive_as "$dir" zsh
+  : > "$dir/fake/spawn-log"
+  out=$(run_control_with_stub_spawn "$dir" domain wake); rc=$?
+  expect_code 0 "$rc" "wake on a dead non-dormant secondmate should preserve ordinary recovery"
+  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate" ] \
+    || fail "dead non-dormant wake did not use the ordinary recovery spawn path"
+  pass "fm-control wake: normal spawn delegation, verified alive postcondition, marker clearing"
+}
+
 test_exit_types_each_harness_verified_command
 test_interrupt_sends_each_harness_verified_key
 test_opencode_interrupts_twice_and_others_once
@@ -905,3 +1000,6 @@ test_grok_interrupt_without_acknowledgement_reports_unconfirmed
 test_grok_idle_footer_does_not_confirm_cancellation
 test_secondmate_control_command_carries_no_marker
 test_fm_send_still_marks_the_same_secondmate_task
+test_secondmate_dormant_stops_marks_and_is_idempotent
+test_secondmate_dormant_refuses_child_work
+test_secondmate_wake_delegates_and_clears_only_after_alive

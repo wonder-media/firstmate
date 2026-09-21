@@ -30,6 +30,8 @@ SUB_HOME_MARKER="${SUB_HOME_MARKER:-.fm-secondmate-home}"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-secondmate-registry-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-secondmate-dormant-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-secondmate-dormant-lib.sh"
 
 # --- helpers ---------------------------------------------------------------
 
@@ -480,6 +482,10 @@ sweep_live_secondmate_metas() {
   local state=$1 base_mode=$2 nudge_requires_instr=${3:-no} registry=${4:-$FM_HOME/data/secondmates.md} id home window meta
   [ -d "$state" ] || return 0
   while IFS='|' read -r id home window meta; do
+    if fm_secondmate_dormant_present "$state" "$id"; then
+      printf 'BOOTSTRAP_INFO: secondmate %s is dormant; convergence is deferred until wake\n' "$id"
+      continue
+    fi
     if grep -q '^remote_host=.' "$meta" 2>/dev/null; then continue; fi
     process_secondmate "$id" "$home" "$window" "$base_mode" "$nudge_requires_instr"
   done < <(live_secondmate_meta_records "$state" "$registry")

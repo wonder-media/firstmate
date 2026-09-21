@@ -2,8 +2,8 @@
 name: secondmate-provisioning
 description: >-
   Agent-only reference for persistent secondmate setup and retirement.
-  Use when creating, seeding, validating, launching, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, or when editing data/secondmates.md.
-  Covers local leases, whole-home remote routes, transactional seeding, record intake for an existing or inherited domain, project clone restrictions, secondmate harness pins, inherited local-material push, idle charter, handoff helper, and teardown safety.
+  Use when creating, seeding, validating, launching, making dormant, waking, routing to, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, or when editing data/secondmates.md.
+  Covers local leases, whole-home remote routes, transactional seeding, record intake for an existing or inherited domain, project clone restrictions, secondmate harness pins, inherited local-material push, dormant lifecycle, idle charter, handoff helper, and teardown safety.
 user-invocable: false
 metadata:
   internal: true
@@ -11,7 +11,7 @@ metadata:
 
 # secondmate-provisioning
 
-Use this reference before creating, seeding, validating, launching, handing backlog to, recovering, pushing inherited local material into, or retiring a persistent secondmate, and before editing `data/secondmates.md`.
+Use this reference before creating, seeding, validating, launching, making dormant, waking, routing to, handing backlog to, recovering, pushing inherited local material into, or retiring a persistent secondmate, and before editing `data/secondmates.md`.
 
 Keep the always-inline routing rules in `AGENTS.md` authoritative: route by natural-language `scope:`, local-only projects stay with the main firstmate, and secondmates are idle by default.
 
@@ -204,6 +204,28 @@ After a successful move it warns for any moved key that still owes a public rela
 That same rule governs routing generally: a Relay-linked request whose work goes to a secondmate cannot use the home-local mention link at all and needs a promised-final commitment bound to that secondmate's home.
 It refuses any destination that is not a genuine seeded firstmate home with safe operational directories and a matching `.fm-secondmate-home` marker, so a move can never land in a project.
 Do not hand off `local-only` items.
+
+## Dormant lifecycle
+
+A local persistent secondmate may be made explicitly dormant with `bin/fm-control.sh <id> dormant` when the domain should remain provisioned but its resident agent should stay stopped.
+The control plane refuses any non-secondmate or remote route, and it refuses while the secondmate home's own `state/*.meta` contains work under way.
+It stops the agent through the ordinary verified `exit` path, preserving its endpoint, home, and uncommitted changes, then writes `state/<id>.dormant` with the time, reason, and the convergence owed on wake.
+Repeated `dormant` calls are a clean no-op.
+
+The marker is the routing-visible dormant state.
+Before routing any work to that scope, run `bin/fm-control.sh <id> wake` and wait for its verified success.
+Wake uses the normal `bin/fm-spawn.sh <id> --secondmate` recovery path and clears the marker only after the replacement is proven alive.
+A failed wake retains the marker for a safe retry, while `wake` on a dead non-dormant secondmate remains the ordinary recovery path.
+
+Session-start liveness treats a valid dormant marker as healthy expected stopped state and never relaunches it.
+Parent supervision excludes only a dormant `kind=secondmate` meta; every live secondmate and every other meta still counts normally.
+The session-start digest prints dormant instead of dead so intake can see the routing state without changing `data/secondmates.md` syntax.
+
+Startup tracked-file sync and reread nudges, pending reread retries, and mid-session inherited-config pushes skip dormant homes rather than sending them a turn.
+The dormant record durably says that tracked-file and inherited-local-material convergence are owed.
+Wake needs no second message or additional pending generation because the normal spawn path first fast-forwards tracked files under its existing safety guards, then propagates the full declared inherited local-material allowlist, and the new agent reads those files at launch.
+Any older pending config-reread generations and tracked-file reread markers are superseded and cleared by that spawn path exactly as on recovery.
+Teardown removes the dormant marker together with the task's other runtime records.
 
 ## Recovery
 

@@ -115,6 +115,10 @@ seen_homes=""
 errors=0
 while IFS='|' read -r id home _window meta; do
   [ -n "$id" ] || continue
+  if fm_secondmate_dormant_present "$STATE" "$id"; then
+    printf 'secondmate %s: skipped - dormant; tracked and inherited convergence remains owed until wake\n' "$id"
+    continue
+  fi
   if [ -z "$home" ]; then
     printf 'secondmate %s: skipped - no home= in %s and no registry home\n' "$id" "$meta"
     continue

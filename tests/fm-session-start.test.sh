@@ -1267,6 +1267,26 @@ EOF
   pass "session start: transient tmux unreadability never licenses a relaunch"
 }
 
+test_session_start_digest_distinguishes_dormant_secondmate() {
+  local rec root home fakebin mate log spawned out report
+  rec=$(prepare_session_start_secondmate secondmate-dormant)
+  IFS='|' read -r root home fakebin mate log spawned <<EOF
+$rec
+EOF
+  printf 'v1\nid=%s\nreason=test\n' "$SESSION_START_SECOND_MATE_ID" \
+    > "$home/state/$SESSION_START_SECOND_MATE_ID.dormant"
+
+  out=$(run_session_start_secondmate "$root" "$home" "$fakebin" "$mate" "$log" "$spawned" shell)
+  wait_for_network_stage "$home" "$root" || fail "the dormant deferred network stage never published"
+  report=$(network_stage_report "$home" "$root")
+  assert_contains "$out" "endpoint: dormant (expected stopped state; marker=$home/state/$SESSION_START_SECOND_MATE_ID.dormant)" \
+    "fleet-state digest did not distinguish dormant from dead"
+  assert_not_contains "$report" "SECONDMATE_LIVENESS:" \
+    "dormant secondmate produced an actionable liveness diagnostic"
+  [ ! -s "$log" ] || fail "session start touched a dormant secondmate endpoint: $(cat "$log")"
+  pass "session start: fleet digest reports dormant distinctly and liveness stays non-actionable"
+}
+
 test_session_start_preserves_proven_bare_shell_recovery() {
   local rec root home fakebin mate log spawned out
   rec=$(prepare_session_start_secondmate secondmate-bare-shell)
@@ -2418,6 +2438,7 @@ test_read_only_session_declares_skipped_network_checks
 test_tasks_axi_compatibility_is_probed_once
 test_session_start_preserves_ambiguous_pi_process
 test_session_start_preserves_transiently_unreadable_tmux
+test_session_start_digest_distinguishes_dormant_secondmate
 test_session_start_preserves_proven_bare_shell_recovery
 test_session_start_relaunches_herdr_husk_secondmate
 test_status_tail_bounding

@@ -154,7 +154,8 @@
 #   material, so the secondmate's OWN crewmates inherit primary config and the
 #   secondmate receives the primary's read-only shared captain-preference file
 #   (fm-config-inherit-lib.sh). A successful launch clears pending inherited
-#   config reread generations because the new agent reads the converged files.
+#   config reread generations and tracked-file reread nudges because the new
+#   agent reads the converged files.
 #   --scout records kind=scout in the task's meta (report deliverable, scratch worktree;
 #   see AGENTS.md task lifecycle); --secondmate records kind=secondmate and launches in a
 #   provisioned firstmate home; the default is kind=ship.
@@ -3254,6 +3255,9 @@ if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then
     else
       echo "CONFIG_REREAD: secondmate $ID: cleanup failed; pre-relaunch generations were force-cleared where possible (destination=$PROJ_ABS source=$FM_HOME)" >&2
     fi
+  fi
+  if ! fm_secondmate_nudge_discard_pending "$STATE" "$ID"; then
+    echo "NUDGE_SECONDMATES: secondmate $ID: could not discard the superseded tracked-file reread marker after launch" >&2
   fi
 fi
 
