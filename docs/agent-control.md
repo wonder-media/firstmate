@@ -34,7 +34,7 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 | `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. |
 | `relaunch` | Replace the running agent with a new one in the same endpoint and worktree, on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the recorded endpoint, and the durable record names the harness that is actually running. |
 | `dormant` | Stop a local persistent secondmate and record that it must stay stopped, without removing its endpoint, home, or work. | The verified exit postcondition holds and `state/<id>.dormant` records when, why, and which convergence is owed. Already dormant is idempotent success. |
-| `wake` | Launch a local secondmate through the normal recovery spawn path, including tracked-file and inherited-material convergence. | The new agent is alive on its validated endpoint, then the dormant marker is absent. A failed wake retains the marker. |
+| `wake` | Launch a local secondmate through the normal recovery spawn path, including tracked-file and inherited-material convergence. | The new agent is alive on its validated endpoint and the dormant marker is absent. A failed launch retains the marker. |
 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
 Interrupt never rewrites busy state as proof of its own success.
@@ -84,8 +84,9 @@ It invokes the exact `exit` implementation above before atomically writing `stat
 The separate marker keeps the endpoint metadata schema unchanged and serves as the durable record that skipped tracked-file and inherited-local-material convergence is owed.
 
 `wake` accepts the same local target and delegates to `bin/fm-spawn.sh <id> --secondmate` rather than reconstructing launch behavior in the control plane.
-That normal path re-resolves the harness pin, performs the guarded tracked-file fast-forward, propagates inherited local material, and clears superseded config-reread generations and tracked-file reread markers after launch.
-The control plane revalidates the published endpoint and requires an alive agent before it removes the dormant marker.
+That normal path re-resolves the harness pin, performs the guarded tracked-file fast-forward, propagates inherited local material, and clears superseded config-reread generations, tracked-file reread markers, and the dormant marker after launch.
+Every secondmate launch clears the marker the same way, so `relaunch` and a direct `bin/fm-spawn.sh <id> --secondmate` recovery also revive a dormant secondmate without leaving a live agent recorded as dormant.
+The control plane then revalidates the published endpoint and requires an alive agent before it reports `awake`.
 Calling `wake` for a dead secondmate without a marker still performs ordinary recovery, while calling it for an already-live non-dormant secondmate is idempotent success.
 
 ### Failure and rollback

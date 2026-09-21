@@ -401,10 +401,12 @@ test_sweep_treats_dormant_secondmate_as_healthy_stopped() {
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
   assert_not_contains "$out" "SECONDMATE_LIVENESS:" \
     "a dormant stopped secondmate must not emit an actionable liveness diagnostic"
+  assert_not_contains "$out" "BOOTSTRAP_INFO: secondmate sm1 is dormant" \
+    "a dormant secondmate must stay silent unless verbose bootstrap facts are requested"
   [ ! -s "$log" ] || fail "a dormant secondmate must never be killed, nudged, or relaunched: $(cat "$log")"
 
   out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log" FM_BOOTSTRAP_VERBOSE_FACTS=1)
-  assert_contains "$out" "BOOTSTRAP_INFO: secondmate sm1 is dormant" \
+  assert_contains "$out" "BOOTSTRAP_INFO: secondmate sm1 is dormant (expected stopped state)" \
     "verbose bootstrap facts should distinguish dormant from recovery-grade dead"
   [ ! -s "$log" ] || fail "verbose dormant reporting must not touch the endpoint"
   pass "sweep: dormant is healthy expected stopped state and survives session start"

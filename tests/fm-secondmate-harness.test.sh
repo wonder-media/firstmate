@@ -2688,6 +2688,23 @@ SH
   pass "B19 bootstrap respawns before inherited-config reread"
 }
 
+test_spawn_secondmate_clears_dormant_marker_on_any_launch() {
+  local w sm launchlog out status marker
+  w="$TMP_ROOT/spawn-clears-dormant"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  make_seeded_home "$sm" sm
+  mkdir -p "$w/home/state"
+  marker="$w/home/state/sm.dormant"
+  printf 'v1\nid=sm\nreason=test\npending_tracked_sync=1\npending_inherited_material=1\n' > "$marker"
+
+  out=$(spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 0 "$status" "direct secondmate recovery spawn should succeed for a dormant home"$'\n'"$out"
+  assert_absent "$marker" "a direct fm-spawn.sh <id> --secondmate launch left a live secondmate recorded as dormant"
+  assert_not_contains "$out" "DORMANT: secondmate sm" "spawn reported a dormant-marker cleanup failure on a clean launch"
+  pass "B12d a direct secondmate launch clears the dormant marker"
+}
+
 test_spawn_quarantines_pending_rereads_on_cleanup_failure() {
   local w sm report stale pending_nudge fakebin real_rm out status launchlog quarantine_root quarantined_count
   local quarantine_dirs before_quarantine_dirs after_quarantine_dirs n dir
@@ -2801,6 +2818,7 @@ test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge
 test_config_push_skips_dormant_and_preserves_convergence_debt
+test_spawn_secondmate_clears_dormant_marker_on_any_launch
 test_config_push_reports_skips_dirty_and_invalid_home
 test_config_push_exits_nonzero_on_copy_error
 test_config_push_rereads_after_partial_propagation

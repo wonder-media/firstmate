@@ -214,8 +214,9 @@ Repeated `dormant` calls are a clean no-op.
 
 The marker is the routing-visible dormant state.
 Before routing any work to that scope, run `bin/fm-control.sh <id> wake` and wait for its verified success.
-Wake uses the normal `bin/fm-spawn.sh <id> --secondmate` recovery path and clears the marker only after the replacement is proven alive.
-A failed wake retains the marker for a safe retry, while `wake` on a dead non-dormant secondmate remains the ordinary recovery path.
+Wake uses the normal `bin/fm-spawn.sh <id> --secondmate` recovery path, which clears the marker once the replacement is launched, and then proves the replacement alive before reporting success.
+Every secondmate launch clears the marker, so `relaunch` and direct recovery spawns also revive a dormant secondmate rather than leaving a live agent recorded as dormant.
+A failed launch retains the marker for a safe retry, while `wake` on a dead non-dormant secondmate remains the ordinary recovery path.
 
 Session-start liveness treats a valid dormant marker as healthy expected stopped state and never relaunches it.
 Parent supervision excludes only a dormant `kind=secondmate` meta; every live secondmate and every other meta still counts normally.

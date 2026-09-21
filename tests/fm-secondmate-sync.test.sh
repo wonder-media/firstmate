@@ -368,6 +368,35 @@ test_ff_dirty() {
   pass "T3 dirty: an uncommitted home is skipped, its edit preserved"
 }
 
+test_sweep_skips_dormant_home_silently_unless_verbose() {
+  local w c1 base before out
+  w=$(new_world sweep-dormant)
+  c1=$(head_of "$w/main")
+  add_sm_worktree "$w" sm "$c1"
+  printf 'v1\nid=sm\nreason=test\npending_tracked_sync=1\n' > "$w/home/state/sm.dormant"
+  bump_primary "$w" instr
+  base=$(primary_head_commit "$w/main")
+  before=$(head_of "$w/sm")
+
+  FM_ROOT="$w/main" FM_HOME="$w/home"
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+  [ -z "$out" ] || fail "a dormant home must produce no sweep output without verbose facts: $out"
+  [ "$(head_of "$w/sm")" = "$before" ] || fail "the sweep converged a dormant home before wake"
+  [ -z "$FF_NUDGE_WINDOWS" ] || fail "the sweep queued a nudge for a dormant home: $FF_NUDGE_WINDOWS"
+
+  FF_NUDGE_WINDOWS=""
+  FF_SEEN_HOMES=""
+  out=$(FM_BOOTSTRAP_VERBOSE_FACTS=1 sweep_live_secondmate_metas "$w/home/state" "$base" yes)
+  assert_contains "$out" "BOOTSTRAP_INFO: secondmate sm is dormant; convergence is deferred until wake" \
+    "verbose facts should name the deferred convergence for a dormant home"
+  [ "$(head_of "$w/sm")" = "$before" ] || fail "verbose reporting converged a dormant home"
+  grep -q 'pending_tracked_sync=1' "$w/home/state/sm.dormant" \
+    || fail "the sweep lost the dormant home's wake-time convergence debt"
+  pass "T3f dormant: the sweep defers convergence and reports it only under verbose facts"
+}
+
 # --- T4: diverged - a home with its own commit is skipped, commit preserved --
 test_ff_diverged() {
   local w c1 base before
@@ -1177,6 +1206,7 @@ test_remote_sync_ignores_firstmate_lifecycle_artifacts
 test_shipped_ignores_keep_both_home_shapes_clean
 test_standalone_ignores_firstmate_lifecycle_artifacts
 test_ff_dirty
+test_sweep_skips_dormant_home_silently_unless_verbose
 test_ff_diverged
 test_ff_inflight_feature_branch
 test_no_fetch_in_local_path

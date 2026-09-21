@@ -58,9 +58,11 @@
 #              and convergence owed on wake. Already-dormant is idempotent.
 #   wake       For a local kind=secondmate only, launch through the ordinary
 #              fm-spawn.sh <id> --secondmate recovery path. That path re-syncs
-#              tracked files and inherited local material before launch. The
-#              dormant record is cleared only after the new agent is proven
-#              alive, so a failed wake remains safely dormant and retryable.
+#              tracked files and inherited local material before launch and
+#              clears the dormant record once the agent is launched, as every
+#              secondmate revival path does. wake then proves the replacement
+#              alive before reporting success; a launch failure leaves the
+#              dormant record in place so the wake is safely retryable.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -560,10 +562,10 @@ do_wake() {
     die "secondmate $ID could not be launched through the normal recovery path; its dormant marker was retained"
   fi
   fm_backend_validate_task_endpoint "$META" "$ID" \
-    || die "secondmate $ID launched but its replacement metadata failed endpoint validation; its dormant marker was retained"
+    || die "secondmate $ID launched but its replacement metadata failed endpoint validation; inspect the endpoint before routing work to it"
   state=$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET")
   [ "$state" = alive ] \
-    || die "secondmate $ID launch returned but its agent state is '$state'; its dormant marker was retained"
+    || die "secondmate $ID launch returned but its agent state is '$state'; inspect the endpoint before routing work to it"
   fm_secondmate_dormant_clear "$STATE" "$ID" \
     || die "secondmate $ID is awake and converged, but its dormant marker could not be cleared"
   echo "awake $ID backend=$FM_BACKEND_VALIDATED_BACKEND endpoint=$FM_BACKEND_VALIDATED_TARGET worktree=$WT"

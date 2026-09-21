@@ -483,7 +483,8 @@ sweep_live_secondmate_metas() {
   [ -d "$state" ] || return 0
   while IFS='|' read -r id home window meta; do
     if fm_secondmate_dormant_present "$state" "$id"; then
-      printf 'BOOTSTRAP_INFO: secondmate %s is dormant; convergence is deferred until wake\n' "$id"
+      [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] \
+        || printf 'BOOTSTRAP_INFO: secondmate %s is dormant; convergence is deferred until wake\n' "$id"
       continue
     fi
     if grep -q '^remote_host=.' "$meta" 2>/dev/null; then continue; fi

@@ -155,7 +155,9 @@
 #   secondmate receives the primary's read-only shared captain-preference file
 #   (fm-config-inherit-lib.sh). A successful launch clears pending inherited
 #   config reread generations and tracked-file reread nudges because the new
-#   agent reads the converged files.
+#   agent reads the converged files, and it clears state/<id>.dormant because
+#   every secondmate launch (wake, relaunch, or direct recovery) revives the
+#   agent and converges what the dormant record said was owed.
 #   --scout records kind=scout in the task's meta (report deliverable, scratch worktree;
 #   see AGENTS.md task lifecycle); --secondmate records kind=secondmate and launches in a
 #   provisioned firstmate home; the default is kind=ship.
@@ -281,6 +283,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-secondmate-nudge-lib.sh
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
+# shellcheck source=bin/fm-secondmate-dormant-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-dormant-lib.sh"
 # shellcheck source=bin/fm-config-inherit-lib.sh
 . "$SCRIPT_DIR/fm-config-inherit-lib.sh"
 # shellcheck source=bin/fm-backend.sh
@@ -3259,6 +3263,9 @@ if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then
   if ! fm_secondmate_nudge_discard_pending "$STATE" "$ID"; then
     echo "NUDGE_SECONDMATES: secondmate $ID: could not discard the superseded tracked-file reread marker after launch" >&2
   fi
+fi
+if [ "$KIND" = secondmate ] && ! fm_secondmate_dormant_clear "$STATE" "$ID"; then
+  echo "DORMANT: secondmate $ID: could not clear the dormant marker after launch; the live agent still reads as dormant until $STATE/$ID.dormant is removed" >&2
 fi
 
 SPAWN_DELIVERY=
