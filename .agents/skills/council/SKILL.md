@@ -32,7 +32,6 @@ The default counted roster is architect, empiricist, economist, and the standing
 The advisory seat is extra, not counted; the live roster's `advisory.rounds` owns which rounds include it, and the standing Gemini advisory voice speaks rounds 1 through 3.
 
 Read captain-private `config/council.json` using the [Council configuration schema](../../../docs/configuration.md#council-configcounciljson) and [example roster](../../../bin/council/council.example.json).
-The example is copyable schema only: a missing or unreadable live file is reported for correction, never replaced with that example as a silent default roster.
 Seat names map to dispatch rule names; `config/crew-dispatch.json` remains the single model-routing authority.
 Resolve selection at every intake through the normal captain override, matching rule, default, and static harness precedence.
 Load [harness-adapters](../harness-adapters/SKILL.md) before dispatch; for a matched profile array load [quota-array-dispatch](../quota-array-dispatch/SKILL.md) and consult current `quota-axi` output.
@@ -141,6 +140,9 @@ Evaluate in this order after completing the inventory and merge:
 5. **capped-unresolved** at the selected cap, at most three rounds, with a must still outstanding.
    Deliver the last version plus every unresolved and contested item with both positions.
 
+Every outcome label carries its counted coverage: name each seat of the selected counted roster that filed no valid report this round.
+A round that reaches item 2 or item 3 without a valid security report is delivered as that label without a security review, never as a plain completion or convergence.
+
 Log value density per round: accepted must+should per minute of file-backed round wall time.
 It is the captain's diminishing-returns signal, not a gate.
 Do not double-count a repeated id or an already-applied item as newly accepted value.
@@ -193,7 +195,7 @@ Harness verification is separate follow-up work; only once verified does this se
 - Final plan path and links to every round's findings and the log.
 - Per-round summary of what changed, with valid counted coverage and measured wall time/value density.
 - Rejected items by id with the planner's reasons, including musts rejected in the final round.
-- Terminal outcome using the exact checklist label and its basis.
+- Terminal outcome using the exact checklist label and its basis, with the uncovered-seat naming the checklist requires.
 - Post-review deltas by finding id, with applied anchors for captain approval.
 - Contested musts by id with both the seat's position and the planner's reason; say none when empty.
 - Every unresolved item and captain question, preserving the decision key in durable records and presenting the concrete choice in captain-facing language.
@@ -207,6 +209,13 @@ It misses minute 15; the planner logs invalidity and starts its one replacement 
 The replacement also misses its 15-minute deadline; both missing-report attempts retain their state for ordinary recovery, without forced teardown.
 Archive the other two reports, log every attempt, merge their full inventory, and evaluate checklist item 1: **incomplete**.
 Deliver the inventory even if its musts are all closed.
+
+### Standing seat missing at three valid reports
+
+Round 1 dispatches the standing roster of architect, empiricist, economist, and security.
+The security seat misses its deadline and its one replacement misses the same deadline, leaving three valid counted reports.
+Item 1 does not fire at three valid reports, so the planner evaluates the rest of the checklist normally.
+The outcome is delivered as converged without a security review, naming the security seat as uncovered.
 
 ### Round cap
 

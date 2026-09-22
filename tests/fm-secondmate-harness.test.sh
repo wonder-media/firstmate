@@ -287,11 +287,6 @@ test_propagate_lib() {
   dest="$home/config"
   mkdir -p "$src" "$dest" "$home/state"
 
-  case " $FM_INHERITABLE_CONFIG " in
-    *" council.json "*) ;;
-    *) fail "config/council.json must be in the declared inheritable set" ;;
-  esac
-
   # 1. present source is copied
   printf '{"default":{"harness":"codex"}}\n' > "$src/crew-dispatch.json"
   printf '{"seats":{"architect":"council architect seat"}}\n' > "$src/council.json"
@@ -1970,6 +1965,7 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
   printf 'tmux\n' > "$w/home/config/backend"
+  printf '{"default_roster":["architect","empiricist","economist","security"]}\n' > "$w/home/config/council.json"
   {
     shared_captain_header_for_tests
     printf '%s\n' "shared secret preference body that must never appear in a config reread"
@@ -1987,6 +1983,8 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
     || fail "alpha did not receive multiline dispatch"
   cmp -s "$w/home/config/crew-dispatch.json" "$w/beta/config/crew-dispatch.json" \
     || fail "beta did not receive multiline dispatch"
+  cmp -s "$w/home/config/council.json" "$w/alpha/config/council.json" \
+    || fail "alpha did not receive council.json"
   [ "$(cat "$w/alpha/config/crew-harness")" = codex ] || fail "alpha harness not updated"
   [ "$(cat "$w/alpha/config/backlog-backend")" = manual ] || fail "alpha backlog-backend not updated"
   [ "$(cat "$w/alpha/config/backend")" = tmux ] || fail "alpha backend not updated"
@@ -2003,6 +2001,7 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
   assert_grep "These inherited config files changed" "$instr_a" "alpha framing missing"
   assert_grep "defaults/rules" "$instr_a" "alpha must preserve agent judgment framing"
   assert_contains "$(cat "$instr_a")" "config/crew-dispatch.json" "alpha missing dispatch path"
+  assert_contains "$(cat "$instr_a")" "config/council.json" "alpha missing council path"
   assert_contains "$(cat "$instr_a")" "config/crew-harness" "alpha missing harness path"
   assert_contains "$(cat "$instr_a")" "config/backlog-backend" "alpha missing backlog path"
   assert_contains "$(cat "$instr_a")" "config/backend" "alpha missing backend path"
@@ -2014,14 +2013,16 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
     /config\/backlog-backend/ { b=NR }
     /config\/backend/ && !/backlog-backend/ { k=NR }
     END {
-      if (!(d && h && b && k && d < h && h < b && b < k)) exit 1
-      if (c && !(d < c && c < h)) exit 1
+      if (!(d && c && h && b && k)) exit 1
+      if (!(d < c && c < h && h < b && b < k)) exit 1
     }
   ' "$instr_a" || fail "alpha instruction path order is not deterministic allowlist order"
 
   # Exact multiline JSON appears byte-for-byte between delimiters.
   assert_contains "$(cat "$instr_a")" "$multiline_json" \
     "alpha instruction must include exact multiline dispatch bytes"
+  assert_contains "$(cat "$instr_a")" $'-----BEGIN config/council.json-----\n{"default_roster":["architect","empiricist","economist","security"]}\n-----END config/council.json-----' \
+    "alpha instruction must include exact council.json bytes"
   assert_contains "$(cat "$instr_a")" $'-----BEGIN config/crew-harness-----\ncodex\n-----END config/crew-harness-----' \
     "alpha instruction must include exact harness scalar bytes"
   assert_contains "$(cat "$instr_a")" $'-----BEGIN config/backlog-backend-----\nmanual\n-----END config/backlog-backend-----' \
