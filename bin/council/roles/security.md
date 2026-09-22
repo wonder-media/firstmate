@@ -15,6 +15,5 @@ Rank findings within these sections:
 7. **Secrets handling:** token shape, entropy, expiry, storage, transport, leak blast radius; never secrets in repo copies, prompts, or logs.
 8. **Blast radius of new endpoints and state transitions:** worst authorized and unauthorized outcome of each new route or status change, including partial failure and rollback.
 
-Tag must only when the plan would expose data, allow an unauthorized write, or leave unbounded probing.
 In round 2+, retrace prior attack paths against the changed text using your own prior ids and dispositions.
 Evidence access never authorizes testing against production, real customer data, or live credential stores.
