@@ -29,7 +29,7 @@ A worker may author a project plan; that home's planner still merges and is the 
 The planner writes a disposition with a reason for every finding, including nice items.
 Counted seats are independent reviewers on different models, each in its own scout copy and a fresh context every round.
 The default counted roster is architect, empiricist, economist, and the standing security seat; UX joins when the plan changes a captain-facing surface and may be selected explicitly.
-The advisory seat is extra, not counted; the live roster's `advisory.rounds` owns which rounds include it, and the standing Gemini advisory voice speaks rounds 1 through 3.
+The advisory seat is extra, not counted; the live roster's `advisory.rounds` determines which rounds include it.
 
 Read captain-private `config/council.json` using the [Council configuration schema](../../../docs/configuration.md#council-configcounciljson) and [example roster](../../../bin/council/council.example.json).
 Seat names map to dispatch rule names; `config/crew-dispatch.json` remains the single model-routing authority.
@@ -141,7 +141,7 @@ Evaluate in this order after completing the inventory and merge:
    Deliver the last version plus every unresolved and contested item with both positions.
 
 Every outcome label carries its counted coverage: name each seat of the selected counted roster that filed no valid report this round.
-A round that reaches item 2 or item 3 without a valid security report is delivered as that label without a security review, never as a plain completion or convergence.
+A round that reaches item 2 or item 3 with a selected standing counted seat uncovered is delivered as that label without that seat's review, never as a plain completion or convergence.
 
 Log value density per round: accepted must+should per minute of file-backed round wall time.
 It is the captain's diminishing-returns signal, not a gate.
@@ -209,13 +209,6 @@ It misses minute 15; the planner logs invalidity and starts its one replacement 
 The replacement also misses its 15-minute deadline; both missing-report attempts retain their state for ordinary recovery, without forced teardown.
 Archive the other two reports, log every attempt, merge their full inventory, and evaluate checklist item 1: **incomplete**.
 Deliver the inventory even if its musts are all closed.
-
-### Standing seat missing at three valid reports
-
-Round 1 dispatches the standing roster of architect, empiricist, economist, and security.
-The security seat misses its deadline and its one replacement misses the same deadline, leaving three valid counted reports.
-Item 1 does not fire at three valid reports, so the planner evaluates the rest of the checklist normally.
-The outcome is delivered as converged without a security review, naming the security seat as uncovered.
 
 ### Round cap
 

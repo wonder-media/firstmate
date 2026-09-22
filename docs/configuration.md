@@ -318,7 +318,6 @@ Firstmate prepares the live file and corresponding seat rules before routine use
 This section owns the roster schema; the example supplies the concrete default values.
 Secondmate homes inherit the live file from the primary as declared local material; a missing copy is reported rather than silently replaced with the example default roster.
 Security is a standing counted seat; its role template is [`bin/council/roles/security.md`](../bin/council/roles/security.md).
-The Gemini advisory voice speaks in rounds 1 through 3.
 
 | Field | Meaning |
 |---|---|
@@ -326,7 +325,7 @@ The Gemini advisory voice speaks in rounds 1 through 3.
 | `default_roster` | Array of distinct counted seat names used when the invocation omits `--seats` |
 | `ux_on_captain_surface` | Whether the default roster adds UX when the plan changes a captain-facing surface |
 | `advisory.command_template` | Pinned direct CLI print command; `{prompt}` is one literal argument containing the self-contained prompt, never executable shell interpolation |
-| `advisory.rounds` | Rounds that include the extra advisory seat; the standing Gemini advisory voice speaks rounds 1 through 3 |
+| `advisory.rounds` | Rounds that include the extra advisory seat; the live roster field determines which rounds the advisory voice speaks |
 | `advisory.word_cap` | Advisory response limit, bounded by the common review cap |
 | `caps.max_rounds` | Default round cap; `--max-rounds` may lower it within the skill's hard bound |
 | `caps.minimum_counted_reports` | Required valid counted coverage under the skill's stop checklist |
