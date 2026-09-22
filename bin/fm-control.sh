@@ -4,6 +4,8 @@
 #
 # Usage: fm-control.sh <task-id> interrupt
 #        fm-control.sh <task-id> exit
+#        fm-control.sh <task-id> dormant
+#        fm-control.sh <task-id> wake
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
@@ -50,6 +52,17 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
+#   dormant    For a local kind=secondmate only, prove its own home has no
+#              state/*.meta work, stop it through the exact exit path above,
+#              then atomically write state/<id>.dormant with the time, reason,
+#              and convergence owed on wake. Already-dormant is idempotent.
+#   wake       For a local kind=secondmate only, launch through the ordinary
+#              fm-spawn.sh <id> --secondmate recovery path. That path re-syncs
+#              tracked files and inherited local material before launch and
+#              clears the dormant record once the agent is launched, as every
+#              secondmate revival path does. wake then proves the replacement
+#              alive before reporting success; a launch failure leaves the
+#              dormant record in place so the wake is safely retryable.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -134,6 +147,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-secondmate-dormant-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-dormant-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -290,12 +305,29 @@ LABEL="fm-$ID"
 RECORDED_HARNESS=$(fm_meta_get "$META" harness)
 KIND=$(fm_meta_get "$META" kind)
 WT=$(fm_meta_get "$META" worktree)
+SECOND_MATE_HOME=$(fm_meta_get "$META" home)
+[ -n "$SECOND_MATE_HOME" ] || SECOND_MATE_HOME=$WT
 [ -n "$KIND" ] || KIND=ship
 
-HARNESS=$(fm_control_harness_family "$RECORDED_HARNESS") \
-  || die "task $ID records harness '${RECORDED_HARNESS:-none}', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command"
-fm_control_harness_supported "$HARNESS" \
-  || die "task $ID records harness '${RECORDED_HARNESS:-none}', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command"
+case "$VERB" in
+  dormant|wake)
+    [ "$KIND" = secondmate ] \
+      || die "'$VERB' applies only to a kind=secondmate task; task $ID records kind '$KIND'"
+    ;;
+esac
+
+if [ "$VERB" = dormant ] && fm_secondmate_dormant_present "$STATE" "$ID"; then
+  echo "already-dormant $ID marker=$STATE/$ID.dormant worktree=$WT"
+  exit 0
+fi
+
+HARNESS=
+if [ "$VERB" != wake ]; then
+  HARNESS=$(fm_control_harness_family "$RECORDED_HARNESS") \
+    || die "task $ID records harness '${RECORDED_HARNESS:-none}', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command"
+  fm_control_harness_supported "$HARNESS" \
+    || die "task $ID records harness '${RECORDED_HARNESS:-none}', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command"
+fi
 
 fm_backend_validate "$BACKEND" || exit 1
 
@@ -480,6 +512,63 @@ do_exit() {
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
   printf 'stopped'
+}
+
+secondmate_home_has_inflight_work() {
+  local sub_state child_meta
+  [ -n "$SECOND_MATE_HOME" ] || die "secondmate $ID has no recorded home; refusing to make an unlocatable home dormant"
+  sub_state="$SECOND_MATE_HOME/state"
+  if [ -e "$sub_state" ] || [ -L "$sub_state" ]; then
+    [ -d "$sub_state" ] && [ ! -L "$sub_state" ] \
+      || die "secondmate $ID home has an unsafe state path at $sub_state"
+  else
+    return 1
+  fi
+  for child_meta in "$sub_state"/*.meta; do
+    [ -e "$child_meta" ] || continue
+    DORMANT_CHILD_META=$child_meta
+    return 0
+  done
+  return 1
+}
+
+do_dormant() {
+  local result
+  DORMANT_CHILD_META=
+  if secondmate_home_has_inflight_work; then
+    die "secondmate $ID still has in-flight work in $SECOND_MATE_HOME/state ($(basename "$DORMANT_CHILD_META")); let that home finish before making it dormant"
+  fi
+  result=$(do_exit)
+  fm_secondmate_dormant_write "$STATE" "$ID" "explicit control-plane request" \
+    || die "secondmate $ID was stopped but its durable dormant marker could not be written; keep it stopped and repair $STATE before retrying"
+  echo "dormant $ID exit=$result marker=$STATE/$ID.dormant worktree=$WT"
+}
+
+do_wake() {
+  local before state marker_present=0
+  fm_secondmate_dormant_present "$STATE" "$ID" && marker_present=1
+  before=$(agent_state)
+  case "$before" in
+    alive)
+      [ "$marker_present" -eq 0 ] \
+        || die "secondmate $ID is marked dormant but its recorded agent is alive; refusing to clear owed convergence without a normal wake launch"
+      echo "already-awake $ID backend=$BACKEND endpoint=$T worktree=$WT"
+      return 0
+      ;;
+    dead|missing) ;;
+    *) die "task $ID's endpoint reads '$before' rather than a recovery-grade dead or missing state; refusing to launch a duplicate secondmate" ;;
+  esac
+  if ! "$SCRIPT_DIR/fm-spawn.sh" "$ID" --secondmate >/dev/null; then
+    die "secondmate $ID could not be launched through the normal recovery path; its dormant marker was retained"
+  fi
+  fm_backend_validate_task_endpoint "$META" "$ID" \
+    || die "secondmate $ID launched but its replacement metadata failed endpoint validation; inspect the endpoint before routing work to it"
+  state=$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET")
+  [ "$state" = alive ] \
+    || die "secondmate $ID launch returned but its agent state is '$state'; inspect the endpoint before routing work to it"
+  fm_secondmate_dormant_clear "$STATE" "$ID" \
+    || die "secondmate $ID is awake and converged, but its dormant marker could not be cleared"
+  echo "awake $ID backend=$FM_BACKEND_VALIDATED_BACKEND endpoint=$FM_BACKEND_VALIDATED_TARGET worktree=$WT"
 }
 
 # --- transactional relaunch -------------------------------------------------
@@ -858,5 +947,11 @@ case "$VERB" in
     ;;
   relaunch)
     do_relaunch
+    ;;
+  dormant)
+    do_dormant
+    ;;
+  wake)
+    do_wake
     ;;
 esac

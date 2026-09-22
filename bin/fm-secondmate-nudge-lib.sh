@@ -14,6 +14,15 @@ fm_secondmate_nudge_marker_path() { # <state-dir> <id>
   printf '%s/.secondmate-nudge-pending/%s.pending\n' "$state" "$id"
 }
 
+fm_secondmate_nudge_discard_pending() { # <state-dir> <id>
+  local marker
+  marker=$(fm_secondmate_nudge_marker_path "$1" "$2") || return 1
+  if [ -e "$marker" ] || [ -L "$marker" ]; then
+    [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+    rm -f -- "$marker"
+  fi
+}
+
 fm_remote_inherit_transaction_lock_path() { # <state-dir> <id>
   local state=$1 id=$2
   case "$id" in *[!/A-Za-z0-9._-]*|''|*/*) return 1 ;; esac

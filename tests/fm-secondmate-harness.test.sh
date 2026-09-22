@@ -1783,6 +1783,29 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   pass "B12 config-push propagates via shared live discovery, reports items, rereads on change only, and does not fast-forward"
 }
 
+test_config_push_skips_dormant_and_preserves_convergence_debt() {
+  local w head out status log
+  w=$(new_world config-push-dormant)
+  head=$(git -C "$w/main" rev-parse HEAD)
+  add_sm_worktree "$w" sm "$head"
+  mkdir -p "$w/sm/config"
+  printf 'v1\nid=sm\nreason=test\npending_tracked_sync=1\npending_inherited_material=1\n' \
+    > "$w/home/state/sm.dormant"
+  printf 'tmux\n' > "$w/home/config/backend"
+  log="$w/config-push-dormant.tmux.log"
+  : > "$log"
+
+  out=$(run_config_push "$w" "$log" 2>&1); status=$?
+  expect_code 0 "$status" "config push should treat dormant as an expected skip"
+  assert_contains "$out" "secondmate sm: skipped - dormant" \
+    "config push should report dormant without attempting delivery"
+  [ ! -e "$w/sm/config/backend" ] || fail "config push mutated a dormant secondmate home"
+  [ ! -s "$log" ] || fail "config push sent a turn to a dormant secondmate: $(cat "$log")"
+  assert_grep 'pending_inherited_material=1' "$w/home/state/sm.dormant" \
+    "dormant marker lost its wake-time convergence debt"
+  pass "B12b config-push skips dormant homes and retains wake-time convergence debt"
+}
+
 test_config_push_reports_skips_dirty_and_invalid_home() {
   local w head out err status stale_real dirty_real bad_home err_text tmp
   w=$(new_world config-push-warnings)
@@ -2665,8 +2688,25 @@ SH
   pass "B19 bootstrap respawns before inherited-config reread"
 }
 
+test_spawn_secondmate_clears_dormant_marker_on_any_launch() {
+  local w sm launchlog out status marker
+  w="$TMP_ROOT/spawn-clears-dormant"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  make_seeded_home "$sm" sm
+  mkdir -p "$w/home/state"
+  marker="$w/home/state/sm.dormant"
+  printf 'v1\nid=sm\nreason=test\npending_tracked_sync=1\npending_inherited_material=1\n' > "$marker"
+
+  out=$(spawn_secondmate_capture "$w" sm "$sm" "$launchlog" 2>&1); status=$?
+  expect_code 0 "$status" "direct secondmate recovery spawn should succeed for a dormant home"$'\n'"$out"
+  assert_absent "$marker" "a direct fm-spawn.sh <id> --secondmate launch left a live secondmate recorded as dormant"
+  assert_not_contains "$out" "DORMANT: secondmate sm" "spawn reported a dormant-marker cleanup failure on a clean launch"
+  pass "B12d a direct secondmate launch clears the dormant marker"
+}
+
 test_spawn_quarantines_pending_rereads_on_cleanup_failure() {
-  local w sm report stale fakebin real_rm out status launchlog quarantine_root quarantined_count
+  local w sm report stale pending_nudge fakebin real_rm out status launchlog quarantine_root quarantined_count
   local quarantine_dirs before_quarantine_dirs after_quarantine_dirs n dir
   w=$(new_world config-reread-spawn-quarantine)
   sm="$w/sm"
@@ -2681,6 +2721,9 @@ test_spawn_quarantines_pending_rereads_on_cleanup_failure() {
     || fail "could not create pending spawn reread generation"
   fm_config_reread_mark_pending "$stale" "$stale.pending" \
     || fail "could not mark pending spawn reread generation"
+  pending_nudge="$w/home/state/.secondmate-nudge-pending/sm.pending"
+  mkdir -p "${pending_nudge%/*}"
+  printf 'id=sm\n' > "$pending_nudge"
   quarantine_root="$sm/state/.fm-inherited-config-reread-quarantine"
   mkdir -p "$quarantine_root"
   for n in $(seq -w 1 16); do
@@ -2711,6 +2754,7 @@ SH
     "spawn cleanup failure did not emit a CONFIG_REREAD quarantine diagnostic"
   assert_no_reread_pending "$sm"
   assert_no_reread_instructions "$sm"
+  assert_absent "$pending_nudge" "spawn did not clear the superseded tracked-file reread marker"
   assert_present "$quarantine_root" "spawn cleanup failure did not create a quarantine directory"
   quarantined_count=$(find "$quarantine_root" -type f | wc -l | tr -d ' ')
   [ "$quarantined_count" -ge 2 ] \
@@ -2773,6 +2817,8 @@ test_presentation_inheritance_default_on_and_opt_out
 test_bootstrap_sweep_surfaces_config_propagation_failure
 test_bootstrap_rereads_after_partial_propagation
 test_config_push_propagates_reports_without_ff_or_nudge
+test_config_push_skips_dormant_and_preserves_convergence_debt
+test_spawn_secondmate_clears_dormant_marker_on_any_launch
 test_config_push_reports_skips_dirty_and_invalid_home
 test_config_push_exits_nonzero_on_copy_error
 test_config_push_rereads_after_partial_propagation

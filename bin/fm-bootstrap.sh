@@ -294,6 +294,7 @@ secondmate_sync() {
       [ -f "$meta" ] || continue
       grep -q '^kind=secondmate' "$meta" 2>/dev/null || continue
       id=$(basename "$meta" .meta)
+      fm_secondmate_dormant_present "$STATE" "$id" && continue
       echo "SECONDMATE_SYNC: secondmate $id: skipped: primary default-branch commit cannot be resolved"
     done
     return 0
@@ -343,6 +344,9 @@ secondmate_sync() {
     for marker in "$SECOND_MATE_NUDGE_PENDING_DIR"/*.pending; do
       [ -f "$marker" ] || continue
       id=$(fm_meta_get "$marker" id)
+      if fm_secondmate_dormant_present "$STATE" "$id"; then
+        continue
+      fi
       if ! expected_marker=$(secondmate_nudge_marker_path "$id"); then
         echo "NUDGE_SECONDMATES: secondmate ${id:-unknown}: send failed: retry marker has unsafe id"
         continue
@@ -431,6 +435,7 @@ secondmate_sync() {
   propagated_homes=""
   SECONDMATE_RESPAWNED_IDS=${SECONDMATE_RESPAWNED_IDS:-}
   while IFS='|' read -r id home _window _meta; do
+    fm_secondmate_dormant_present "$STATE" "$id" && continue
     validate_secondmate_home "$id" "$home" || continue
     home_real="$VALIDATED_HOME"
     case " $FF_SEEN_HOMES " in
@@ -558,6 +563,7 @@ secondmate_sync() {
   # local fast-forward is attempted for them.
   local remote_host __fm_timing_stamp
   while IFS='|' read -r id _home _window meta; do
+    fm_secondmate_dormant_present "$STATE" "$id" && continue
     remote_host=$(fm_meta_get "$meta" remote_host)
     [ -n "$remote_host" ] || continue
     __fm_timing_stamp=$(fm_timing_now_ms)
@@ -616,6 +622,11 @@ secondmate_liveness_sweep() {
 secondmate_liveness_one() {  # <meta> <id>
   local meta=$1 id=$2
   local window harness backend target agent_state out cause remote_host remote_rc readiness_reason route_out remote_backend
+  if fm_secondmate_dormant_present "$STATE" "$id"; then
+    [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] \
+      || echo "BOOTSTRAP_INFO: secondmate $id is dormant (expected stopped state)"
+    return 0
+  fi
   window=$(fm_meta_get "$meta" window)
   [ -n "$window" ] || return 0
   harness=$(fm_meta_get "$meta" harness)

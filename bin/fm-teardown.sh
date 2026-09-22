@@ -417,7 +417,7 @@ remote_secondmate_teardown() {
   grep -vE "^- $ID( |$)" "$SECONDMATE_REG" > "$tmp" || true
   mv -f -- "$tmp" "$SECONDMATE_REG"
   status_retire_presentation_task "$STATE" "$ID" || return 1
-  rm -f -- "$STATE/$ID.meta" "$STATE/$ID.turn-ended"
+  rm -f -- "$STATE/$ID.meta" "$STATE/$ID.turn-ended" "$STATE/$ID.dormant"
   printf 'teardown %s complete (remote %s:%s)\n' "$ID" "$remote_host" "$remote_home"
   return 0
 }
@@ -793,6 +793,7 @@ retire_task_runtime_records() {
   retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || return 1
   status_retire_presentation_task "$STATE" "$ID" || return 1
   rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" \
+    "$STATE/$ID.dormant" \
     "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
     "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
     "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \

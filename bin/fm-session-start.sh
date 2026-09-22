@@ -798,7 +798,10 @@ for meta in "$STATE"/*.meta; do
 
   window=$(fm_meta_get "$meta" window)
   target=$(fm_backend_target_of_meta "$meta")
-  if [ -n "$window" ]; then
+  if grep -q '^kind=secondmate$' "$meta" 2>/dev/null \
+    && [ -f "$STATE/$id.dormant" ] && [ ! -L "$STATE/$id.dormant" ]; then
+    printf 'endpoint: dormant (expected stopped state; marker=%s)\n' "$STATE/$id.dormant"
+  elif [ -n "$window" ]; then
     backend=$(fm_backend_of_meta "$meta")
     if fm_backend_target_exists "$backend" "${target:-$window}" "fm-$id"; then
       printf 'endpoint: alive (backend=%s window=%s)\n' "$backend" "$window"

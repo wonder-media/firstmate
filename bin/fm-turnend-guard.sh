@@ -170,30 +170,26 @@ if fm_watcher_healthy "$STATE" "$WATCH" "$GRACE" "$FM_HOME"; then
 fi
 
 block_stop() {
-  local afk x_mode reason rule
+  local afk x_mode reason need autoarm
   afk=0
   [ -e "$STATE/.afk" ] && afk=1
   x_mode=0
   [ -f "$CONFIG/x-mode.env" ] && x_mode=1
   reason=$("$SCRIPT_DIR/fm-supervision-instructions.sh" --afk "$afk" --x-mode "$x_mode" --repair-line 2>/dev/null \
     || printf '%s\n' 'tasks in flight, no live watcher - repair missing watcher supervision according to the session-start operating block before ending the turn')
-  rule='━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
-  {
-    printf '●%s\n' "$rule"
-    printf '●  TURN WOULD END BLIND - SUPERVISION IS OFF\n'
-    if [ "$FM_SUP_IN_FLIGHT" -gt 0 ]; then
-      printf '●  %s task(s) in flight, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_IN_FLIGHT" "$FM_SUP_BEACON_DESC"
-    elif [ "$FM_SUP_SOURCES" -gt 0 ]; then
-      printf '●  %s process-event source(s) registered, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_SOURCES" "$FM_SUP_BEACON_DESC"
-    else
-      printf '●  X-mode relay polling needs supervision, but no live watcher holds this home lock (last beat: %s).\n' "$FM_SUP_BEACON_DESC"
-    fi
-    if [ "$CLAUDE_MODE" -eq 1 ]; then
-      printf '●  The Stop-owned auto-arm did not claim this home either, so recovery is NOT already under way.\n'
-    fi
-    printf '●  %s\n' "$reason"
-    printf '●%s\n' "$rule"
-  } >&2
+  if [ "$FM_SUP_IN_FLIGHT" -gt 0 ]; then
+    need="$FM_SUP_IN_FLIGHT task(s) in flight"
+  elif [ "$FM_SUP_SOURCES" -gt 0 ]; then
+    need="$FM_SUP_SOURCES process-event source(s) registered"
+  else
+    need="X-mode relay polling needs supervision"
+  fi
+  autoarm=
+  [ "$CLAUDE_MODE" -eq 0 ] \
+    || autoarm=' Stop-owned auto-arm did not claim this home; recovery is not under way.'
+  printf 'TURN WOULD END BLIND - %s; no live watcher holds this home lock (last beat: %s).%s\n' \
+    "$need" "$FM_SUP_BEACON_DESC" "$autoarm" >&2
+  printf '%s\n' "$reason" >&2
   exit 2
 }
 

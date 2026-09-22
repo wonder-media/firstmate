@@ -390,6 +390,28 @@ test_sweep_leaves_alive_secondmate_untouched() {
   pass "sweep: an already-live secondmate is untouched and distinguishable in verbose diagnostics"
 }
 
+test_sweep_treats_dormant_secondmate_as_healthy_stopped() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-dormant)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  printf 'v1\nid=sm1\nreason=test\n' > "$w/home/state/sm1.dormant"
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+  assert_not_contains "$out" "SECONDMATE_LIVENESS:" \
+    "a dormant stopped secondmate must not emit an actionable liveness diagnostic"
+  assert_not_contains "$out" "BOOTSTRAP_INFO: secondmate sm1 is dormant" \
+    "a dormant secondmate must stay silent unless verbose bootstrap facts are requested"
+  [ ! -s "$log" ] || fail "a dormant secondmate must never be killed, nudged, or relaunched: $(cat "$log")"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log" FM_BOOTSTRAP_VERBOSE_FACTS=1)
+  assert_contains "$out" "BOOTSTRAP_INFO: secondmate sm1 is dormant (expected stopped state)" \
+    "verbose bootstrap facts should distinguish dormant from recovery-grade dead"
+  [ ! -s "$log" ] || fail "verbose dormant reporting must not touch the endpoint"
+  pass "sweep: dormant is healthy expected stopped state and survives session start"
+}
+
 test_sweep_respawns_authoritatively_missing_pi_secondmate() {
   local w fb tmuxfb log out
   w=$(new_world sweep-missing-pi)
@@ -546,6 +568,7 @@ test_herdr_agent_state_preserves_husk_classifier
 test_agent_state_dispatcher_and_compatibility
 test_sweep_respawns_confirmed_dead_secondmate
 test_sweep_leaves_alive_secondmate_untouched
+test_sweep_treats_dormant_secondmate_as_healthy_stopped
 test_sweep_respawns_authoritatively_missing_pi_secondmate
 test_sweep_respawns_authoritatively_missing_pi_signed_secondmate
 test_sweep_never_acts_on_ambiguous_existing_process

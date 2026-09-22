@@ -69,6 +69,7 @@ If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot s
   `tests/fm-turnend-guard.test.sh` pins that inventory so neither the guarded set nor the exception can change silently.
 
 Claude and Codex can block a Stop directly with exit status 2 and stderr.
+The blocking message is at most two lines: one names the unsupervised work, beacon age, and missing Stop-owned auto-arm claim when applicable, and one prints the repair line owned by `bin/fm-supervision-instructions.sh --repair-line`.
 Both payloads carry `stop_hook_active`.
 In the default Codex mode, a true value lets the second stop finish after one forced continuation.
 
@@ -132,6 +133,7 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 
 - Child crewmate and scout worktrees are outside scope.
 - A valid secondmate home is in scope; an idle secondmate endpoint with no Relay poll remains healthy because it has no supervision need.
+- A dormant secondmate meta in its parent home is excluded from the in-flight count; a live secondmate meta still counts normally.
 - The blocking and bounded-follow-up mechanisms are limited to the primary integrations listed above.
 - OpenCode headless mode and untrusted Grok project hooks remain fail-open at the host boundary.
 - Cursor's `stop` step does not fire in headless `cursor-agent -p`, the same class of limit as OpenCode headless; firstmate primaries run interactive.

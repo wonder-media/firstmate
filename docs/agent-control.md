@@ -15,7 +15,7 @@ The failure repeated across harnesses and homes, and the workaround (remember to
 
 `bin/fm-control-lib.sh` is the single executable owner of three capability tables, with no side effects, so it can be read as a contract:
 
-- The **verb allowlist**: `interrupt`, `exit`, `relaunch`.
+- The **verb allowlist**: `interrupt`, `exit`, `relaunch`, `dormant`, `wake`.
   There is no arbitrary-text and no generic raw-key entry point.
   A caller either names an allowlisted verb or is refused.
 - **Per-harness mechanics**: the key that cancels a running turn, how many times it must be delivered, whether the composer needs clearing afterwards, the command that exits the agent, and which task kinds the adapter is verified to run.
@@ -33,6 +33,8 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 | `interrupt` | Deliver the harness's verified interrupt sequence while leaving the agent running. | Delivery succeeds while the endpoint still exists and the agent is still alive where the backend can classify that; cancellation is confirmed only from an adapter-owned acknowledgement and otherwise reports `cancel=unconfirmed`. |
 | `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. |
 | `relaunch` | Replace the running agent with a new one in the same endpoint and worktree, on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the recorded endpoint, and the durable record names the harness that is actually running. |
+| `dormant` | Stop a local persistent secondmate and record that it must stay stopped, without removing its endpoint, home, or work. | The verified exit postcondition holds and `state/<id>.dormant` records when, why, and which convergence is owed. Already dormant is idempotent success. |
+| `wake` | Launch a local secondmate through the normal recovery spawn path, including tracked-file and inherited-material convergence. | The new agent is alive on its validated endpoint and the dormant marker is absent. A failed launch retains the marker. |
 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
 Interrupt never rewrites busy state as proof of its own success.
@@ -53,7 +55,7 @@ It is not deterministic across the verified adapters: codex and grok resume only
 
 ## Transactional relaunch
 
-`relaunch` is the only verb that changes durable records, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
+`relaunch` is the only replacement verb, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
 
 1. **Resolve the profile.**
    An explicit `--harness`, `--model`, or `--effort` wins.
@@ -73,6 +75,19 @@ It is not deterministic across the verified adapters: codex and grok resume only
    In a `kind=secondmate` task's captain-owned home, the Claude settings file is not removed with the rest of that wiring: only the hook commands firstmate installed are pruned out of it, and [`configuration.md`](configuration.md#harness-support) owns that guest-merge contract.
 
 Switching harness is therefore one ordinary relaunch rather than a separate mechanism.
+
+## Dormant secondmates
+
+Dormancy is explicit and local-only.
+`dormant` accepts only a `kind=secondmate` target, refuses a remote route by the same placement guard as `relaunch`, and refuses while any `state/*.meta` exists in that secondmate's own home.
+It invokes the exact `exit` implementation above before atomically writing `state/<id>.dormant`.
+The separate marker keeps the endpoint metadata schema unchanged and serves as the durable record that skipped tracked-file and inherited-local-material convergence is owed.
+
+`wake` accepts the same local target and delegates to `bin/fm-spawn.sh <id> --secondmate` rather than reconstructing launch behavior in the control plane.
+That normal path re-resolves the harness pin, performs the guarded tracked-file fast-forward, propagates inherited local material, and clears superseded config-reread generations, tracked-file reread markers, and the dormant marker after launch.
+Every secondmate launch clears the marker the same way, so `relaunch` and a direct `bin/fm-spawn.sh <id> --secondmate` recovery also revive a dormant secondmate without leaving a live agent recorded as dormant.
+The control plane then revalidates the published endpoint and requires an alive agent before it reports `awake`.
+Calling `wake` for a dead secondmate without a marker still performs ordinary recovery, while calling it for an already-live non-dormant secondmate is idempotent success.
 
 ### Failure and rollback
 
@@ -118,6 +133,6 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 
 ## Verification
 
-- `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
+- `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, the dormant and wake round trip with its in-flight-work refusal, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, rollback after a failed launch, and the guest merge and prune that leaves a captain-owned secondmate settings file otherwise unchanged.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
