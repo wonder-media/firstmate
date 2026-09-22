@@ -1,0 +1,20 @@
+# Council roster resolution (bin/council/council.example.json)
+
+counted default roster : architect, empiricist, economist, security
+minimum counted reports: 3
+advisory rounds        : [1, 2, 3] (extra, not counted)
+
+  architect   -> bin/council/roles/architect.md  template:yes  linked-from-skill:yes
+  empiricist  -> bin/council/roles/empiricist.md  template:yes  linked-from-skill:yes
+  economist   -> bin/council/roles/economist.md  template:yes  linked-from-skill:yes
+  security    -> bin/council/roles/security.md  template:yes  linked-from-skill:yes
+
+# Targeted test run
+
+ok - documentation inventory classifies every maintained prose surface exactly once
+ok - Council frontmatter parses and every linked skill resource exists
+ok - every counted council seat resolves to a linked role template, and an unknown seat fails
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=1073

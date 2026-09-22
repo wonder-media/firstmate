@@ -1,0 +1,70 @@
+=== Captain edits the fleet council roster on the primary ===
+
+$ cat config/council.json   # primary
+default_roster = ['architect', 'empiricist', 'economist', 'security']
+minimum_counted_reports = 3
+
+$ ls secondmate-home/config/   # before the push
+(no config/ in the secondmate home yet)
+
+$ fm-config-push.sh
+config-push: <world>/home -> live secondmate homes
+secondmate sm (<world>/council-evidence/sm):
+  crew-dispatch.json: unchanged
+  council.json: pushed
+  crew-harness: unchanged
+  crew-autocompact: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-project-spaces: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  data/captain-shared.md: unchanged
+  config-reread: sent
+
+$ cat secondmate-home/config/council.json   # after the push
+default_roster = ['architect', 'empiricist', 'economist', 'security']
+security seat brief file: bin/council/roles/security.md exists: yes
+
+=== Captain narrows the roster; the home follows ===
+
+$ fm-config-push.sh
+config-push: <world>/home -> live secondmate homes
+secondmate sm (<world>/council-evidence/sm):
+  crew-dispatch.json: unchanged
+  council.json: pushed
+  crew-harness: unchanged
+  crew-autocompact: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-project-spaces: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  data/captain-shared.md: unchanged
+  config-reread: sent
+
+$ cat secondmate-home/config/council.json
+default_roster = ['architect', 'empiricist', 'security']
+
+=== Captain removes the roster; the home copy goes too ===
+
+$ fm-config-push.sh
+config-push: <world>/home -> live secondmate homes
+secondmate sm (<world>/council-evidence/sm):
+  crew-dispatch.json: unchanged
+  council.json: pushed - mirrored primary absence
+  crew-harness: unchanged
+  crew-autocompact: unchanged
+  backlog-backend: unchanged
+  backend: unchanged
+  herdr-project-spaces: unchanged
+  herdr-presentation-spaces: unchanged
+  startup-memory-budget: unchanged
+  trace-context: unchanged - session-scoped
+  data/captain-shared.md: unchanged
+  config-reread: sent
+
+$ ls secondmate-home/config/council.json
+ls: <world>/sm/config/council.json: No such file or directory
