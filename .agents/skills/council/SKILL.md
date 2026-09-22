@@ -141,7 +141,6 @@ Evaluate in this order after completing the inventory and merge:
    Deliver the last version plus every unresolved and contested item with both positions.
 
 Every outcome label carries its counted coverage: name each seat of the selected counted roster that filed no valid report this round.
-A round that reaches item 2 or item 3 with a selected standing counted seat uncovered is delivered as that label without that seat's review, never as a plain completion or convergence.
 
 Log value density per round: accepted must+should per minute of file-backed round wall time.
 It is the captain's diminishing-returns signal, not a gate.

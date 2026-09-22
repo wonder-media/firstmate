@@ -316,7 +316,7 @@ The captain-invocable [`council` skill](../.agents/skills/council/SKILL.md) owns
 The live roster is captain-private `config/council.json`; [`bin/council/council.example.json`](../bin/council/council.example.json) is its copyable schema example.
 Firstmate prepares the live file and corresponding seat rules before routine use; phase 1 reads and fills these records manually without a Council runner.
 This section owns the roster schema; the example supplies the concrete default values.
-Secondmate homes inherit the live file from the primary as declared local material; a missing copy is reported rather than silently replaced with the example default roster.
+Secondmate homes inherit the live file from the primary as declared local material.
 Security is a standing counted seat; its role template is [`bin/council/roles/security.md`](../bin/council/roles/security.md).
 
 | Field | Meaning |
