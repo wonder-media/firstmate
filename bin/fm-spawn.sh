@@ -169,6 +169,10 @@
 #   origin, resolves the current remote default branch, and resets to its tip.
 #   An unreachable origin, unresolved default branch, or non-clean worktree
 #   refuses the spawn rather than risking a PR based on stale history.
+#   Every fresh or relaunched ship/scout worktree receives an idempotently
+#   replaced, worktree-local commit-msg hook through Git's worktree config.
+#   It removes only known coding-agent co-author emails, preserves human
+#   co-authors, and exits zero without changing the message on any hook error.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
@@ -2002,6 +2006,89 @@ freshen_spawn_worktree_base() {  # <worktree>
   fi
 }
 
+install_agent_commit_msg_hook() {  # <worktree>
+  local worktree=$1 hook_dir staging_dir attempt worktree_config_enabled
+  hook_dir="$worktree/.fm-git-hooks"
+  staging_dir="$worktree/.fm-git-hooks.new.${BASHPID:-$$}.$RANDOM"
+
+  rm -rf -- "$staging_dir" || return 1
+  mkdir -p "$staging_dir" || return 1
+  cat > "$staging_dir/commit-msg" <<'HOOK'
+#!/bin/sh
+# Remove only known coding-agent co-author identities.
+# Any missing tool, unreadable input, or rewrite failure leaves the message untouched.
+message_file=${1-}
+[ -n "$message_file" ] || exit 0
+[ -f "$message_file" ] && [ -r "$message_file" ] && [ -w "$message_file" ] || exit 0
+command -v perl >/dev/null 2>&1 || exit 0
+command -v mktemp >/dev/null 2>&1 || exit 0
+command -v mv >/dev/null 2>&1 || exit 0
+command -v rm >/dev/null 2>&1 || exit 0
+
+temporary=$(mktemp "${message_file}.fm-agent-coauthor.XXXXXX" 2>/dev/null) || exit 0
+cleanup() {
+  command rm -f -- "$temporary" >/dev/null 2>&1 || :
+}
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+
+perl -e '
+  use strict;
+  use warnings;
+  my ($source, $destination) = @ARGV;
+  open my $input, "<:raw", $source or exit 2;
+  local $/;
+  my $message = <$input>;
+  $message = "" unless defined $message;
+  close $input or exit 2;
+
+  my $agent_email = qr/(?:cursoragent\@cursor\.com|noreply\@anthropic\.com|noreply\@openai\.com|noreply\@opencode\.ai|noreply\@pi\.dev)/i;
+  my $removed = $message =~ s/^[ \t]*Co-authored-by:[ \t]*[^\r\n]*<$agent_email>[ \t]*\r?(?:\n|\z)//gim;
+  exit 3 unless $removed;
+
+  open my $output, ">:raw", $destination or exit 2;
+  print {$output} $message or exit 2;
+  close $output or exit 2;
+' "$message_file" "$temporary" >/dev/null 2>&1
+rewrite_status=$?
+
+if [ "$rewrite_status" -eq 0 ]; then
+  mv -- "$temporary" "$message_file" >/dev/null 2>&1 || exit 0
+fi
+exit 0
+HOOK
+  chmod 0755 "$staging_dir/commit-msg" || {
+    rm -rf -- "$staging_dir"
+    return 1
+  }
+
+  rm -rf -- "$hook_dir" || {
+    rm -rf -- "$staging_dir"
+    return 1
+  }
+  mv -- "$staging_dir" "$hook_dir" || {
+    rm -rf -- "$staging_dir"
+    return 1
+  }
+
+  worktree_config_enabled=$(git -C "$worktree" config --local --type=bool --get extensions.worktreeConfig 2>/dev/null || true)
+  if [ "$worktree_config_enabled" != true ]; then
+    attempt=0
+    until git -C "$worktree" config --local extensions.worktreeConfig true; do
+      attempt=$((attempt + 1))
+      if [ "$attempt" -ge 3 ]; then
+        echo "error: could not enable worktree-local git configuration for '$worktree'" >&2
+        return 1
+      fi
+      sleep 0.1
+    done
+  fi
+  if ! git -C "$worktree" config --worktree --replace-all core.hooksPath .fm-git-hooks; then
+    echo "error: could not bind the task-local commit hook for '$worktree'" >&2
+    return 1
+  fi
+}
+
 herdr_projection_meta_field_exact() {  # <meta> <key>
   local meta=$1 key=$2 count
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
@@ -2619,6 +2706,13 @@ exclude_path() {
   mkdir -p "$(dirname "$EXCL")"
   grep -qxF "$rel" "$EXCL" 2>/dev/null || echo "$rel" >> "$EXCL"
 }
+if [ "$KIND" != secondmate ]; then
+  exclude_path '.fm-git-hooks/'
+  install_agent_commit_msg_hook "$WT" || {
+    echo "error: could not install the task-local agent co-author filter for task $ID; refusing to launch without commit protection" >&2
+    exit 1
+  }
+fi
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 if [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   exclude_path '.fm-treehouse-owner'
