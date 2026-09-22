@@ -237,6 +237,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": "bin/council/roles/security.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": "bin/council/roles/ux.md",
       "audience": "agent-runtime"
     },
