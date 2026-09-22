@@ -325,7 +325,7 @@ Security is a standing counted seat; its role template is [`bin/council/roles/se
 | `default_roster` | Array of distinct counted seat names used when the invocation omits `--seats` |
 | `ux_on_captain_surface` | Whether the default roster adds UX when the plan changes a captain-facing surface |
 | `advisory.command_template` | Pinned direct CLI print command; `{prompt}` is one literal argument containing the self-contained prompt, never executable shell interpolation |
-| `advisory.rounds` | Rounds that include the extra advisory seat; the live roster field determines which rounds the advisory voice speaks |
+| `advisory.rounds` | Rounds that include the extra advisory seat |
 | `advisory.word_cap` | Advisory response limit, bounded by the common review cap |
 | `caps.max_rounds` | Default round cap; `--max-rounds` may lower it within the skill's hard bound |
 | `caps.minimum_counted_reports` | Required valid counted coverage under the skill's stop checklist |

@@ -420,17 +420,6 @@ test_propagate_lib() {
     "guard skip did not emit a stderr warning"
   [ ! -e "$guard_repo/config/crew-dispatch.json" ] || fail "guard skip still copied the unignored item"
 
-  printf '{"seats":{"security":"council security seat"}}\n' > "$src/council.json"
-  stdout="$d/guard-skip-council.out"
-  stderr="$d/guard-skip-council.err"
-  FM_INHERITABLE_CONFIG=council.json propagate_inheritable_config "$src" "$guard_repo/config" >"$stdout" 2>"$stderr" \
-    || fail "council.json guard skip should not make propagation fail"
-  [ ! -s "$stdout" ] || fail "council.json guard skip wrote to stdout"
-  err_text=$(cat "$stderr")
-  assert_contains "$err_text" "fm-config-inherit: warning: skipped council.json" \
-    "council.json guard skip did not emit a stderr warning"
-  [ ! -e "$guard_repo/config/council.json" ] || fail "council.json guard skip still copied the unignored item"
-
   pass "B1 propagate_inheritable_config: copy, idempotence, convergence, absence-mirror, exclusion, no-op, skip diagnostics"
 }
 

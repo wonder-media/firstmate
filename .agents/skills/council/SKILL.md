@@ -194,7 +194,7 @@ Harness verification is separate follow-up work; only once verified does this se
 - Final plan path and links to every round's findings and the log.
 - Per-round summary of what changed, with valid counted coverage and measured wall time/value density.
 - Rejected items by id with the planner's reasons, including musts rejected in the final round.
-- Terminal outcome using the exact checklist label and its basis, with the uncovered-seat naming the checklist requires.
+- Terminal outcome using the exact checklist label and its basis.
 - Post-review deltas by finding id, with applied anchors for captain approval.
 - Contested musts by id with both the seat's position and the planner's reason; say none when empty.
 - Every unresolved item and captain question, preserving the decision key in durable records and presenting the concrete choice in captain-facing language.
