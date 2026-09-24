@@ -29,8 +29,6 @@ fi
 unset NO_MISTAKES_GATE
 
 TMP_ROOT=$(fm_test_tmproot fm-sessionstart-nudge)
-NUDGE="$ROOT/bin/fm-sessionstart-nudge.sh"
-RUN="$ROOT/bin/fm-sessionstart-run.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-operational-input.sh"
 NUDGE_TEXT="Run \`bin/fm-session-start.sh\` now, exactly once, before executing any other instructions."
@@ -44,11 +42,14 @@ make_primary() {
   git init -q "$dir"
   git -C "$dir" commit -q --allow-empty -m init
   : > "$dir/AGENTS.md"
+  cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
+    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$dir/bin/"
+  chmod +x "$dir/bin/fm-sessionstart-nudge.sh"
 }
 
 run_nudge() {
   local root=$1
-  FM_GATE_REFUSE_BYPASS=0 FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$NUDGE"
+  FM_GATE_REFUSE_BYPASS=0 FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$root/bin/fm-sessionstart-nudge.sh"
 }
 
 expect_silent_zero() {
@@ -75,7 +76,7 @@ test_gate_env_is_silent() {
   local root="$TMP_ROOT/gate-env"
   make_primary "$root"
   expect_silent_zero "gate env nudge" env NO_MISTAKES_GATE=1 FM_GATE_REFUSE_BYPASS=0 \
-    FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$NUDGE"
+    FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$root/bin/fm-sessionstart-nudge.sh"
   pass "fm-sessionstart-nudge: NO_MISTAKES_GATE is silent"
 }
 
@@ -89,8 +90,11 @@ test_gate_common_dir_is_silent() {
   mkdir -p "$root/bin" "$root/state"
   : > "$root/AGENTS.md"
   printf 'gate-test\n' > "$root/.fm-secondmate-home"
+  cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
+    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
+  chmod +x "$root/bin/fm-sessionstart-nudge.sh"
   expect_silent_zero "gate common-dir nudge" env FM_GATE_REFUSE_BYPASS=0 \
-    FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$NUDGE"
+    FM_ROOT_OVERRIDE="$root" FM_HOME="$root" "$root/bin/fm-sessionstart-nudge.sh"
   pass "fm-sessionstart-nudge: .no-mistakes gate common-dir is silent"
 }
 
@@ -99,6 +103,9 @@ test_unmarked_linked_worktree_is_silent() {
   fm_git_worktree "$base" "$root" fm/sessionstart-linked
   mkdir -p "$root/bin" "$root/state"
   : > "$root/AGENTS.md"
+  cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
+    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
+  chmod +x "$root/bin/fm-sessionstart-nudge.sh"
   expect_silent_zero "linked worktree nudge" run_nudge "$root"
   pass "fm-sessionstart-nudge: an unmarked linked task worktree is silent"
 }
@@ -109,6 +116,9 @@ test_linked_secondmate_primary_nudges() {
   mkdir -p "$root/bin" "$root/state"
   : > "$root/AGENTS.md"
   printf 'sessionstart-sm\n' > "$root/.fm-secondmate-home"
+  cp "$ROOT/bin/fm-sessionstart-nudge.sh" "$ROOT/bin/fm-primary-scope-lib.sh" \
+    "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
+  chmod +x "$root/bin/fm-sessionstart-nudge.sh"
   out=$(run_nudge "$root") || status=$?
   expect_code 0 "$status" "linked secondmate nudge"
   [ "$out" = "$NUDGE_LINE" ] || fail "linked secondmate printed unexpected output: $out"
@@ -138,7 +148,8 @@ test_opencode_plugin_delivers_exact_nudge_once() {
     "$ROOT/bin/fm-gate-refuse-lib.sh" "$ROOT/bin/fm-operational-input.sh" "$root/bin/"
   chmod +x "$root/bin/fm-sessionstart-nudge.sh"
   out=$(PLUGIN="$ROOT/.opencode/plugins/fm-primary-sessionstart-nudge.js" \
-    WORKTREE="$root" EXPECTED="$NUDGE_LINE" node --input-type=module 2>&1 <<'EOF'
+    WORKTREE="$root" EXPECTED="$NUDGE_LINE" FM_HOME="$root" FM_ROOT_OVERRIDE="$root" \
+    node --input-type=module 2>&1 <<'EOF'
 import { pathToFileURL } from "node:url";
 
 const prompts = [];
@@ -181,7 +192,9 @@ RUN_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 
 make_run_primary() {
   local dir=$1
-  mkdir -p "$dir/bin" "$dir/state" "$dir/data" "$dir/config"
+  mkdir -p "$dir/state" "$dir/data" "$dir/config"
+  ln -s "$ROOT/bin" "$dir/bin"
+  ln -s "$ROOT/docs" "$dir/docs"
   git init -q -b main "$dir"
   git -C "$dir" commit -q --allow-empty -m init
   : > "$dir/AGENTS.md"
@@ -191,14 +204,14 @@ run_hook() {  # <root> [args...]
   local root=$1
   shift
   env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
-    FM_GATE_REFUSE_BYPASS=0 FM_ROOT_OVERRIDE="$root" FM_HOME="$root" PATH="$RUN_PATH" "$RUN" "$@"
+    FM_GATE_REFUSE_BYPASS=0 FM_ROOT_OVERRIDE="$root" FM_HOME="$root" PATH="$RUN_PATH" "$root/bin/fm-sessionstart-run.sh" "$@"
 }
 
 run_hook_pi() {  # <root> [args...]
   local root=$1
   shift
   env -u CLAUDECODE -u GROK_AGENT PI_CODING_AGENT=true FM_PI_HARNESS=pi \
-    FM_GATE_REFUSE_BYPASS=0 FM_ROOT_OVERRIDE="$root" FM_HOME="$root" PATH="$RUN_PATH" "$RUN" "$@"
+    FM_GATE_REFUSE_BYPASS=0 FM_ROOT_OVERRIDE="$root" FM_HOME="$root" PATH="$RUN_PATH" "$root/bin/fm-sessionstart-run.sh" "$@"
 }
 
 # Every run-tier assertion keys off the digest banner, which fm-session-start.sh
@@ -511,12 +524,14 @@ test_run_gate_and_scope_are_silent() {
   local root="$TMP_ROOT/run-gate" base="$TMP_ROOT/run-linked-base" linked="$TMP_ROOT/run-linked"
   make_run_primary "$root"
   expect_silent_zero "gate env run" env NO_MISTAKES_GATE=1 FM_GATE_REFUSE_BYPASS=0 \
-    FM_ROOT_OVERRIDE="$root" FM_HOME="$root" PATH="$RUN_PATH" "$RUN" --source startup
+    FM_ROOT_OVERRIDE="$root" FM_HOME="$root" PATH="$RUN_PATH" "$root/bin/fm-sessionstart-run.sh" --source startup
   assert_absent "$root/state/.lock" "a gate agent's session open still took the fleet lock"
 
   fm_git_worktree "$base" "$linked" fm/run-linked
   mkdir -p "$linked/bin" "$linked/state"
   : > "$linked/AGENTS.md"
+  cp "$ROOT/bin/fm-sessionstart-run.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$linked/bin/"
+  chmod +x "$linked/bin/fm-sessionstart-run.sh"
   expect_silent_zero "linked worktree run" run_hook "$linked" --source startup
   assert_absent "$linked/state/.lock" "an unmarked task worktree still took the fleet lock"
   pass "run wrapper: a gate agent and an unmarked task worktree never run a session start"
@@ -531,6 +546,34 @@ test_run_reports_a_failed_session_start_as_digest_text() {
   expect_code 0 "$status" "run wrapper with an unwritable state directory"
   assert_contains "$out" "READ-ONLY SESSION" "a failed lock did not reach the agent as digest text"
   pass "run wrapper: a session start that cannot take the lock still opens the session and says so"
+}
+
+test_run_refuses_cross_home_inheritance() {
+  local main="$TMP_ROOT/run-home-main" second="$TMP_ROOT/run-home-second" main_real second_real out status=0
+  make_run_primary "$main"
+  make_run_primary "$second"
+  printf 'second\n' > "$second/.fm-secondmate-home"
+  main_real=$(cd "$main" && pwd -P)
+  second_real=$(cd "$second" && pwd -P)
+
+  out=$(FM_ROOT_OVERRIDE="$main" FM_HOME="$main" PATH="$RUN_PATH" \
+    "$second/bin/fm-sessionstart-run.sh" --source startup </dev/null 2>&1) || status=$?
+  expect_code 0 "$status" "secondmate session with inherited main home"
+  assert_contains "$out" "running checkout $second_real" "mismatch diagnostic omitted the secondmate checkout"
+  assert_contains "$out" "inherited FM_HOME resolves to $main_real" "mismatch diagnostic omitted the inherited main home"
+  assert_not_contains "$out" "SESSION START" "a mismatched secondmate session still ran a digest"
+  assert_absent "$main/state/.lock" "a mismatched secondmate session locked the main home"
+  assert_absent "$second/state/.lock" "a mismatched secondmate session locked its home after refusal"
+
+  status=0
+  out=$(FM_ROOT_OVERRIDE="$second" FM_HOME="$second" PATH="$RUN_PATH" \
+    "$main/bin/fm-sessionstart-run.sh" --source startup </dev/null 2>&1) || status=$?
+  expect_code 0 "$status" "main session with inherited secondmate home"
+  assert_contains "$out" "running checkout $main_real" "reverse mismatch diagnostic omitted the main checkout"
+  assert_contains "$out" "inherited FM_HOME resolves to $second_real" "reverse mismatch diagnostic omitted the inherited secondmate home"
+  assert_absent "$main/state/.lock" "the main session locked a secondmate-derived home after refusal"
+  assert_absent "$second/state/.lock" "the main session locked the secondmate home"
+  pass "session-start run: inherited main and secondmate homes cannot cross-bind in either direction"
 }
 
 test_genuine_primary_nudges
@@ -552,5 +595,6 @@ test_run_reads_source_from_the_hook_payload
 test_run_unknown_source_takes_the_helm
 test_run_gate_and_scope_are_silent
 test_run_reports_a_failed_session_start_as_digest_text
+test_run_refuses_cross_home_inheritance
 test_pi_startup_classifies_cli_continuations
 test_pi_large_sessionstart_digest_is_delivered_loudly

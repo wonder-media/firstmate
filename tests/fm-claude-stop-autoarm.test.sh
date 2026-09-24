@@ -283,15 +283,15 @@ test_stale_lock_recovery_preserves_afk_and_need_gates() {
   pass "auto-arm: stale-owner recovery leaves the AFK and supervision-need gates unchanged"
 }
 
-test_resolves_outermost_claude_pid_in_nested_bgspare_chain() {
+test_resolves_outermost_claude_pid_in_nested_session_chain() {
   local dir out status inner_pid lock_pid
   dir=$(make_primary_dir "$TMP_ROOT/nested-chain")
   : > "$dir/state/task.meta"
   write_arm_fixture "$dir" actionable
-  # A genuine multi-level contiguous claude-named ancestry: the hook fires
-  # inside an inner fake-claude process (its recorded pid is distinct from its
-  # own parent, a second, outer fake-claude process holding the session lock -
-  # the bg-spare shape). Only the outer pid may own the lock; a
+  # A genuine multi-level contiguous claude-named session ancestry: the hook
+  # fires inside an inner fake-claude process whose recorded pid is distinct
+  # from its own parent, a second outer fake-claude process holding the session
+  # lock. Only the outer eligible session pid may own the lock; a
   # first-match-wins walk would resolve to the inner pid instead and leave the
   # hook inert. The inner process records its own pid before running the hook
   # so bash cannot tail-exec-collapse it into the outer pid, which would
@@ -311,7 +311,7 @@ test_resolves_outermost_claude_pid_in_nested_bgspare_chain() {
   expect_code 2 "$status" "a nested contiguous claude ancestry must resolve to the outer lock-owning pid and arm"
   [ -e "$dir/state/arm-ran" ] || fail "hook did not resolve past the inner claude-named process to the outer lock owner"
   [ "$(epoch_outcome "$dir")" = rewake ] || fail "nested-chain arm must record outcome=rewake"
-  pass "auto-arm: resolves the outermost pid of a nested contiguous claude ancestry (bg-spare chain)"
+  pass "auto-arm: resolves the outermost eligible pid of a nested contiguous Claude session ancestry"
 }
 
 test_inert_when_fleet_idle() {
@@ -577,13 +577,39 @@ test_fm_lock_status_still_works_with_shared_lib() {
   pass "fm-lock: shared session-lock lib preserves the status path"
 }
 
+test_daemon_and_background_helpers_never_own_session_lock() {
+  local dir kind pid out status
+  for kind in daemon-run bg-pty-host bg-spare; do
+    dir=$(make_primary_dir "$TMP_ROOT/lock-helper-$kind")
+    case "$kind" in
+      daemon-run) "$FAKE_CLAUDE" -c 'sleep 60' daemon run & ;;
+      bg-pty-host) "$FAKE_CLAUDE" -c 'sleep 60' bg-pty-host & ;;
+      bg-spare) "$FAKE_CLAUDE" -c 'sleep 60' bg-spare & ;;
+    esac
+    pid=$!
+    printf '%s\n' "$pid" > "$dir/state/.lock"
+    out=$(FM_HOME="$dir" "$dir/bin/fm-lock.sh" status 2>&1)
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    assert_contains "$out" "lock: stale" "$kind was accepted as a live session-lock owner"
+  done
+
+  dir=$(make_primary_dir "$TMP_ROOT/lock-helper-acquire")
+  status=0
+  out=$(FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-lock.sh"; rc=$?; :; exit "$rc"' daemon run 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "a daemon-only ancestry acquired the session lock"
+  assert_contains "$out" "cannot locate harness process in ancestry" "daemon-only ancestry did not fail closed"
+  assert_absent "$dir/state/.lock" "a daemon pid was written as the session-lock owner"
+  pass "fm-lock: daemon, bg-pty-host, and bg-spare processes are stale and never become owners"
+}
+
 test_inert_in_child_worktree
 test_inert_without_session_lock
 test_reclaims_stale_session_lock_before_arming
 test_inert_when_lock_held_by_other_harness
 test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
-test_resolves_outermost_claude_pid_in_nested_bgspare_chain
+test_resolves_outermost_claude_pid_in_nested_session_chain
 test_inert_when_fleet_idle
 test_actionable_close_rewakes_with_reason
 test_actionable_close_with_live_successor_rewakes_once
@@ -599,3 +625,4 @@ test_need_vanished_mid_cycle_closes_quietly
 test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
 test_fm_lock_status_still_works_with_shared_lib
+test_daemon_and_background_helpers_never_own_session_lock

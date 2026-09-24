@@ -88,6 +88,20 @@ fm_harness_process_matches() {  # <comm> <args>
   return 1
 }
 
+# True when a Claude-named process is shared daemon infrastructure or one of
+# its transient background helpers rather than a session owner.
+# These processes may sit in a hook or tool's ancestry, but they outlive or are
+# shared across sessions and therefore may never own a per-home session lock.
+fm_harness_process_is_infrastructure() {  # <comm> <args>
+  local comm=$1 args=$2
+  fm_harness_process_matches "$comm" "$args" || return 1
+  [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || return 1
+  case " $args " in
+    *" daemon run "*|*" bg-pty-host "*|*" bg-spare "*) return 0 ;;
+  esac
+  return 1
+}
+
 # Walk the current process ancestry (up to 16 hops) and print this session's
 # contiguous verified-harness ancestry, innermost pid first.
 #
@@ -102,16 +116,23 @@ fm_harness_process_matches() {  # <comm> <args>
 # "pi-signed" launcher can be the direct parent of the inner "pi" engine pid that
 # owns the lock, and the wrapper pid above it is not that owner. Claude Code
 # instead runs hooks several levels below the session inside its own nested
-# worker chain (hook shell -> claude bg-spare -> claude bg-pty-host -> claude ->
-# claude), with no non-harness process between them. Which pid in that run is the
-# session cannot be read off the ancestry at all, so the whole contiguous run is
-# reported and the callers below decide what they need from it.
+# worker chain with no non-harness process between its eligible session
+# processes. Shared `daemon run`, `bg-pty-host`, and `bg-spare` infrastructure
+# may also appear in that run, but it is traversed without being reported.
+# Which eligible pid is the session cannot be read off the ancestry alone, so
+# the whole eligible contiguous run is reported and the callers below decide
+# what they need from it.
 fm_harness_ancestry_pids() {
   local pid=$$ comm args extending=0 printed=0
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || break
     args=$(ps -o args= -p "$pid" 2>/dev/null)
-    if fm_harness_process_matches "$comm" "$args"; then
+    if fm_harness_process_is_infrastructure "$comm" "$args"; then
+      # Infrastructure is part of the Claude-shaped run but is never an owner.
+      # Mark the run as started so the first ordinary parent remains a hard
+      # boundary and the walk cannot jump across it into an unrelated harness.
+      extending=1
+    elif fm_harness_process_matches "$comm" "$args"; then
       printf '%s\n' "$pid"
       printed=1
       [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || break
@@ -149,17 +170,17 @@ fm_harness_pid_alive() {
   kill -0 "$pid" 2>/dev/null || return 1
   comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
   args=$(ps -o args= -p "$pid" 2>/dev/null)
+  fm_harness_process_is_infrastructure "$comm" "$args" && return 1
   fm_harness_process_matches "$comm" "$args"
 }
 
 # True when state dir $1 holds a session lock whose pid is ANY harness ancestor
 # of the current process: this script runs inside the session that owns the
 # home's fleet lock. Membership is the honest test of that question, because the
-# lock owner sits at an unknown depth in a contiguous Claude run - it is the
-# outermost pid when the hook fires inside the session's own nested worker chain,
-# and an inner pid when a harness-named daemon parents the session. A missing
-# lock, a malformed lock, a lock held by a harness outside this ancestry, or an
-# ancestry that cannot be resolved all fail closed.
+# lock owner sits at an unknown eligible depth in a contiguous Claude run.
+# Shared daemon and background-helper infrastructure is absent from that set.
+# A missing lock, a malformed lock, a lock held by a harness outside this
+# ancestry, or an ancestry that cannot be resolved all fail closed.
 fm_session_lock_owned_by_self() {
   local state=$1 lock_pid pids pid
   lock_pid=$(cat "$state/.lock" 2>/dev/null || true)
