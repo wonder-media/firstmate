@@ -1,0 +1,16 @@
+$ fm-spawn.sh hook-first-z1 <project> --scout --harness codex
+spawned hook-first-z1 harness=codex kind=scout window=firstmate:fm-hook-first-z1 worktree=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-spawn-commit-msg-hook.usniaP/case/worktree
+$ git config --worktree --get core.hooksPath   (task worktree)
+.fm-git-hooks
+$ git config --get core.hooksPath   (primary checkout)
+(unset)
+$ git config --global --get core.hooksPath
+(unset)
+$ git commit -m "demo" -m "Co-authored-by: Cursor <cursoragent@cursor.com>
+Co-authored-by: Claude <noreply@anthropic.com>
+Co-authored-by: Kun Chen <3233006+kunchenguid@users.noreply.github.com>"
+$ git log -1 --format=%B   (stored commit message)
+demo
+
+Co-authored-by: Kun Chen <3233006+kunchenguid@users.noreply.github.com>
+

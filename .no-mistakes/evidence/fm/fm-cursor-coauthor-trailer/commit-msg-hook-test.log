@@ -1,0 +1,7 @@
+ok - spawn binds an executable hook only to the task worktree and real commits keep human co-authors
+ok - repeated installation atomically replaces stale task-local hook material
+ok - project pre-commit and commit-msg hooks still run inside the task worktree
+ok - a project hooks path configured after spawn is still chained
+ok - known Cursor, Claude, Codex, OpenCode, and Pi identities are removed exactly
+ok - missing dependencies and unreadable or malformed inputs leave messages untouched and exit zero
+# all fm-spawn commit-msg hook tests passed
