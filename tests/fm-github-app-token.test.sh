@@ -162,6 +162,43 @@ SH
   pass "App installation that cannot reach the repository retries once on the captain login"
 }
 
+test_gh_axi_repo_not_found_retries_on_captain_login() {
+  local dir expires output rc
+  dir=$(make_case axi-app-scope)
+  printf '%s\n' "$dir/credentials.json" > "$dir/home/config/github-app-credentials"
+  expires=$(date -u -v+30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)
+  printf '{"token":"%s","expires_at":"%s"}\n' "$FAKE_APP_TOKEN" "$expires" \
+    > "$dir/home/state/github-app-installation-token.json"
+  chmod 0600 "$dir/home/state/github-app-installation-token.json"
+  cat > "$dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+printf 'gh_token=%s\n' "${GH_TOKEN:-}" >> "$FM_TEST_COMMAND_LOG"
+if [ "${GH_TOKEN:-}" = fixture-installation-token-1234567890 ]; then
+  printf 'error: "Repository \\"captain/personal\\" not found"\n'
+  printf 'code: REPO_NOT_FOUND\n'
+  printf 'help[1]: Run `gh-axi repo list` to see your repositories\n'
+  exit 1
+fi
+printf 'merged\n'
+SH
+  chmod +x "$dir/fakebin/gh-axi"
+
+  set +e
+  output=$(GH_TOKEN=personal-token run_helper "$dir" run-safe gh-axi pr merge 22 \
+    --repo captain/personal 2> "$dir/stderr")
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "gh-axi repo-not-found App failure was not retried on the captain login"
+  [ "$output" = merged ] || fail "gh-axi repo-not-found App failure leaked the failed attempt's stdout"
+  [ "$(grep -c '^gh_token=' "$dir/command.log")" -eq 2 ] || fail "gh-axi App failure did not retry exactly once"
+  sed -n 2p "$dir/command.log" | grep -qxF 'gh_token=personal-token' \
+    || fail "gh-axi retry did not use the captain login"
+  [ "$(cat "$dir/stderr")" = 'warning: GitHub App installation cannot reach this repository; retrying with captain GitHub login' ] \
+    || fail "gh-axi App failure did not emit exactly one safe diagnostic"
+  pass "gh-axi repository-not-found under App authentication retries once on the captain login"
+}
+
 test_other_app_failure_surfaces_without_retry() {
   local dir expires output rc
   dir=$(make_case app-merge-refused)
@@ -301,6 +338,7 @@ test_stale_cache_refresh_writes_private_cache
 test_mint_output_never_enters_argv
 test_configured_failure_falls_back_once
 test_app_request_failure_retries_on_captain_login
+test_gh_axi_repo_not_found_retries_on_captain_login
 test_other_app_failure_surfaces_without_retry
 test_projects_are_rejected_before_execution
 test_merge_poll_uses_app_identity

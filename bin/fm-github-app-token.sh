@@ -32,7 +32,7 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 POINTER="$CONFIG/github-app-credentials"
 CACHE="$STATE/github-app-installation-token.json"
-REPO_UNREACHABLE='Could not resolve to a Repository|Resource not accessible by integration|HTTP 404'
+REPO_UNREACHABLE='Could not resolve to a Repository|Resource not accessible by integration|HTTP 404|^code: REPO_NOT_FOUND$'
 
 usage() {
   printf 'usage: fm-github-app-token.sh run-safe <gh|gh-axi> <pr|release> [args...]\n' >&2
