@@ -1,0 +1,6 @@
+<Application Support/.../claude> daemon run -> infrastructure (never lock owner)
+<Application Support/.../claude> bg-pty-host -> infrastructure (never lock owner)
+<Application Support/.../claude> bg-spare -> infrastructure (never lock owner)
+<Application Support/.../claude> --resume x -> session (may own lock)
+claude look into the bg-spare hook ancestry and daemon run -> session (may own lock)
+claude daemon run                        -> infrastructure (never lock owner)

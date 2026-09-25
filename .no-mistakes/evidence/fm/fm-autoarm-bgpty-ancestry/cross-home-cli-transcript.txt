@@ -1,0 +1,19 @@
+$ # 1. secondmate code runs direct executables with inherited FM_HOME=<main>
+$ FM_HOME=<main> <second>/bin/fm-lock.sh
+error: firstmate home mismatch: running checkout <tmp>/second; inherited FM_HOME resolves to firstmate checkout <tmp>/main; refusing to read, lock, or mutate either home
+exit=1
+$ FM_HOME=<main> <second>/bin/fm-session-start.sh
+error: firstmate home mismatch: running checkout <tmp>/second; inherited FM_HOME resolves to firstmate checkout <tmp>/main; refusing to read, lock, or mutate either home
+exit=1
+$ FM_HOME=<main> <second>/bin/fm-watch-arm.sh
+error: firstmate home mismatch: running checkout <tmp>/second; inherited FM_HOME resolves to firstmate checkout <tmp>/main; refusing to read, lock, or mutate either home
+exit=1
+$ FM_HOME=<main> <second>/bin/fm-watch.sh
+error: firstmate home mismatch: running checkout <tmp>/second; inherited FM_HOME resolves to firstmate checkout <tmp>/main; refusing to read, lock, or mutate either home
+exit=1
+$ ls -A <main>/state   # main home untouched (empty)
+
+$ # 2. matching explicit secondmate FM_HOME spelled via a symlink still works
+$ FM_HOME="<second link>" <second>/bin/fm-lock.sh
+lock acquired: harness pid 24687
+exit=0
