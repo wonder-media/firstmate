@@ -28,8 +28,8 @@ Name one planner: firstmate for firstmate-repo plans, the owning secondmate othe
 A worker may author a project plan; that home's planner still merges and is the only author of the next version.
 The planner writes a disposition with a reason for every finding, including nice items.
 Counted seats are independent reviewers on different models, each in its own scout copy and a fresh context every round.
-The default counted roster is architect, empiricist, economist; UX joins when the plan changes a captain-facing surface and may be selected explicitly.
-The advisory seat is extra, not counted, in round 1 only unless the captain asks for it later.
+The default counted roster is architect, empiricist, economist, and the standing security seat; UX joins when the plan changes a captain-facing surface and may be selected explicitly.
+The advisory seat is extra, not counted; the live roster's `advisory.rounds` determines which rounds include it.
 
 Read captain-private `config/council.json` using the [Council configuration schema](../../../docs/configuration.md#council-configcounciljson) and [example roster](../../../bin/council/council.example.json).
 Seat names map to dispatch rule names; `config/crew-dispatch.json` remains the single model-routing authority.
@@ -37,7 +37,7 @@ Resolve selection at every intake through the normal captain override, matching 
 Load [harness-adapters](../harness-adapters/SKILL.md) before dispatch; for a matched profile array load [quota-array-dispatch](../quota-array-dispatch/SKILL.md) and consult current `quota-axi` output.
 Pass the resolved concrete profile through the ordinary spawn path; never use an unverified harness for a counted seat.
 Missing or malformed roster/rule configuration is reported for correction, not silently replaced with guessed models.
-`--seats` selects a comma-separated roster from architect, empiricist, economist, ux, advisory; retain at least three distinct counted seats.
+`--seats` selects a comma-separated roster from architect, empiricist, economist, security, ux, advisory; retain at least three distinct counted seats.
 `--max-rounds N` may lower the configured cap, never raise the three-round hard cap; require an integer from 1 through 3.
 Reviews are capped at 2000 words, or 1000 for the economist, with mandatory evidence citations.
 
@@ -81,6 +81,7 @@ Paste the common clauses and matching round variant from [rubric.md](../../../bi
 - [Architect](../../../bin/council/roles/architect.md)
 - [Empiricist](../../../bin/council/roles/empiricist.md)
 - [Economist](../../../bin/council/roles/economist.md)
+- [Security](../../../bin/council/roles/security.md)
 - [UX](../../../bin/council/roles/ux.md)
 
 Fill the plan path, round, copied captain non-negotiables, seat name, and evidence inputs before spawning with [bin/fm-spawn.sh](../../../bin/fm-spawn.sh) `--scout`.
@@ -138,6 +139,8 @@ Evaluate in this order after completing the inventory and merge:
    Apply step 2's change-set and new-id rule without demoting existing findings.
 5. **capped-unresolved** at the selected cap, at most three rounds, with a must still outstanding.
    Deliver the last version plus every unresolved and contested item with both positions.
+
+Every outcome label carries its counted coverage: name each seat of the selected counted roster that filed no valid report this round.
 
 Log value density per round: accepted must+should per minute of file-backed round wall time.
 It is the captain's diminishing-returns signal, not a gate.

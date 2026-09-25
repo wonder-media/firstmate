@@ -13,9 +13,9 @@
 #      launch through that mode, durably (every respawn re-resolves), while an
 #      explicit per-spawn harness arg still wins.
 #   B) Inheritance. The primary pushes a declared, extensible set of LOCAL
-#      (gitignored) config items - config/crew-dispatch.json, config/crew-harness,
-#      config/crew-autocompact, config/backlog-backend, config/backend,
-#      config/herdr-project-spaces, config/herdr-presentation-spaces,
+#      (gitignored) config items - config/crew-dispatch.json, config/council.json,
+#      config/crew-harness, config/crew-autocompact, config/backlog-backend,
+#      config/backend, config/herdr-project-spaces, config/herdr-presentation-spaces,
 #      config/startup-memory-budget, and config/trace-context -
 #      down into each secondmate home's config/, so the secondmate's OWN crewmates,
 #      dispatch profiles, backlog backend, runtime-backend default, Herdr
@@ -289,6 +289,7 @@ test_propagate_lib() {
 
   # 1. present source is copied
   printf '{"default":{"harness":"codex"}}\n' > "$src/crew-dispatch.json"
+  printf '{"seats":{"architect":"council architect seat"}}\n' > "$src/council.json"
   printf 'codex\n' > "$src/crew-harness"
   printf '50%%\n' > "$src/crew-autocompact"
   printf 'manual\n' > "$src/backlog-backend"
@@ -302,6 +303,7 @@ test_propagate_lib() {
   [ ! -s "$stdout" ] || fail "clean copy wrote to stdout"
   [ ! -s "$stderr" ] || fail "clean copy wrote to stderr"
   [ "$(cat "$dest/crew-dispatch.json")" = '{"default":{"harness":"codex"}}' ] || fail "crew-dispatch.json not propagated"
+  [ "$(cat "$dest/council.json")" = '{"seats":{"architect":"council architect seat"}}' ] || fail "council.json not propagated"
   [ "$(cat "$dest/crew-harness")" = codex ] || fail "crew-harness not propagated"
   [ "$(cat "$dest/crew-autocompact")" = 50% ] || fail "crew-autocompact not propagated"
   [ "$(cat "$dest/backlog-backend")" = manual ] || fail "backlog-backend not propagated"
@@ -326,11 +328,13 @@ test_propagate_lib() {
 
   # 3. a changed source value converges downstream
   printf '{"default":{"harness":"claude"}}\n' > "$src/crew-dispatch.json"
+  printf '{"seats":{"security":"council security seat"}}\n' > "$src/council.json"
   printf 'claude\n' > "$src/crew-harness"
   printf 'tasks-axi\n' > "$src/backlog-backend"
   printf 'zellij\n' > "$src/backend"
   propagate_inheritable_config "$src" "$dest"
   [ "$(cat "$dest/crew-dispatch.json")" = '{"default":{"harness":"claude"}}' ] || fail "changed dispatch profile did not converge"
+  [ "$(cat "$dest/council.json")" = '{"seats":{"security":"council security seat"}}' ] || fail "changed council.json did not converge"
   [ "$(cat "$dest/crew-harness")" = claude ] || fail "changed value did not converge"
   [ "$(cat "$dest/backlog-backend")" = tasks-axi ] || fail "changed backlog backend did not converge"
   [ "$(cat "$dest/backend")" = zellij ] || fail "changed backend did not converge"
@@ -347,10 +351,11 @@ test_propagate_lib() {
 
   # 4. removing the source mirrors absence downstream (primary-authoritative)
   printf 'herdr\n' > "$dest/backend"
-  rm -f "$src/crew-dispatch.json" "$src/crew-harness" "$src/crew-autocompact" "$src/backlog-backend" \
+  rm -f "$src/crew-dispatch.json" "$src/council.json" "$src/crew-harness" "$src/crew-autocompact" "$src/backlog-backend" \
     "$src/backend" "$src/herdr-project-spaces" "$src/herdr-presentation-spaces" "$src/trace-context"
   propagate_inheritable_config "$src" "$dest"
   [ -e "$dest/crew-dispatch.json" ] && fail "dispatch profile absence not mirrored downstream"
+  [ -e "$dest/council.json" ] && fail "council.json absence not mirrored downstream"
   [ -e "$dest/crew-harness" ] && fail "absence not mirrored downstream"
   [ -e "$dest/crew-autocompact" ] && fail "crew-autocompact absence not mirrored downstream"
   [ -e "$dest/backlog-backend" ] && fail "backlog-backend absence not mirrored downstream"
@@ -1210,6 +1215,7 @@ new_world() {
   {
     printf 'projects/\nstate/\ndata/\n.no-mistakes/\n'
     [ "$dispatch_ignore" = no ] || printf 'config/crew-dispatch.json\n'
+    printf 'config/council.json\n'
     printf 'config/crew-harness\nconfig/secondmate-harness\nconfig/backlog-backend\n'
     printf 'config/backend\nconfig/herdr-project-spaces\nconfig/herdr-presentation-spaces\nconfig/startup-memory-budget\n'
   } > "$w/main/.gitignore"
@@ -1448,6 +1454,7 @@ test_bootstrap_sweep_propagates_and_reconverges() {
 
   # Initial push: primary crew-harness=codex, secondmate-harness=grok (must NOT flow).
   printf '{"default":{"harness":"codex"}}\n' > "$w/home/config/crew-dispatch.json"
+  printf '{"advisory":{"rounds":[1,2,3]}}\n' > "$w/home/config/council.json"
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
   printf 'tmux\n' > "$w/home/config/backend"
@@ -1458,6 +1465,8 @@ test_bootstrap_sweep_propagates_and_reconverges() {
     || fail "sweep: crew-harness not pushed into the live home"
   [ "$(cat "$w/sm/config/crew-dispatch.json" 2>/dev/null)" = '{"default":{"harness":"codex"}}' ] \
     || fail "sweep: crew-dispatch.json not pushed into the live home"
+  [ "$(cat "$w/sm/config/council.json" 2>/dev/null)" = '{"advisory":{"rounds":[1,2,3]}}' ] \
+    || fail "sweep: council.json not pushed into the live home"
   [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = manual ] \
     || fail "sweep: backlog-backend not pushed into the live home"
   [ "$(cat "$w/sm/config/backend" 2>/dev/null)" = tmux ] \
@@ -1469,6 +1478,7 @@ test_bootstrap_sweep_propagates_and_reconverges() {
 
   # Re-converge: primary changes inherited config values; the home follows on the next sweep.
   printf '{"default":{"harness":"claude"}}\n' > "$w/home/config/crew-dispatch.json"
+  printf '{"advisory":{"rounds":[1]}}\n' > "$w/home/config/council.json"
   printf 'claude\n' > "$w/home/config/crew-harness"
   printf 'tasks-axi\n' > "$w/home/config/backlog-backend"
   printf 'zellij\n' > "$w/home/config/backend"
@@ -1477,17 +1487,21 @@ test_bootstrap_sweep_propagates_and_reconverges() {
     || fail "sweep: home did not re-converge to the primary's new crew-harness"
   [ "$(cat "$w/sm/config/crew-dispatch.json" 2>/dev/null)" = '{"default":{"harness":"claude"}}' ] \
     || fail "sweep: home did not re-converge to the primary's new crew-dispatch.json"
+  [ "$(cat "$w/sm/config/council.json" 2>/dev/null)" = '{"advisory":{"rounds":[1]}}' ] \
+    || fail "sweep: home did not re-converge to the primary's new council.json"
   [ "$(cat "$w/sm/config/backlog-backend" 2>/dev/null)" = tasks-axi ] \
     || fail "sweep: home did not re-converge to the primary's new backlog-backend"
   [ "$(cat "$w/sm/config/backend" 2>/dev/null)" = zellij ] \
     || fail "sweep: home did not re-converge to the primary's new backend"
 
   # Mirror absence: primary clears inherited config; the home's copies are removed.
-  rm -f "$w/home/config/crew-dispatch.json" "$w/home/config/crew-harness" \
+  rm -f "$w/home/config/crew-dispatch.json" "$w/home/config/council.json" "$w/home/config/crew-harness" \
     "$w/home/config/backlog-backend" "$w/home/config/backend"
   run_bootstrap "$w" >/dev/null
   [ -e "$w/sm/config/crew-dispatch.json" ] \
     && fail "sweep: home crew-dispatch.json not removed after the primary cleared it"
+  [ -e "$w/sm/config/council.json" ] \
+    && fail "sweep: home council.json not removed after the primary cleared it"
   [ -e "$w/sm/config/crew-harness" ] \
     && fail "sweep: home crew-harness not removed after the primary cleared it"
   [ -e "$w/sm/config/backlog-backend" ] \
@@ -1724,6 +1738,7 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
   old_head=$(git -C "$w/sm" rev-parse HEAD)
 
   printf '{"default":{"harness":"codex"}}\n' > "$w/home/config/crew-dispatch.json"
+  printf '{"advisory":{"rounds":[1,2,3]}}\n' > "$w/home/config/council.json"
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
   printf 'tmux\n' > "$w/home/config/backend"
@@ -1740,6 +1755,8 @@ test_config_push_propagates_reports_without_ff_or_nudge() {
     "config push did not discover the live secondmate through registry fallback"
   assert_contains "$out" "crew-dispatch.json: pushed" \
     "config push did not report crew-dispatch as pushed"
+  assert_contains "$out" "council.json: pushed" \
+    "config push did not report council.json as pushed"
   assert_contains "$out" "crew-harness: pushed" \
     "config push did not report crew-harness as pushed"
   assert_contains "$out" "backlog-backend: pushed" \
@@ -1937,6 +1954,7 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
   printf 'codex\n' > "$w/home/config/crew-harness"
   printf 'manual\n' > "$w/home/config/backlog-backend"
   printf 'tmux\n' > "$w/home/config/backend"
+  printf '{"default_roster":["architect","empiricist","economist","security"]}\n' > "$w/home/config/council.json"
   {
     shared_captain_header_for_tests
     printf '%s\n' "shared secret preference body that must never appear in a config reread"
@@ -1954,6 +1972,8 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
     || fail "alpha did not receive multiline dispatch"
   cmp -s "$w/home/config/crew-dispatch.json" "$w/beta/config/crew-dispatch.json" \
     || fail "beta did not receive multiline dispatch"
+  cmp -s "$w/home/config/council.json" "$w/alpha/config/council.json" \
+    || fail "alpha did not receive council.json"
   [ "$(cat "$w/alpha/config/crew-harness")" = codex ] || fail "alpha harness not updated"
   [ "$(cat "$w/alpha/config/backlog-backend")" = manual ] || fail "alpha backlog-backend not updated"
   [ "$(cat "$w/alpha/config/backend")" = tmux ] || fail "alpha backend not updated"
@@ -1970,23 +1990,28 @@ test_config_reread_per_home_changed_sets_and_exact_bytes() {
   assert_grep "These inherited config files changed" "$instr_a" "alpha framing missing"
   assert_grep "defaults/rules" "$instr_a" "alpha must preserve agent judgment framing"
   assert_contains "$(cat "$instr_a")" "config/crew-dispatch.json" "alpha missing dispatch path"
+  assert_contains "$(cat "$instr_a")" "config/council.json" "alpha missing council path"
   assert_contains "$(cat "$instr_a")" "config/crew-harness" "alpha missing harness path"
   assert_contains "$(cat "$instr_a")" "config/backlog-backend" "alpha missing backlog path"
   assert_contains "$(cat "$instr_a")" "config/backend" "alpha missing backend path"
   # Path order follows FM_INHERITABLE_CONFIG.
   awk '
     /config\/crew-dispatch\.json/ { d=NR }
+    /config\/council\.json/ { c=NR }
     /config\/crew-harness/ { h=NR }
     /config\/backlog-backend/ { b=NR }
     /config\/backend/ && !/backlog-backend/ { k=NR }
     END {
-      if (!(d && h && b && k && d < h && h < b && b < k)) exit 1
+      if (!(d && c && h && b && k)) exit 1
+      if (!(d < c && c < h && h < b && b < k)) exit 1
     }
   ' "$instr_a" || fail "alpha instruction path order is not deterministic allowlist order"
 
   # Exact multiline JSON appears byte-for-byte between delimiters.
   assert_contains "$(cat "$instr_a")" "$multiline_json" \
     "alpha instruction must include exact multiline dispatch bytes"
+  assert_contains "$(cat "$instr_a")" $'-----BEGIN config/council.json-----\n{"default_roster":["architect","empiricist","economist","security"]}\n-----END config/council.json-----' \
+    "alpha instruction must include exact council.json bytes"
   assert_contains "$(cat "$instr_a")" $'-----BEGIN config/crew-harness-----\ncodex\n-----END config/crew-harness-----' \
     "alpha instruction must include exact harness scalar bytes"
   assert_contains "$(cat "$instr_a")" $'-----BEGIN config/backlog-backend-----\nmanual\n-----END config/backlog-backend-----' \

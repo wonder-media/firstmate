@@ -83,6 +83,77 @@ end
   pass "Council frontmatter parses and every linked skill resource exists"
 }
 
+# The Council roster is a machine-consumed declarative artifact: the skill reads
+# config/council.json (shaped by bin/council/council.example.json) and dispatches
+# one scout per counted seat, pasting that seat's role template into the brief. A
+# roster seat with no template, or a template the skill never links, leaves a
+# counted seat undispatchable at intake. This resolves the roster the way the
+# skill does and proves the resolver rejects an unresolvable seat.
+resolve_council_roster() {
+  python3 - "$ROOT" "$1" <<'PY'
+import json
+import re
+import sys
+from pathlib import Path
+
+root, roster_path = Path(sys.argv[1]), Path(sys.argv[2])
+roster = json.loads(roster_path.read_text(encoding="utf-8"))
+skill = (root / ".agents/skills/council/SKILL.md").read_text(encoding="utf-8")
+linked = {
+    Path(m).stem
+    for m in re.findall(r"\]\(([^)]*bin/council/roles/[^)#]+)\)", skill)
+}
+
+seats = roster["seats"]
+counted = roster["default_roster"]
+floor = roster["caps"]["minimum_counted_reports"]
+problems = []
+
+for seat in counted:
+    if seat not in seats:
+        problems.append("default roster seat %s has no seat definition" % seat)
+for seat in seats:
+    if not (root / "bin/council/roles" / ("%s.md" % seat)).is_file():
+        problems.append("seat %s has no role template" % seat)
+    elif seat not in linked:
+        problems.append("seat %s role template is not linked from the council skill" % seat)
+if len(counted) < floor:
+    problems.append("default roster has %d counted seats, below the floor of %d" % (len(counted), floor))
+
+if problems:
+    sys.exit("council roster does not resolve: " + "; ".join(problems))
+
+print("counted=" + ",".join(counted))
+print("minimum_counted_reports=%d" % floor)
+for seat in counted:
+    print("brief=%s -> bin/council/roles/%s.md" % (seat, seat))
+PY
+}
+
+test_council_roster_resolves_to_dispatchable_seats() {
+  local resolved unknown
+  resolved=$(resolve_council_roster "$ROOT/bin/council/council.example.json") \
+    || fail "the example council roster does not resolve to dispatchable seats"
+  assert_contains "$resolved" "brief=security -> bin/council/roles/security.md" \
+    "security is not a counted default seat with its own linked role template"
+
+  # Negative control: an unresolvable seat is reported, never silently dispatched.
+  unknown="$TMP_ROOT/unknown-seat.json"
+  python3 - "$ROOT/bin/council/council.example.json" "$unknown" <<'MUTATE'
+import json
+import sys
+from pathlib import Path
+
+source, destination = map(Path, sys.argv[1:])
+data = json.loads(source.read_text(encoding="utf-8"))
+data["default_roster"] = [s if s != "security" else "netsec" for s in data["default_roster"]]
+destination.write_text(json.dumps(data), encoding="utf-8")
+MUTATE
+  run_expect_failure "default roster seat netsec has no seat definition" \
+    resolve_council_roster "$unknown"
+  pass "every counted council seat resolves to a linked role template, and an unknown seat fails"
+}
+
 test_duplicate_and_setup_classification_fail() {
   local duplicate="$TMP_ROOT/duplicate.json"
   local bad_setup="$TMP_ROOT/bad-setup.json"
@@ -159,6 +230,7 @@ MD
 
 test_repository_inventory_passes
 test_council_skill_metadata_and_references
+test_council_roster_resolves_to_dispatchable_seats
 test_duplicate_and_setup_classification_fail
 test_required_pointer_fails
 test_local_links_and_no_keyword_heuristic

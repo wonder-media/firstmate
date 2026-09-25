@@ -3,13 +3,14 @@
     "architect": "council architect seat",
     "empiricist": "council empiricist seat",
     "economist": "council economist seat",
+    "security": "council security seat",
     "ux": "council ux seat"
   },
-  "default_roster": ["architect", "empiricist", "economist"],
+  "default_roster": ["architect", "empiricist", "economist", "security"],
   "ux_on_captain_surface": true,
   "advisory": {
     "command_template": "agy --model gemini-3.8-flash-high --print-timeout 15m --disable-slash-commands --print={prompt}",
-    "rounds": [1],
+    "rounds": [1, 2, 3],
     "word_cap": 1000
   },
   "caps": {

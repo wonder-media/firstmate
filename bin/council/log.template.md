@@ -30,6 +30,7 @@ Use original report times, not archive-copy times; when a replacement fails with
 ## Terminal delivery
 
 Terminal outcome: {exact checklist label and basis}.
+Counted seats of the selected roster with no valid report: {seat names or none}.
 Final version: {path and sha256}; last reviewed version: {path and sha256}.
 Post-review deltas for captain approval: {finding ids and applied anchors or none}.
 Rejected findings and reasons: {ids and reasons or findings-table anchors}.

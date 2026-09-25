@@ -316,14 +316,15 @@ The captain-invocable [`council` skill](../.agents/skills/council/SKILL.md) owns
 The live roster is captain-private `config/council.json`; [`bin/council/council.example.json`](../bin/council/council.example.json) is its copyable schema example.
 Firstmate prepares the live file and corresponding seat rules before routine use; phase 1 reads and fills these records manually without a Council runner.
 This section owns the roster schema; the example supplies the concrete default values.
+Secondmate homes inherit the live file from the primary as declared local material.
 
 | Field | Meaning |
 |---|---|
-| `seats` | Object mapping counted seat names (`architect`, `empiricist`, `economist`, `ux`) to the matching `when` rule names in `config/crew-dispatch.json` |
+| `seats` | Object mapping counted seat names (`architect`, `empiricist`, `economist`, `security`, `ux`) to the matching `when` rule names in `config/crew-dispatch.json` |
 | `default_roster` | Array of distinct counted seat names used when the invocation omits `--seats` |
 | `ux_on_captain_surface` | Whether the default roster adds UX when the plan changes a captain-facing surface |
 | `advisory.command_template` | Pinned direct CLI print command; `{prompt}` is one literal argument containing the self-contained prompt, never executable shell interpolation |
-| `advisory.rounds` | Default rounds including the extra advisory seat; later rounds require the captain's request under the skill |
+| `advisory.rounds` | Rounds that include the extra advisory seat |
 | `advisory.word_cap` | Advisory response limit, bounded by the common review cap |
 | `caps.max_rounds` | Default round cap; `--max-rounds` may lower it within the skill's hard bound |
 | `caps.minimum_counted_reports` | Required valid counted coverage under the skill's stop checklist |
@@ -377,7 +378,7 @@ When a running home advances and its loaded instruction surface (`AGENTS.md`, `b
 If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_SECONDMATES:` with the failure reason.
 The same bootstrap run emits `SECONDMATE_LIVENESS:` only when a registered secondmate is skipped or its relaunch fails; already-live and successfully relaunched secondmates are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/fm-config-push.sh`.
-It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `crew-harness`, `crew-autocompact`, `backlog-backend`, `backend`, `herdr-project-spaces`, `herdr-presentation-spaces`, `startup-memory-budget`, `trace-context`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
+It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `council.json`, `crew-harness`, `crew-autocompact`, `backlog-backend`, `backend`, `herdr-project-spaces`, `herdr-presentation-spaces`, `startup-memory-budget`, `trace-context`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running local home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
 A changed remote home instead receives one durably recorded marked re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
 The locked bootstrap inheritance pass uses the same placement-specific behavior; see `secondmate-provisioning` for the single contract owner.
