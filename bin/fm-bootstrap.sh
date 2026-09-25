@@ -1209,7 +1209,9 @@ detect_local_config() {
 local_phase && detect_local_tools
 if network_phase; then
   __fm_timing_stamp=$(fm_timing_now_ms)
-  gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
+  # Verify the captain's stored gh login deliberately. App authentication is
+  # limited to repository automation and cannot serve user-owned Projects v2.
+  env -u GH_TOKEN -u GITHUB_TOKEN gh auth status >/dev/null 2>&1 || echo "NEEDS_GH_AUTH"
   fm_timing_record phase gh-auth "$__fm_timing_stamp"
 fi
 local_phase && detect_local_config

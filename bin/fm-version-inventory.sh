@@ -57,7 +57,8 @@ installed_version() {
 github_stable() {
   local repo=$1 output version
   command -v gh-axi >/dev/null 2>&1 || { printf 'unknown/offline\n'; return 0; }
-  output=$(fm_run_timed "$TIMEOUT" env GH_REPO="$repo" gh-axi release list \
+  output=$(fm_run_timed "$TIMEOUT" env GH_REPO="$repo" \
+    "$SCRIPT_DIR/fm-github-app-token.sh" run-safe gh-axi release list \
     --exclude-drafts --exclude-pre-releases --limit 1 </dev/null 2>/dev/null) \
     || { printf 'unknown/offline\n'; return 0; }
   version=$(printf '%s\n' "$output" |

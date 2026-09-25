@@ -24,6 +24,28 @@ Wake, watcher, away-mode, and Relay-specific state mechanics remain with their n
 `AGENTS.md` retains the run-once and read-once operator rules, lock-refusal safety, installation consent, and direct-report recovery boundaries because those facts apply at every session start.
 Ordinary dead-direct-report recovery is owned by `stuck-crewmate-recovery`, while persistent-secondmate recovery is owned by `secondmate-provisioning`.
 
+## GitHub App automation (config/github-app-credentials)
+
+Firstmate can opt repository automation into a GitHub App installation without changing the captain's interactive GitHub identity.
+Create the local gitignored `config/github-app-credentials` file with exactly one absolute path to an external JSON credential record.
+The credential JSON must contain `app_id`, `installation_id`, and `private_key_file`; a relative private-key path resolves beside that JSON file.
+Keep both credential files outside every Firstmate checkout and operational home.
+
+[`bin/fm-github-app-token.sh`](../bin/fm-github-app-token.sh) mints an installation token with an RS256 App JWT, stores only the installation token and expiry in `state/github-app-installation-token.json` at mode `0600`, and refreshes it five minutes before expiry.
+The key and tokens are never placed in command arguments, status records, metadata, or tracked files.
+When the pointer is absent, wrapped commands run with exactly their prior environment and output behavior.
+When the pointer is present but credentials, signing, cache access, or GitHub's token endpoint fails, the wrapper emits one generic diagnostic and runs the command with the captain's existing login so a merge is not blocked by App authentication.
+
+The wrapper accepts only `gh` or `gh-axi` repository operations in the `pr`, `run`, and `release` command groups.
+Firstmate uses it for PR head recording, merge execution, merge polling, teardown landed checks, optional Bearings PR enrichment, and version release discovery.
+Bootstrap deliberately removes `GH_TOKEN` and `GITHUB_TOKEN` while checking `gh auth status`, because that check verifies the captain login needed by user-owned Projects v2 and worker delivery.
+GitHub Projects commands and arbitrary GraphQL/API commands are excluded from the App wrapper and continue to use the captain login.
+Spawned workers do not receive the App token; their git pushes, PR creation, no-mistakes GitHub calls, and `gh-axi` calls retain the captain login.
+
+The pointer file is inherited into secondmate homes because it contains only an external path, not credential material, and fleet-wide automated PR polling is the traffic this option is intended to isolate.
+Each home keeps its own mode-`0600` short-lived cache.
+A remote secondmate whose host cannot resolve the inherited external path gets the same generic fallback diagnostic and continues on that host's captain login.
+
 ## Pi Calm preference (config/calm)
 
 The Pi Calm extension stores the captain's home-local presentation choice in gitignored `config/calm` under the effective Firstmate home, resolved from `FM_HOME`, then `FM_ROOT_OVERRIDE`, then the tracked code root derived from the extension path, or under `FM_CONFIG_OVERRIDE` when that test and specialized-setup override is present.
@@ -378,7 +400,7 @@ When a running home advances and its loaded instruction surface (`AGENTS.md`, `b
 If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_SECONDMATES:` with the failure reason.
 The same bootstrap run emits `SECONDMATE_LIVENESS:` only when a registered secondmate is skipped or its relaunch fails; already-live and successfully relaunched secondmates are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/fm-config-push.sh`.
-It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `council.json`, `crew-harness`, `crew-autocompact`, `backlog-backend`, `backend`, `herdr-project-spaces`, `herdr-presentation-spaces`, `startup-memory-budget`, `trace-context`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
+It uses the same live secondmate discovery and propagation helper as bootstrap, prints each live home's `crew-dispatch.json`, `council.json`, `crew-harness`, `crew-autocompact`, `backlog-backend`, `backend`, `github-app-credentials`, `herdr-project-spaces`, `herdr-presentation-spaces`, `startup-memory-budget`, `trace-context`, and `data/captain-shared.md` result as `pushed`, `unchanged`, `skipped`, or `error`, and exits non-zero for real propagation errors or config-reread send failures.
 When an allowlisted config item changes for an already-running local home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
 A changed remote home instead receives one durably recorded marked re-read instruction after the allowlisted bytes have transferred because primary-local generation paths are not meaningful on another host.
 The locked bootstrap inheritance pass uses the same placement-specific behavior; see `secondmate-provisioning` for the single contract owner.

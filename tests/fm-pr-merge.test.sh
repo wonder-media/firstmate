@@ -29,7 +29,7 @@ make_case() {
   local name=$1 case_dir fakebin
   case_dir="$TMP_ROOT/$name"
   fakebin="$case_dir/fakebin"
-  mkdir -p "$case_dir/state" "$fakebin"
+  mkdir -p "$case_dir/state" "$case_dir/config" "$fakebin"
   fm_write_meta "$case_dir/state/task-x1.meta" \
     "window=fm-task-x1" \
     "worktree=$case_dir/wt" \
@@ -87,6 +87,7 @@ SH
 run_pr_merge() {
   local case_dir=$1 rc; shift
   FM_ROOT_OVERRIDE="$ROOT" \
+  FM_CONFIG_OVERRIDE="$case_dir/config" \
   FM_STATE_OVERRIDE="$case_dir/state" \
   FM_TEST_GH_AXI_LOG="$case_dir/gh-axi.log" \
   PATH="$case_dir/fakebin:$PATH" \
@@ -301,6 +302,45 @@ test_parses_pr_url_for_gh_axi() {
   pass "fm-pr-merge parses a GitHub PR URL into gh-axi number and --repo arguments"
 }
 
+test_app_token_routes_check_and_merge() {
+  local case_dir expires token
+  case_dir=$(make_case app-token-routing)
+  mkdir -p "$case_dir/wt"
+  token='fixture-installation-token-1234567890'
+  expires=$(date -u -v+30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)
+  printf '%s\n' "$case_dir/credentials.json" > "$case_dir/config/github-app-credentials"
+  printf '{"token":"%s","expires_at":"%s"}\n' "$token" "$expires" \
+    > "$case_dir/state/github-app-installation-token.json"
+  chmod 0600 "$case_dir/state/github-app-installation-token.json"
+  : > "$case_dir/identity.log"
+  cat > "$case_dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+printf 'gh:%s\n' "${GH_TOKEN:-}" >> "$FM_TEST_GH_IDENTITY_LOG"
+printf '%s\n' deadbeefcafefeed0000000000000000deadbeef
+SH
+  cat > "$case_dir/fakebin/gh-axi" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_TEST_GH_AXI_LOG"
+printf 'gh-axi:%s\n' "${GH_TOKEN:-}" >> "$FM_TEST_GH_IDENTITY_LOG"
+SH
+  chmod +x "$case_dir/fakebin/gh" "$case_dir/fakebin/gh-axi"
+  : > "$case_dir/gh-axi.log"
+
+  FM_TEST_GH_IDENTITY_LOG="$case_dir/identity.log" \
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/127 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "app-token-routing: fm-pr-merge failed"
+
+  grep -qxF "gh:$token" "$case_dir/identity.log" \
+    || fail "app-token-routing: fm-pr-check did not use App authentication"
+  grep -qxF "gh-axi:$token" "$case_dir/identity.log" \
+    || fail "app-token-routing: merge did not use App authentication"
+  assert_grep 'pr_head=deadbeefcafefeed0000000000000000deadbeef' "$case_dir/state/task-x1.meta" \
+    "app-token-routing: App-authenticated merge did not preserve PR metadata"
+  pass "fm-pr-check and fm-pr-merge use App authentication while preserving metadata"
+}
+
 test_records_pr_and_head_before_merging
 test_merge_failure_propagates_after_recording
 test_extra_merge_args_forwarded
@@ -311,3 +351,4 @@ test_repo_override_args_refuse_before_recording
 test_explicit_merge_method_not_overridden
 test_method_equals_merge_method_not_overridden
 test_parses_pr_url_for_gh_axi
+test_app_token_routes_check_and_merge
