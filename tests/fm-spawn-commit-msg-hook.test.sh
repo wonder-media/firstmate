@@ -136,6 +136,27 @@ test_project_hooks_still_run_in_task_worktree() {
   pass "project pre-commit and commit-msg hooks still run inside the task worktree"
 }
 
+test_project_hooks_path_set_after_spawn_is_chained() {
+  local message
+  mkdir -p "$WORKTREE_DIR/.late-hooks"
+  printf '%s\n' '#!/bin/sh' 'printf "Late-hook: ran\n" >> "$1"' > "$WORKTREE_DIR/.late-hooks/commit-msg"
+  chmod +x "$WORKTREE_DIR/.late-hooks/commit-msg"
+  git -C "$WORKTREE_DIR" config --local core.hooksPath .late-hooks
+
+  printf 'late hooks path\n' > "$WORKTREE_DIR/late-hook.txt"
+  git -C "$WORKTREE_DIR" add late-hook.txt
+  git -C "$WORKTREE_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -q -m 'late project hooks path' -m 'Co-authored-by: Cursor <cursoragent@cursor.com>'
+  expect_code 0 "$?" "commit should succeed with a project hooks path configured after spawn"
+  git -C "$WORKTREE_DIR" config --local --unset core.hooksPath
+  message=$(git -C "$WORKTREE_DIR" log -1 --format=%B)
+  assert_not_contains "$message" "cursoragent@cursor.com" \
+    "late project hooks path replaced the agent co-author filter"
+  assert_contains "$message" "Late-hook: ran" \
+    "task-local commit-msg hook ignored a project hooks path configured after spawn"
+  pass "a project hooks path configured after spawn is still chained"
+}
+
 test_known_agent_identities_are_removed_without_other_edits() {
   local hook before after expected
   hook="$WORKTREE_DIR/.fm-git-hooks/commit-msg"
@@ -215,6 +236,7 @@ make_case
 test_spawn_installs_scoped_hook_and_filters_only_agents
 test_hook_is_idempotently_replaced_for_reused_worktree
 test_project_hooks_still_run_in_task_worktree
+test_project_hooks_path_set_after_spawn_is_chained
 test_known_agent_identities_are_removed_without_other_edits
 test_hook_fails_open_for_unexpected_inputs
 
