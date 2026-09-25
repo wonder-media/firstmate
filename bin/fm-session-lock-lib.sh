@@ -98,7 +98,10 @@ fm_harness_process_is_infrastructure() {  # <comm> <args>
   local comm=$1 args=$2 rest
   fm_harness_process_matches "$comm" "$args" || return 1
   [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || return 1
-  rest=${args#* }
+  case "$args" in
+    "$comm "*) rest=${args#"$comm "} ;;
+    *) rest=${args#* } ;;
+  esac
   [ "$rest" != "$args" ] || return 1
   case "$(basename -- "$comm")" in
     node*|python*) rest=${rest#* } ;;

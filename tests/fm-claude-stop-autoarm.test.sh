@@ -616,6 +616,27 @@ test_daemon_and_background_helpers_never_own_session_lock() {
   pass "fm-lock: daemon, bg-pty-host, and bg-spare processes are stale and never become owners"
 }
 
+test_spaced_install_path_helpers_never_own_session_lock() {
+  local dir kind pid out scripts spaced
+  spaced="$TMP_ROOT/Application Support/Claude/claude-code/2.1.281"
+  mkdir -p "$spaced"
+  ln -s /bin/bash "$spaced/claude"
+  scripts="$TMP_ROOT/spaced-helper-scripts"
+  write_helper_scripts "$scripts" 'sleep 60'
+  for kind in "daemon run" bg-pty-host bg-spare; do
+    dir=$(make_primary_dir "$TMP_ROOT/spaced-helper-${kind%% *}")
+    # shellcheck disable=SC2086 # the helper role is the split argv itself.
+    (cd "$scripts" && exec "$spaced/claude" $kind) &
+    pid=$!
+    printf '%s\n' "$pid" > "$dir/state/.lock"
+    out=$(FM_HOME="$dir" "$dir/bin/fm-lock.sh" status 2>&1)
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    assert_contains "$out" "lock: stale" "$kind under a spaced install path was accepted as a live session-lock owner"
+  done
+  pass "fm-lock: daemon helpers under a spaced install path never become owners"
+}
+
 test_session_prompt_naming_helpers_still_owns_session_lock() {
   local dir pid out status
   dir=$(make_primary_dir "$TMP_ROOT/lock-helper-prompt")
@@ -682,5 +703,6 @@ test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
 test_fm_lock_status_still_works_with_shared_lib
 test_daemon_and_background_helpers_never_own_session_lock
+test_spaced_install_path_helpers_never_own_session_lock
 test_session_prompt_naming_helpers_still_owns_session_lock
 test_lock_refuses_inherited_foreign_home
