@@ -78,7 +78,7 @@ It also starts no engine turn that could still be running at the boundary (the t
 One short main turn per boundary is the cost of never losing the park silently.
 
 Codex has no asynchronous wake, so its checkpoint's own bound is the park: the checkpoint passes it as the boundary and reports the boundary as its ordinary quiet line (`checkpoint: no actionable wake within <n>s`).
-Attended the bound stays `FM_CODEX_WATCH_CHECKPOINT` (default 180 seconds); while the away record exists it is raised to `FM_CODEX_WATCH_CHECKPOINT_AWAY` (default 3,600) if longer, then capped at 27,000 seconds so a parked main is not woken every few minutes.
+Attended the bound stays `FM_CODEX_WATCH_CHECKPOINT` (default 300 seconds); while the away record exists it is raised to `FM_CODEX_WATCH_CHECKPOINT_AWAY` (default 3,600) if longer, then capped at 27,000 seconds so a parked main is not woken every few minutes.
 Because that bound is not a harness timeout, the checkpoint also sets `FM_SUPERVISION_HOST_PARK_LIMIT`, which lets an engine turn that starts before the boundary finish after it; a captain message typed during the park waits for the checkpoint to return, at most the bound plus one engine turn, unless the captain interrupts it.
 
 ## Engine conversations

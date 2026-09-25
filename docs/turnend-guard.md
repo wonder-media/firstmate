@@ -97,7 +97,7 @@ Every other direct `FM_GUARD_GRACE` reader (`bin/fm-guard.sh`, the strict-watche
   `tests/fm-turnend-guard.test.sh` pins that inventory so neither the guarded set nor the exception can change silently.
 
 Claude and Codex can block a Stop directly with exit status 2 and stderr.
-The blocking message is at most two lines: one names the unsupervised work, beacon age, and missing Stop-owned auto-arm claim when applicable, and one prints the repair line owned by `bin/fm-supervision-instructions.sh --repair-line`.
+The blocking message is a `●`-prefixed banner framed by two rule lines: a `TURN WOULD END BLIND - SUPERVISION IS OFF` headline, one line naming the unsupervised work and beacon age, one line for the missing Stop-owned auto-arm claim in Claude mode, and the repair line owned by `bin/fm-supervision-instructions.sh --repair-line`.
 Both payloads carry `stop_hook_active`.
 In the default Codex mode, a true value lets the second stop finish after one forced continuation.
 

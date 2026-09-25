@@ -375,17 +375,14 @@ secondmate_sync() {
   . "$SCRIPT_DIR/fm-wake-lib.sh"
   # Placement-specific secondmate sync: EVERY home, local or remote, follows the
   # primary checkout's current default-branch commit. The local path is purely
-  # LOCAL - no fetch, no origin dependency: a linked-worktree home already holds
-  # the primary's commit (fm-ff-lib.sh), while a standalone clone without it is
-  # skipped until /updatefirstmate refreshes it from origin. A remote home is on
+  # LOCAL - no origin dependency, no network route: a linked-worktree home
+  # already holds the primary's commit, and a validated standalone clone that
+  # lacks it acquires only that exact commit from the primary local checkout
+  # through the guarded bounded path (fm-ff-lib.sh). A remote home is on
   # another machine, so its host is handed that same commit and imports it there
-  # (bin/fm-remote-secondmate-control.sh); this side still fetches nothing.
+  # (bin/fm-remote-secondmate-control.sh); this side fetches nothing from origin.
   # Startup sends reread nudges only for RUNNING secondmates whose instruction
-  # local standalone clone may acquire only that exact commit from the primary
-  # local checkout through the guarded bounded path in fm-ff-lib.sh.
-  # Startup sends reread nudges only
-  # for RUNNING secondmates whose instruction surface (AGENTS.md, bin/, or
-  # .agents/skills/) actually changed, so a secondmate already on the primary's
+  # surface (AGENTS.md, bin/, or .agents/skills/) actually changed, so a secondmate already on the primary's
   # version is never disturbed (AGENTS.md bootstrap + supervision). Unlike
   # /updatefirstmate, startup owns the live-convergence send itself because it is
   # a deterministic locked sweep and can report success as BOOTSTRAP_INFO while
