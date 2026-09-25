@@ -114,7 +114,9 @@ test_project_hooks_still_run_in_task_worktree() {
   local project_hooks message
   project_hooks=$(cd "$PROJECT_DIR" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/hooks
   mkdir -p "$project_hooks"
+  # shellcheck disable=SC2016 # literal hook script text
   printf '%s\n' '#!/bin/sh' '[ -z "${FM_TEST_BLOCK_COMMIT:-}" ]' > "$project_hooks/pre-commit"
+  # shellcheck disable=SC2016 # literal hook script text
   printf '%s\n' '#!/bin/sh' 'printf "Project-hook: ran\n" >> "$1"' > "$project_hooks/commit-msg"
   chmod +x "$project_hooks/pre-commit" "$project_hooks/commit-msg"
 
@@ -139,6 +141,7 @@ test_project_hooks_still_run_in_task_worktree() {
 test_project_hooks_path_set_after_spawn_is_chained() {
   local message
   mkdir -p "$WORKTREE_DIR/.late-hooks"
+  # shellcheck disable=SC2016 # literal hook script text
   printf '%s\n' '#!/bin/sh' 'printf "Late-hook: ran\n" >> "$1"' > "$WORKTREE_DIR/.late-hooks/commit-msg"
   chmod +x "$WORKTREE_DIR/.late-hooks/commit-msg"
   git -C "$WORKTREE_DIR" config --local core.hooksPath .late-hooks

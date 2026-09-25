@@ -2016,9 +2016,11 @@ if [ -z "$previous_hooks" ]; then
   previous_hooks="$previous_hooks/hooks"
 fi
 HOOK
-  printf '%s\n' "hook=\"\$previous_hooks/$1\"" \
-    '[ -f "$hook" ] && [ -x "$hook" ] || exit 0' \
-    'exec "$hook" "$@"'
+  printf '%s\n' "hook=\"\$previous_hooks/$1\""
+  cat <<'HOOK'
+[ -f "$hook" ] && [ -x "$hook" ] || exit 0
+exec "$hook" "$@"
+HOOK
 }
 
 install_agent_commit_msg_hook() {  # <worktree>
@@ -2037,13 +2039,13 @@ install_agent_commit_msg_hook() {  # <worktree>
   for hook_name in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit \
     prepare-commit-msg post-commit pre-rebase post-checkout post-merge pre-push post-rewrite \
     pre-auto-gc reference-transaction sendemail-validate post-index-change; do
-    { printf '%s\n' '#!/bin/sh'; write_chained_hook_tail "$hook_name"; } > "$staging_dir/$hook_name" \
-      && chmod 0755 "$staging_dir/$hook_name" || {
+    if ! { { printf '%s\n' '#!/bin/sh'; write_chained_hook_tail "$hook_name"; } > "$staging_dir/$hook_name" \
+      && chmod 0755 "$staging_dir/$hook_name"; }; then
       rm -rf -- "$staging_dir"
       return 1
-    }
+    fi
   done
-  {
+  if ! { {
     printf '%s\n' '#!/bin/sh' '('
     cat <<'HOOK'
 # Remove only known coding-agent co-author identities.
@@ -2090,10 +2092,10 @@ exit 0
 HOOK
     printf '%s\n' ')'
     write_chained_hook_tail commit-msg
-  } > "$staging_dir/commit-msg" && chmod 0755 "$staging_dir/commit-msg" || {
+  } > "$staging_dir/commit-msg" && chmod 0755 "$staging_dir/commit-msg"; }; then
     rm -rf -- "$staging_dir"
     return 1
-  }
+  fi
 
   rm -rf -- "$hook_dir" || {
     rm -rf -- "$staging_dir"
