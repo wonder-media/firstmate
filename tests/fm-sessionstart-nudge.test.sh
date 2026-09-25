@@ -576,6 +576,51 @@ test_run_refuses_cross_home_inheritance() {
   pass "session-start run: inherited main and secondmate homes cannot cross-bind in either direction"
 }
 
+test_direct_executables_refuse_cross_home_inheritance() {
+  local main="$TMP_ROOT/direct-home-main" second="$TMP_ROOT/direct-home-second" main_real second_real
+  local script out status before after
+  make_run_primary "$main"
+  make_run_primary "$second"
+  printf 'second\n' > "$second/.fm-secondmate-home"
+  main_real=$(cd "$main" && pwd -P)
+  second_real=$(cd "$second" && pwd -P)
+
+  before=$(ls -A "$main/state")
+  for script in fm-session-start.sh fm-lock.sh fm-watch-arm.sh fm-watch.sh; do
+    status=0
+    out=$(env -u FM_ROOT_OVERRIDE FM_HOME="$main" PATH="$RUN_PATH" \
+      "$second/bin/$script" </dev/null 2>&1) || status=$?
+    [ "$status" -ne 0 ] || fail "secondmate $script accepted an inherited main FM_HOME"
+    assert_contains "$out" "running checkout $second_real" "secondmate $script refusal omitted its checkout"
+    assert_contains "$out" "inherited FM_HOME resolves to firstmate checkout $main_real" "secondmate $script refusal omitted the main home"
+    assert_not_contains "$out" "SESSION START" "secondmate $script still ran a digest"
+
+    status=0
+    out=$(env -u FM_HOME FM_ROOT_OVERRIDE="$second" PATH="$RUN_PATH" \
+      "$main/bin/$script" </dev/null 2>&1) || status=$?
+    [ "$status" -ne 0 ] || fail "primary $script accepted an inherited secondmate FM_ROOT_OVERRIDE"
+    assert_contains "$out" "inherited FM_ROOT_OVERRIDE resolves to firstmate checkout $second_real" "primary $script refusal omitted the secondmate home"
+  done
+  after=$(ls -A "$main/state")
+  [ "$before" = "$after" ] || fail "a refused direct executable mutated the main home state: before=[$before] after=[$after]"
+  [ -z "$(ls -A "$second/state")" ] || fail "a refused direct executable mutated the secondmate state: $(ls -A "$second/state")"
+
+  out=$(env -u FM_ROOT_OVERRIDE FM_HOME="$second" PATH="$RUN_PATH" "$second/bin/fm-lock.sh" status 2>&1)
+  assert_contains "$out" "lock: free" "a matching explicit secondmate FM_HOME was refused"
+  pass "direct session, lock, and watcher executables refuse inherited foreign homes"
+}
+
+test_primary_home_bind_keeps_logical_spelling() {
+  local main="$TMP_ROOT/bind-logical-main" link="$TMP_ROOT/bind-logical-link" out
+  make_run_primary "$main"
+  ln -s "$main" "$link"
+  # shellcheck disable=SC2016 # the child shell expands the bound values.
+  out=$(env -u FM_HOME -u FM_ROOT_OVERRIDE -u FM_STATE_OVERRIDE bash -c \
+    '. "$1/bin/fm-primary-scope-lib.sh" && fm_primary_home_bind "$1" && printf "%s|%s\n" "$FM_ROOT" "$FM_HOME"' _ "$link")
+  [ "$out" = "$link|$link" ] || fail "fm_primary_home_bind replaced the logical home spelling: $out"
+  pass "primary home binding keeps the caller's logical home spelling"
+}
+
 test_genuine_primary_nudges
 test_gate_env_is_silent
 test_gate_common_dir_is_silent
@@ -596,5 +641,7 @@ test_run_unknown_source_takes_the_helm
 test_run_gate_and_scope_are_silent
 test_run_reports_a_failed_session_start_as_digest_text
 test_run_refuses_cross_home_inheritance
+test_direct_executables_refuse_cross_home_inheritance
+test_primary_home_bind_keeps_logical_spelling
 test_pi_startup_classifies_cli_continuations
 test_pi_large_sessionstart_digest_is_delivered_loudly

@@ -92,12 +92,19 @@ fm_harness_process_matches() {  # <comm> <args>
 # its transient background helpers rather than a session owner.
 # These processes may sit in a hook or tool's ancestry, but they outlive or are
 # shared across sessions and therefore may never own a per-home session lock.
+# Only the subcommand words right after the executable, or after the script of
+# a bare interpreter, identify that role; prompt text elsewhere never does.
 fm_harness_process_is_infrastructure() {  # <comm> <args>
-  local comm=$1 args=$2
+  local comm=$1 args=$2 rest
   fm_harness_process_matches "$comm" "$args" || return 1
   [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || return 1
-  case " $args " in
-    *" daemon run "*|*" bg-pty-host "*|*" bg-spare "*) return 0 ;;
+  rest=${args#* }
+  [ "$rest" != "$args" ] || return 1
+  case "$(basename -- "$comm")" in
+    node*|python*) rest=${rest#* } ;;
+  esac
+  case "$rest " in
+    "daemon run "*|"bg-pty-host "*|"bg-spare "*) return 0 ;;
   esac
   return 1
 }

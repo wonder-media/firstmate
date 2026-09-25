@@ -38,6 +38,31 @@ fm_primary_scope_matches() {
   [ -d "$state" ] || return 1
 }
 
+# Refuse inherited home identity that names another firstmate checkout.
+#
+# Direct session, lock, and watcher executables keep serving an explicit
+# FM_HOME or FM_ROOT_OVERRIDE that is the running checkout or a plain state
+# home, but never another primary or secondmate checkout.
+# Return 0 when safe, or 2 after printing a diagnostic that names both paths.
+fm_inherited_home_guard() {  # <running-checkout>
+  local checkout_real name value value_real
+  checkout_real=$(CDPATH='' cd -- "$1" 2>/dev/null && pwd -P) || {
+    printf 'error: firstmate home mismatch: running checkout %s is unavailable; refusing to read, lock, or mutate any home\n' "$1" >&2
+    return 2
+  }
+  for name in FM_HOME FM_ROOT_OVERRIDE; do
+    value=${!name:-}
+    [ -n "$value" ] || continue
+    value_real=$(CDPATH='' cd -- "$value" 2>/dev/null && pwd -P) || continue
+    [ "$value_real" = "$checkout_real" ] && continue
+    fm_primary_checkout_matches "$value_real" || continue
+    printf 'error: firstmate home mismatch: running checkout %s; inherited %s resolves to firstmate checkout %s; refusing to read, lock, or mutate either home\n' \
+      "$checkout_real" "$name" "$value_real" >&2
+    return 2
+  done
+  return 0
+}
+
 # Bind a primary-session or primary-hook entrypoint to the checkout that carries
 # the running script.
 #
@@ -56,7 +81,7 @@ fm_primary_home_bind() {  # <running-checkout>
   inherited=${FM_HOME:-}
   if [ -z "$inherited" ]; then
     inherited_name=FM_ROOT_OVERRIDE
-    inherited=${FM_ROOT_OVERRIDE:-$checkout_real}
+    inherited=${FM_ROOT_OVERRIDE:-$checkout}
   fi
   inherited_real=$(CDPATH='' cd -- "$inherited" 2>/dev/null && pwd -P) || {
     printf 'error: firstmate home mismatch: running checkout %s; inherited %s %s is unavailable; refusing to read, lock, or mutate either home\n' \
