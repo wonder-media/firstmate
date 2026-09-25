@@ -88,7 +88,7 @@ Use this compact shape in plain language, with enough context to decide without 
 > Reply with your choice or your own answer, and add any free-text notes.
 
 Example header: `Captain, Project: Wonderok | Ref: mf:receipt-cta/passes-vs-token | Progress: 2/10`.
-Keep the source's 2-3 registered options and their meaning when available; otherwise offer 2-3 relevant choices supported by the request, without registering invented factual answers.
+When a card carries registered options, present them in the card's own stored order, with the stored letters and meaning; otherwise offer 2-3 relevant choices supported by the request, without registering invented factual answers.
 Recommend a supported course of action with a brief reason, never a guessed fact.
 For factual unknowns preserve the factual alternatives and recommend verification before answering, without marking an unknown value as recommended.
 Include a full PR URL when the item concerns a PR.
@@ -104,6 +104,8 @@ For an empty inventory say no verified pending items remain in the selected scop
    If the captain names a reference, resolve it to that exact existing identity and its presented question/revision, not whichever item now occupies its old position; clarify an unknown or ambiguous reference instead of guessing.
    Preserve the captain's wording and notes, not just the option letter; ambiguous notes or competing choices require clarification on this same item.
    Refresh the owner record and Bridge decision/lifecycle state immediately before mutation, verifying identity, open status, question/options, scope, and revision.
+   Re-read the stored options before recording an answer.
+   When firstmate deliberately offers a better option the card does not carry, the recorded answer note must explicitly name which stored option the captain's letter resolves to and explain the mapping.
    If anything material changed or closed, do not apply the old answer to the new revision or another item; explain the change and obtain a fresh answer if still needed.
 2. Load [`decision-hold-lifecycle`](../decision-hold-lifecycle/SKILL.md) before recording or routing a decision answer, and [`ask-user-authority`](../ask-user-authority/SKILL.md) for an ask-user finding.
    Use the owner's current header/help for the supported route: Bridge's revision-checked answer interface for its cards, the decision-hold owner's keyed intake and routed-work procedures, or [`bin/fm-send.sh`](../../../bin/fm-send.sh)'s keyed answer path for live task decisions.

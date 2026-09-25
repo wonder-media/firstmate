@@ -6,6 +6,8 @@
 # description, acceptance criteria, and context, and may adjust other sections
 # when the task genuinely deviates (e.g. working an existing external PR instead
 # of shipping a new one).
+# Reference firstmate-home artifacts in task text by absolute path; a relative
+# data/ path resolves inside the worker's worktree, not the firstmate home.
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
@@ -307,6 +309,13 @@ EOF
 HERDR_SECTION=${HERDR_SECTION%$'\n'}
 fi
 
+IFS= read -r -d '' WORKER_RECORD_RULES <<EOF || true
+8. Attribute authority in durable records, commit messages, PR bodies, issue comments, status lines, and reports to its actual source; only a quote of the captain's own words may be recorded as the captain's decision.
+   Record everything relayed through firstmate or a second mate as "firstmate decided" or "the second mate decided", defaulting to "firstmate decided" when the source is uncertain.
+9. Reference any firstmate-home artifact handed to you - a scout report, evidence directory, or directive file - by ABSOLUTE path, because a relative \`data/\` path resolves inside this worktree, not the firstmate home.
+   The resolved absolute firstmate-home data directory is \`$DATA\`; this task's artifacts live in \`$DATA/$ID\`.
+EOF
+
 if [ "$KIND" = scout ]; then
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -354,6 +363,7 @@ $DECISION_REGISTRATION_RULE
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+$WORKER_RECORD_RULES
 
 # Definition of done
 Write your findings to \`$DATA/$ID/report.md\`.
@@ -481,6 +491,7 @@ $DECISION_REGISTRATION_RULE
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+$WORKER_RECORD_RULES
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
