@@ -95,15 +95,18 @@ fm_harness_process_matches() {  # <comm> <args>
 # Only the subcommand words right after the executable, or after the script of
 # a bare interpreter, identify that role; prompt text elsewhere never does.
 fm_harness_process_is_infrastructure() {  # <comm> <args>
-  local comm=$1 args=$2 rest
+  local comm=$1 args=$2 base rest
   fm_harness_process_matches "$comm" "$args" || return 1
   [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || return 1
+  # macOS reports the full argv[0] as comm but Linux only its basename, so cut
+  # argv after the executable's basename; an install path may contain spaces.
+  base=$(basename -- "$comm")
   case "$args" in
-    "$comm "*) rest=${args#"$comm "} ;;
+    *"$base "*) rest=${args#*"$base "} ;;
     *) rest=${args#* } ;;
   esac
   [ "$rest" != "$args" ] || return 1
-  case "$(basename -- "$comm")" in
+  case "$base" in
     node*|python*) rest=${rest#* } ;;
   esac
   case "$rest " in
