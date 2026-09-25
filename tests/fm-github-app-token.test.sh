@@ -77,9 +77,89 @@ test_private_cache_supplies_app_identity() {
     || fail "cached App token did not become GITHUB_TOKEN"
   assert_no_grep "$FAKE_APP_TOKEN" <(grep '^args=' "$dir/command.log") \
     "App token appeared in command arguments"
-  [ "$(file_mode "$dir/home/state/github-app-installation-token.json")" = 600 ] \
-    || fail "App token cache was not mode 0600"
   pass "private cached App token is passed only through the GitHub command environment"
+}
+
+test_stale_cache_refresh_writes_private_cache() {
+  local dir output cache
+  dir=$(make_case refresh)
+  cache="$dir/home/state/github-app-installation-token.json"
+  node -e '
+    const { generateKeyPairSync } = require("crypto");
+    const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    process.stdout.write(privateKey.export({ type: "pkcs8", format: "pem" }));
+  ' > "$dir/app.pem"
+  printf '{"app_id":1,"installation_id":2,"private_key_file":"app.pem"}\n' > "$dir/credentials.json"
+  printf '%s\n' "$dir/credentials.json" > "$dir/home/config/github-app-credentials"
+  printf '{"token":"stale-installation-token-000000","expires_at":"2000-01-01T00:00:00Z"}\n' > "$cache"
+  chmod 0644 "$cache"
+  cat > "$dir/stub-https.js" <<'JS'
+const https = require('https');
+const { EventEmitter } = require('events');
+https.request = (options, onResponse) => {
+  const request = new EventEmitter();
+  request.destroy = () => {};
+  request.end = () => {
+    const response = new EventEmitter();
+    response.statusCode = options.path === '/app/installations/2/access_tokens'
+      && /^Bearer [^.]+\.[^.]+\.[^.]+$/.test(options.headers.Authorization) ? 201 : 401;
+    response.setEncoding = () => {};
+    onResponse(response);
+    const expires = new Date(Date.now() + 3600 * 1000).toISOString();
+    response.emit('data', JSON.stringify({ token: 'fixture-installation-token-1234567890', expires_at: expires }));
+    response.emit('end');
+  };
+  return request;
+};
+JS
+
+  output=$(NODE_OPTIONS="--require $dir/stub-https.js" run_helper "$dir" run-safe gh pr view 22)
+  [ "$output" = command-output ] || fail "refreshed App token changed command stdout"
+  grep -qxF "gh_token=$FAKE_APP_TOKEN" "$dir/command.log" \
+    || fail "stale cache was not refreshed with a newly minted App token"
+  [ "$(file_mode "$cache")" = 600 ] || fail "helper did not write the App token cache at mode 0600"
+  grep -qF "$FAKE_APP_TOKEN" "$cache" || fail "helper did not persist the refreshed App token"
+  pass "stale App token cache is refreshed and rewritten at mode 0600"
+}
+
+test_app_request_failure_retries_on_captain_login() {
+  local dir expires output rc
+  dir=$(make_case app-scope)
+  printf '%s\n' "$dir/credentials.json" > "$dir/home/config/github-app-credentials"
+  expires=$(date -u -v+30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)
+  printf '{"token":"%s","expires_at":"%s"}\n' "$FAKE_APP_TOKEN" "$expires" \
+    > "$dir/home/state/github-app-installation-token.json"
+  chmod 0600 "$dir/home/state/github-app-installation-token.json"
+  cat > "$dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+printf 'gh_token=%s\n' "${GH_TOKEN:-}" >> "$FM_TEST_COMMAND_LOG"
+if [ "${GH_TOKEN:-}" = fixture-installation-token-1234567890 ]; then
+  printf 'app-partial-output\n'
+  printf 'GraphQL: Could not resolve to a Repository\n' >&2
+  exit 1
+fi
+printf '%s\n' MERGED
+SH
+  chmod +x "$dir/fakebin/gh"
+
+  set +e
+  output=$(GH_TOKEN=personal-token run_helper "$dir" run-safe gh pr view 22 2> "$dir/stderr")
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "App request failure was not retried on the captain login"
+  [ "$output" = MERGED ] || fail "App request failure leaked the failed attempt's stdout"
+  [ "$(grep -c '^gh_token=' "$dir/command.log")" -eq 2 ] || fail "App request failure did not retry exactly once"
+  sed -n 2p "$dir/command.log" | grep -qxF 'gh_token=personal-token' \
+    || fail "App request failure retry did not use the captain login"
+  [ "$(cat "$dir/stderr")" = 'warning: GitHub App request failed; retrying with captain GitHub login' ] \
+    || fail "App request failure did not emit exactly one safe diagnostic"
+
+  output=$(FM_HOME="$dir/home" FM_TEST_COMMAND_LOG="$dir/command.log" \
+    PATH="$dir/fakebin:$PATH" "$POLL" --validated github \
+    https://github.com/wonder-media/firstmate/pull/22 github.com wonder-media/firstmate 22)
+  [ "$output" = merged ] || fail "merge poll missed a merge the App installation cannot see"
+  pass "App-authenticated command failure retries once on the captain login"
 }
 
 test_mint_output_never_enters_argv() {
@@ -93,7 +173,7 @@ printf '%s\n' 'fixture-installation-token-1234567890'
 SH
   chmod +x "$dir/fakebin/node"
 
-  output=$(run_helper "$dir" run-safe gh run list)
+  output=$(run_helper "$dir" run-safe gh pr list)
   [ "$output" = command-output ] || fail "minted App token changed command stdout"
   grep -qxF 'node_args=' "$dir/command.log" || fail "token minter received argv"
   grep -qxF "gh_token=$FAKE_APP_TOKEN" "$dir/command.log" \
@@ -124,17 +204,19 @@ test_configured_failure_falls_back_once() {
 }
 
 test_projects_are_rejected_before_execution() {
-  local dir rc
+  local dir rc group
   dir=$(make_case projects)
-  set +e
-  run_helper "$dir" run-safe gh project list > "$dir/stdout" 2> "$dir/stderr"
-  rc=$?
-  set -e
-  [ "$rc" -eq 2 ] || fail "Projects v2 command was not rejected by the App wrapper"
-  [ ! -s "$dir/command.log" ] || fail "Projects v2 command reached gh through the App wrapper"
-  grep -qxF 'error: GitHub App authentication is not approved for this command' "$dir/stderr" \
-    || fail "Projects v2 rejection diagnostic changed"
-  pass "Projects v2 cannot accidentally run through App authentication"
+  for group in project run api; do
+    set +e
+    run_helper "$dir" run-safe gh "$group" list > "$dir/stdout" 2> "$dir/stderr"
+    rc=$?
+    set -e
+    [ "$rc" -eq 2 ] || fail "gh $group command was not rejected by the App wrapper"
+    [ ! -s "$dir/command.log" ] || fail "gh $group command reached gh through the App wrapper"
+    grep -qxF 'error: GitHub App authentication is not approved for this command' "$dir/stderr" \
+      || fail "gh $group rejection diagnostic changed"
+  done
+  pass "Projects v2 and non-allowlisted groups cannot run through App authentication"
 }
 
 test_merge_poll_uses_app_identity() {
@@ -185,8 +267,10 @@ test_pointer_inherits_without_credentials() {
 
 test_absent_pointer_is_transparent
 test_private_cache_supplies_app_identity
+test_stale_cache_refresh_writes_private_cache
 test_mint_output_never_enters_argv
 test_configured_failure_falls_back_once
+test_app_request_failure_retries_on_captain_login
 test_projects_are_rejected_before_execution
 test_merge_poll_uses_app_identity
 test_pointer_inherits_without_credentials

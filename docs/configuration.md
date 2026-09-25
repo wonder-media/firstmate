@@ -35,10 +35,10 @@ Keep both credential files outside every Firstmate checkout and operational home
 The key and tokens are never placed in command arguments, status records, metadata, or tracked files.
 When the pointer is absent, wrapped commands run with exactly their prior environment and output behavior.
 When the pointer is present but credentials, signing, cache access, or GitHub's token endpoint fails, the wrapper emits one generic diagnostic and runs the command with the captain's existing login so a merge is not blocked by App authentication.
+When the App-authenticated command itself fails, for example because the installation cannot reach a repository owned by another account, the wrapper discards that attempt's output, emits one generic diagnostic, and retries the command once with the captain's existing login.
 
-The wrapper accepts only `gh` or `gh-axi` repository operations in the `pr`, `run`, and `release` command groups.
+The wrapper accepts only `gh` or `gh-axi` repository operations in the `pr` and `release` command groups.
 Firstmate uses it for PR head recording, merge execution, merge polling, teardown landed checks, optional Bearings PR enrichment, and version release discovery.
-Bootstrap deliberately removes `GH_TOKEN` and `GITHUB_TOKEN` while checking `gh auth status`, because that check verifies the captain login needed by user-owned Projects v2 and worker delivery.
 GitHub Projects commands and arbitrary GraphQL/API commands are excluded from the App wrapper and continue to use the captain login.
 Spawned workers do not receive the App token; their git pushes, PR creation, no-mistakes GitHub calls, and `gh-axi` calls retain the captain login.
 

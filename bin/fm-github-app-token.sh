@@ -12,13 +12,13 @@
 # minutes before GitHub's expiry.
 #
 # Usage:
-#   fm-github-app-token.sh token
-#   fm-github-app-token.sh run-safe <gh|gh-axi> <pr|run|release> [args...]
+#   fm-github-app-token.sh run-safe <gh|gh-axi> <pr|release> [args...]
 #
-# `token` prints the token only to its direct caller. `run-safe` never prints it.
-# When the pointer is absent, run-safe execs the requested command unchanged.
-# When configured authentication cannot be prepared, run-safe emits one generic
-# diagnostic and falls back to the caller's existing GitHub login.
+# run-safe never prints the token. When the pointer is absent, it execs the
+# requested command unchanged. When configured authentication cannot be
+# prepared, or the App-authenticated command fails (for example because the
+# installation cannot reach the repository), it emits one generic diagnostic
+# and runs the command once with the caller's existing GitHub login.
 #
 # The allowlist deliberately excludes `gh project` and arbitrary `gh api`
 # requests. GitHub App installations cannot access user-owned Projects v2, so
@@ -34,7 +34,7 @@ POINTER="$CONFIG/github-app-credentials"
 CACHE="$STATE/github-app-installation-token.json"
 
 usage() {
-  printf 'usage: fm-github-app-token.sh token | run-safe <gh|gh-axi> <pr|run|release> [args...]\n' >&2
+  printf 'usage: fm-github-app-token.sh run-safe <gh|gh-axi> <pr|release> [args...]\n' >&2
 }
 
 pointer_path() {
@@ -237,12 +237,12 @@ NODE
 }
 
 run_safe() {
-  local executable operation token rc
+  local executable operation token rc out err
   [ "$#" -ge 2 ] || { usage; return 2; }
   executable=${1##*/}
   operation=$2
   case "$executable:$operation" in
-    gh:pr|gh:run|gh:release|gh-axi:pr|gh-axi:run|gh-axi:release) ;;
+    gh:pr|gh:release|gh-axi:pr|gh-axi:release) ;;
     *)
       echo "error: GitHub App authentication is not approved for this command" >&2
       return 2
@@ -256,17 +256,28 @@ run_safe() {
   token=$(mint_or_read_token 2>/dev/null)
   rc=$?
   if [ "$rc" -eq 0 ] && [ -n "$token" ]; then
-    GH_TOKEN=$token GITHUB_TOKEN=$token exec "$@"
+    out=$(mktemp "${TMPDIR:-/tmp}/fm-gh-app-out.XXXXXX") || out=
+    err=$(mktemp "${TMPDIR:-/tmp}/fm-gh-app-err.XXXXXX") || err=
+    if [ -n "$out" ] && [ -n "$err" ]; then
+      GH_TOKEN=$token GITHUB_TOKEN=$token "$@" > "$out" 2> "$err"
+      rc=$?
+      if [ "$rc" -eq 0 ]; then
+        cat "$out"
+        cat "$err" >&2
+        rm -f "$out" "$err"
+        return 0
+      fi
+      rm -f "$out" "$err"
+      echo "warning: GitHub App request failed; retrying with captain GitHub login" >&2
+      exec "$@"
+    fi
+    rm -f "$out" "$err"
   fi
   echo "warning: GitHub App authentication unavailable; using captain GitHub login" >&2
   exec "$@"
 }
 
 case "${1:-}" in
-  token)
-    [ "$#" -eq 1 ] || { usage; exit 2; }
-    mint_or_read_token
-    ;;
   run-safe)
     shift
     run_safe "$@"
