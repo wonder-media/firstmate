@@ -2006,15 +2006,53 @@ freshen_spawn_worktree_base() {  # <worktree>
   fi
 }
 
+write_chained_hook_tail() {  # <hook-name>
+  printf '%s\n' "hook=\"\$previous_hooks/$1\"" \
+    '[ -f "$hook" ] && [ -x "$hook" ] || exit 0' \
+    'exec "$hook" "$@"'
+}
+
 install_agent_commit_msg_hook() {  # <worktree>
-  local worktree=$1 hook_dir staging_dir attempt worktree_config_enabled
+  local worktree=$1 hook_dir staging_dir worktree_config_enabled previous_hooks hook_header hook_name
   hook_dir="$worktree/.fm-git-hooks"
   staging_dir="$worktree/.fm-git-hooks.new.${BASHPID:-$$}.$RANDOM"
 
+  worktree_config_enabled=$(git -C "$worktree" config --local --type=bool --get extensions.worktreeConfig 2>/dev/null || true)
+  if [ "$worktree_config_enabled" != true ] && ! git -C "$worktree" config --local extensions.worktreeConfig true; then
+    echo "error: could not enable worktree-local git configuration for '$worktree'" >&2
+    return 1
+  fi
+  if [ "$(git -C "$worktree" config --worktree --get core.hooksPath 2>/dev/null || true)" = .fm-git-hooks ] \
+    && ! git -C "$worktree" config --worktree --unset-all core.hooksPath; then
+    echo "error: could not reset the task-local hooks path for '$worktree'" >&2
+    return 1
+  fi
+  previous_hooks=$(git -C "$worktree" config --type=path --get core.hooksPath 2>/dev/null || true)
+  if [ -z "$previous_hooks" ]; then
+    previous_hooks=$(git -C "$worktree" rev-parse --git-common-dir) || return 1
+    previous_hooks="$previous_hooks/hooks"
+  fi
+  case "$previous_hooks" in
+    /*) ;;
+    *) previous_hooks="$worktree/$previous_hooks" ;;
+  esac
+  hook_header="#!/bin/sh
+previous_hooks='$(printf '%s' "$previous_hooks" | sed "s/'/'\\\\''/g")'"
+
   rm -rf -- "$staging_dir" || return 1
   mkdir -p "$staging_dir" || return 1
-  cat > "$staging_dir/commit-msg" <<'HOOK'
-#!/bin/sh
+  for hook_name in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit \
+    prepare-commit-msg post-commit pre-rebase post-checkout post-merge pre-push post-rewrite \
+    pre-auto-gc reference-transaction sendemail-validate post-index-change; do
+    { printf '%s\n' "$hook_header"; write_chained_hook_tail "$hook_name"; } > "$staging_dir/$hook_name" \
+      && chmod 0755 "$staging_dir/$hook_name" || {
+      rm -rf -- "$staging_dir"
+      return 1
+    }
+  done
+  {
+    printf '%s\n' "$hook_header" '('
+    cat <<'HOOK'
 # Remove only known coding-agent co-author identities.
 # Any missing tool, unreadable input, or rewrite failure leaves the message untouched.
 message_file=${1-}
@@ -2043,7 +2081,7 @@ perl -e '
   close $input or exit 2;
 
   my $agent_email = qr/(?:cursoragent\@cursor\.com|noreply\@anthropic\.com|noreply\@openai\.com|noreply\@opencode\.ai|noreply\@pi\.dev)/i;
-  my $removed = $message =~ s/^[ \t]*Co-authored-by:[ \t]*[^\r\n]*<$agent_email>[ \t]*\r?(?:\n|\z)//gim;
+  my $removed = $message =~ s/^Co-authored-by:[ \t]*[^\r\n]*<$agent_email>[ \t]*\r?(?:\n|\z)//gim;
   exit 3 unless $removed;
 
   open my $output, ">:raw", $destination or exit 2;
@@ -2057,7 +2095,9 @@ if [ "$rewrite_status" -eq 0 ]; then
 fi
 exit 0
 HOOK
-  chmod 0755 "$staging_dir/commit-msg" || {
+    printf '%s\n' ')'
+    write_chained_hook_tail commit-msg
+  } > "$staging_dir/commit-msg" && chmod 0755 "$staging_dir/commit-msg" || {
     rm -rf -- "$staging_dir"
     return 1
   }
@@ -2071,18 +2111,6 @@ HOOK
     return 1
   }
 
-  worktree_config_enabled=$(git -C "$worktree" config --local --type=bool --get extensions.worktreeConfig 2>/dev/null || true)
-  if [ "$worktree_config_enabled" != true ]; then
-    attempt=0
-    until git -C "$worktree" config --local extensions.worktreeConfig true; do
-      attempt=$((attempt + 1))
-      if [ "$attempt" -ge 3 ]; then
-        echo "error: could not enable worktree-local git configuration for '$worktree'" >&2
-        return 1
-      fi
-      sleep 0.1
-    done
-  fi
   if ! git -C "$worktree" config --worktree --replace-all core.hooksPath .fm-git-hooks; then
     echo "error: could not bind the task-local commit hook for '$worktree'" >&2
     return 1
@@ -2708,6 +2736,7 @@ exclude_path() {
 }
 if [ "$KIND" != secondmate ]; then
   exclude_path '.fm-git-hooks/'
+  exclude_path '.fm-git-hooks.new.*'
   install_agent_commit_msg_hook "$WT" || {
     echo "error: could not install the task-local agent co-author filter for task $ID; refusing to launch without commit protection" >&2
     exit 1

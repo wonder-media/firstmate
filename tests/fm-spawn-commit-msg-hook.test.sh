@@ -110,6 +110,32 @@ test_hook_is_idempotently_replaced_for_reused_worktree() {
   pass "repeated installation atomically replaces stale task-local hook material"
 }
 
+test_project_hooks_still_run_in_task_worktree() {
+  local project_hooks message
+  project_hooks=$(cd "$PROJECT_DIR" && cd "$(git rev-parse --git-common-dir)" && pwd -P)/hooks
+  mkdir -p "$project_hooks"
+  printf '%s\n' '#!/bin/sh' '[ -z "${FM_TEST_BLOCK_COMMIT:-}" ]' > "$project_hooks/pre-commit"
+  printf '%s\n' '#!/bin/sh' 'printf "Project-hook: ran\n" >> "$1"' > "$project_hooks/commit-msg"
+  chmod +x "$project_hooks/pre-commit" "$project_hooks/commit-msg"
+
+  printf 'blocked change\n' > "$WORKTREE_DIR/project-hook.txt"
+  git -C "$WORKTREE_DIR" add project-hook.txt
+  FM_TEST_BLOCK_COMMIT=1 git -C "$WORKTREE_DIR" -c user.name='Firstmate Tests' \
+    -c user.email='tests@example.invalid' commit -q -m 'blocked by project hook' >/dev/null 2>&1 \
+    && fail "task-local hooks path bypassed the project's pre-commit hook"
+
+  git -C "$WORKTREE_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
+    commit -q -m 'project hooks chain' -m 'Co-authored-by: Cursor <cursoragent@cursor.com>'
+  expect_code 0 "$?" "commit should succeed when the project hook allows it"
+  message=$(git -C "$WORKTREE_DIR" log -1 --format=%B)
+  assert_not_contains "$message" "cursoragent@cursor.com" \
+    "chained project commit-msg hook replaced the agent co-author filter"
+  assert_contains "$message" "Project-hook: ran" \
+    "task-local commit-msg hook did not chain to the project's commit-msg hook"
+  rm -f "$project_hooks/pre-commit" "$project_hooks/commit-msg"
+  pass "project pre-commit and commit-msg hooks still run inside the task worktree"
+}
+
 test_known_agent_identities_are_removed_without_other_edits() {
   local hook before after expected
   hook="$WORKTREE_DIR/.fm-git-hooks/commit-msg"
@@ -126,6 +152,7 @@ Co-authored-by: Claude Opus <noreply@anthropic.com>
 Co-authored-by: Codex <noreply@openai.com>
 Co-authored-by: OpenCode <noreply@opencode.ai>
 Co-authored-by: Claude Sonnet 4 <noreply@pi.dev>
+ Co-authored-by: Cursor <cursoragent@cursor.com>
 Co-authored-by: Kun Chen <3233006+kunchenguid@users.noreply.github.com>
 MSG
   cat > "$expected" <<'MSG'
@@ -133,6 +160,7 @@ subject
 
 body stays byte-for-byte
 
+ Co-authored-by: Cursor <cursoragent@cursor.com>
 Co-authored-by: Kun Chen <3233006+kunchenguid@users.noreply.github.com>
 MSG
   cp "$before" "$after"
@@ -186,6 +214,7 @@ test_hook_fails_open_for_unexpected_inputs() {
 make_case
 test_spawn_installs_scoped_hook_and_filters_only_agents
 test_hook_is_idempotently_replaced_for_reused_worktree
+test_project_hooks_still_run_in_task_worktree
 test_known_agent_identities_are_removed_without_other_edits
 test_hook_fails_open_for_unexpected_inputs
 
