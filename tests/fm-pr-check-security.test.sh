@@ -11,9 +11,12 @@ set -u
 . "$ROOT/bin/fm-x-lib.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-check-lib.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-classify-lib.sh"
 
 PR_CHECK="$ROOT/bin/fm-pr-check.sh"
 PR_MERGE="$ROOT/bin/fm-pr-merge.sh"
+RECON="$ROOT/bin/fm-inactive-reconcile.sh"
 MIGRATE="$ROOT/bin/fm-pr-check-migrate.sh"
 POLL="$ROOT/bin/fm-pr-poll.sh"
 WATCH="$ROOT/bin/fm-watch.sh"
@@ -652,6 +655,88 @@ SH
       || fail "legacy task teardown changed the reserved migration namespace"
   done
   pass "valid direct and merge flows record exact metadata and reject multiline head metadata"
+}
+
+test_pr_ready_handoff_suppresses_reconciliation_without_closing_keyed_decisions() {
+  local dir state status url line count open out
+  dir=$(make_case pr-ready-handoff)
+  state="$dir/home/state"
+  status="$state/task-a.status"
+  url=https://github.com/o/r/pull/37
+  line="captain-held: PR $url is waiting on the captain's merge"
+  write_task_meta "$dir"
+  printf 'needs-decision [key=release-window]: Choose the release window\n' > "$status"
+
+  run_check_entry "$dir" task-a "$url" >/dev/null 2> "$dir/first.err" \
+    || fail "PR-ready handoff failed: $(cat "$dir/first.err")"
+  [ "$(tail -1 "$status")" = "$line" ] \
+    || fail "PR-ready handoff did not append the captain-held operational record"
+  count=$(grep -Fxc "$line" "$status")
+  [ "$count" -eq 1 ] || fail "first PR-ready handoff appended an unexpected duplicate"
+
+  run_check_entry "$dir" task-a "$url" >/dev/null 2> "$dir/second.err" \
+    || fail "duplicate PR-ready handoff failed: $(cat "$dir/second.err")"
+  count=$(grep -Fxc "$line" "$status")
+  [ "$count" -eq 1 ] || fail "duplicate PR-ready handoff stacked captain-held records"
+
+  open=$(status_open_decisions "$status")
+  printf '%s\n' "$open" | grep -Fqx $'release-window\tneeds-decision\tChoose the release window' \
+    || fail "unkeyed captain-held handoff swallowed a genuinely open keyed decision"
+
+  cat > "$dir/fakebin/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf 'called\n' >> "${FM_TEST_CREW_STATE_LOG:?}"
+printf 'state: done · source: fake\n'
+SH
+  chmod +x "$dir/fakebin/fm-crew-state.sh"
+  : > "$dir/crew-state.log"
+  touch -t 200001010000 "$state/task-a.meta" "$status"
+  out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" FM_STATE_OVERRIDE="$state" \
+    FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_TEST_CREW_STATE_LOG="$dir/crew-state.log" "$RECON" scan --startup) \
+    || fail "first inactive reconciliation cycle failed"
+  [ -z "$out" ] || fail "first inactive reconciliation cycle emitted output: $out"
+  out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" FM_STATE_OVERRIDE="$state" \
+    FM_INACTIVE_RECONCILE_SECS=60 FM_INACTIVE_CREW_STATE_BIN="$dir/fakebin/fm-crew-state.sh" \
+    FM_TEST_CREW_STATE_LOG="$dir/crew-state.log" "$RECON" scan --startup) \
+    || fail "second inactive reconciliation cycle failed"
+  [ -z "$out" ] || fail "second inactive reconciliation cycle emitted output: $out"
+  [ ! -s "$dir/crew-state.log" ] || fail "captain-held task reached terminal-state reconciliation"
+  [ ! -s "$state/.wake-queue" ] || fail "captain-held task queued an inactive-outcome wake"
+  [ ! -d "$state/terminal-outcomes" ] \
+    || [ -z "$(find "$state/terminal-outcomes" -type f -print -quit)" ] \
+    || fail "captain-held task created an inactive terminal-outcome receipt"
+
+  open=$(status_open_decisions "$status")
+  printf '%s\n' "$open" | grep -Fqx $'release-window\tneeds-decision\tChoose the release window' \
+    || fail "reconciliation swallowed the genuinely open keyed decision"
+
+  dir=$(make_case pr-ready-handoff-unkeyed)
+  state="$dir/home/state"
+  status="$state/task-a.status"
+  write_task_meta "$dir"
+  printf 'blocked: waiting on infra\n' > "$status"
+  out=$(run_check_entry "$dir" task-a "$url" 2> "$dir/unkeyed.err") \
+    || fail "open unkeyed decision made the PR-ready entry fail: $(cat "$dir/unkeyed.err")"
+  [ "$out" = "armed: state/task-a.check.sh" ] || fail "open unkeyed decision hid the armed poll"
+  grep -Fq "open unkeyed decision" "$dir/unkeyed.err" \
+    || fail "open unkeyed decision skip was not reported"
+  [ "$(cat "$status")" = 'blocked: waiting on infra' ] \
+    || fail "captain-held handoff swallowed an open unkeyed decision"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "open unkeyed decision prevented the merge poll"
+
+  dir=$(make_case pr-merge-no-handoff)
+  state="$dir/home/state"
+  status="$state/task-a.status"
+  write_task_meta "$dir"
+  printf 'blocked: waiting on infra\n' > "$status"
+  run_merge_entry "$dir" task-a "$url" > "$dir/merge.out" 2> "$dir/merge.err" \
+    || fail "merge flow failed with an open unkeyed decision: $(cat "$dir/merge.err")"
+  [ "$(cat "$status")" = 'blocked: waiting on infra' ] \
+    || fail "merge flow appended a captain-held merge-wait record"
+  [ ! -s "$dir/merge.err" ] || fail "merge flow reported a PR-ready handoff: $(cat "$dir/merge.err")"
+  pass "PR-ready handoff is idempotent, suppresses reconciliation, and preserves keyed decisions"
 }
 
 run_watcher_bounded() {
@@ -3368,6 +3453,7 @@ test_retirement_queue_failure_and_receipt_tampering
 test_gitlab_merged_poll_retires
 test_invalid_entrypoints_have_zero_side_effects
 test_valid_recording_and_merge_derivation
+test_pr_ready_handoff_suppresses_reconciliation_without_closing_keyed_decisions
 test_rejected_metacharacter_bytes_are_inert
 test_static_poll_contract
 test_atomic_interruption_leaves_no_partial_artifact
