@@ -35,7 +35,8 @@ Keep both credential files outside every Firstmate checkout and operational home
 The key and tokens are never placed in command arguments, status records, metadata, or tracked files.
 When the pointer is absent, wrapped commands run with exactly their prior environment and output behavior.
 When the pointer is present but credentials, signing, cache access, or GitHub's token endpoint fails, the wrapper emits one generic diagnostic and runs the command with the captain's existing login so a merge is not blocked by App authentication.
-When the App-authenticated command itself fails, for example because the installation cannot reach a repository owned by another account, the wrapper discards that attempt's output, emits one generic diagnostic, and retries the command once with the captain's existing login.
+When the App installation cannot resolve or reach the repository, for example one owned by another account, the wrapper discards that attempt's output, emits one generic diagnostic, and retries the command once with the captain's existing login.
+Every other App-authenticated failure, such as a merge conflict or a pending required check, surfaces its real output and exit status once with no retry.
 
 The wrapper accepts only `gh` or `gh-axi` repository operations in the `pr` and `release` command groups.
 Firstmate uses it for PR head recording, merge execution, merge polling, teardown landed checks, optional Bearings PR enrichment, and version release discovery.

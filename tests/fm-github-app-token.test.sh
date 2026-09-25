@@ -152,14 +152,44 @@ SH
   [ "$(grep -c '^gh_token=' "$dir/command.log")" -eq 2 ] || fail "App request failure did not retry exactly once"
   sed -n 2p "$dir/command.log" | grep -qxF 'gh_token=personal-token' \
     || fail "App request failure retry did not use the captain login"
-  [ "$(cat "$dir/stderr")" = 'warning: GitHub App request failed; retrying with captain GitHub login' ] \
+  [ "$(cat "$dir/stderr")" = 'warning: GitHub App installation cannot reach this repository; retrying with captain GitHub login' ] \
     || fail "App request failure did not emit exactly one safe diagnostic"
 
   output=$(FM_HOME="$dir/home" FM_TEST_COMMAND_LOG="$dir/command.log" \
     PATH="$dir/fakebin:$PATH" "$POLL" --validated github \
     https://github.com/wonder-media/firstmate/pull/22 github.com wonder-media/firstmate 22)
   [ "$output" = merged ] || fail "merge poll missed a merge the App installation cannot see"
-  pass "App-authenticated command failure retries once on the captain login"
+  pass "App installation that cannot reach the repository retries once on the captain login"
+}
+
+test_other_app_failure_surfaces_without_retry() {
+  local dir expires output rc
+  dir=$(make_case app-merge-refused)
+  printf '%s\n' "$dir/credentials.json" > "$dir/home/config/github-app-credentials"
+  expires=$(date -u -v+30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)
+  printf '{"token":"%s","expires_at":"%s"}\n' "$FAKE_APP_TOKEN" "$expires" \
+    > "$dir/home/state/github-app-installation-token.json"
+  chmod 0600 "$dir/home/state/github-app-installation-token.json"
+  cat > "$dir/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+printf 'gh_token=%s\n' "${GH_TOKEN:-}" >> "$FM_TEST_COMMAND_LOG"
+printf 'merge-attempt-output\n'
+printf 'Pull request is not mergeable: the merge commit cannot be cleanly created\n' >&2
+exit 3
+SH
+  chmod +x "$dir/fakebin/gh"
+
+  set +e
+  output=$(GH_TOKEN=personal-token run_helper "$dir" run-safe gh pr merge 22 2> "$dir/stderr")
+  rc=$?
+  set -e
+  [ "$rc" -eq 3 ] || fail "ordinary App failure changed the command exit status"
+  [ "$output" = merge-attempt-output ] || fail "ordinary App failure hid the command stdout"
+  [ "$(grep -c '^gh_token=' "$dir/command.log")" -eq 1 ] || fail "ordinary App failure was retried"
+  [ "$(cat "$dir/stderr")" = 'Pull request is not mergeable: the merge commit cannot be cleanly created' ] \
+    || fail "ordinary App failure did not surface only its real error"
+  pass "ordinary App-authenticated failure surfaces once without a captain-login retry"
 }
 
 test_mint_output_never_enters_argv() {
@@ -271,6 +301,7 @@ test_stale_cache_refresh_writes_private_cache
 test_mint_output_never_enters_argv
 test_configured_failure_falls_back_once
 test_app_request_failure_retries_on_captain_login
+test_other_app_failure_surfaces_without_retry
 test_projects_are_rejected_before_execution
 test_merge_poll_uses_app_identity
 test_pointer_inherits_without_credentials

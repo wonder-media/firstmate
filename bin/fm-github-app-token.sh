@@ -16,9 +16,9 @@
 #
 # run-safe never prints the token. When the pointer is absent, it execs the
 # requested command unchanged. When configured authentication cannot be
-# prepared, or the App-authenticated command fails (for example because the
-# installation cannot reach the repository), it emits one generic diagnostic
-# and runs the command once with the caller's existing GitHub login.
+# prepared, or the App installation cannot resolve or reach the repository,
+# it emits one generic diagnostic and runs the command once with the caller's
+# existing GitHub login. Every other command failure surfaces unchanged.
 #
 # The allowlist deliberately excludes `gh project` and arbitrary `gh api`
 # requests. GitHub App installations cannot access user-owned Projects v2, so
@@ -32,6 +32,7 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 POINTER="$CONFIG/github-app-credentials"
 CACHE="$STATE/github-app-installation-token.json"
+REPO_UNREACHABLE='Could not resolve to a Repository|Resource not accessible by integration|HTTP 404'
 
 usage() {
   printf 'usage: fm-github-app-token.sh run-safe <gh|gh-axi> <pr|release> [args...]\n' >&2
@@ -261,15 +262,15 @@ run_safe() {
     if [ -n "$out" ] && [ -n "$err" ]; then
       GH_TOKEN=$token GITHUB_TOKEN=$token "$@" > "$out" 2> "$err"
       rc=$?
-      if [ "$rc" -eq 0 ]; then
-        cat "$out"
-        cat "$err" >&2
+      if [ "$rc" -ne 0 ] && cat "$out" "$err" | grep -qE "$REPO_UNREACHABLE"; then
         rm -f "$out" "$err"
-        return 0
+        echo "warning: GitHub App installation cannot reach this repository; retrying with captain GitHub login" >&2
+        exec "$@"
       fi
+      cat "$out"
+      cat "$err" >&2
       rm -f "$out" "$err"
-      echo "warning: GitHub App request failed; retrying with captain GitHub login" >&2
-      exec "$@"
+      return "$rc"
     fi
     rm -f "$out" "$err"
   fi
