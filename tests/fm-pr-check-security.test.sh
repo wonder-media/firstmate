@@ -710,6 +710,32 @@ SH
   open=$(status_open_decisions "$status")
   printf '%s\n' "$open" | grep -Fqx $'release-window\tneeds-decision\tChoose the release window' \
     || fail "reconciliation swallowed the genuinely open keyed decision"
+
+  dir=$(make_case pr-ready-handoff-unkeyed)
+  state="$dir/home/state"
+  status="$state/task-a.status"
+  write_task_meta "$dir"
+  printf 'blocked: waiting on infra\n' > "$status"
+  out=$(run_check_entry "$dir" task-a "$url" 2> "$dir/unkeyed.err") \
+    || fail "open unkeyed decision made the PR-ready entry fail: $(cat "$dir/unkeyed.err")"
+  [ "$out" = "armed: state/task-a.check.sh" ] || fail "open unkeyed decision hid the armed poll"
+  grep -Fq "open unkeyed decision" "$dir/unkeyed.err" \
+    || fail "open unkeyed decision skip was not reported"
+  [ "$(cat "$status")" = 'blocked: waiting on infra' ] \
+    || fail "captain-held handoff swallowed an open unkeyed decision"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "open unkeyed decision prevented the merge poll"
+
+  dir=$(make_case pr-merge-no-handoff)
+  state="$dir/home/state"
+  status="$state/task-a.status"
+  write_task_meta "$dir"
+  printf 'blocked: waiting on infra\n' > "$status"
+  run_merge_entry "$dir" task-a "$url" > "$dir/merge.out" 2> "$dir/merge.err" \
+    || fail "merge flow failed with an open unkeyed decision: $(cat "$dir/merge.err")"
+  [ "$(cat "$status")" = 'blocked: waiting on infra' ] \
+    || fail "merge flow appended a captain-held merge-wait record"
+  [ ! -s "$dir/merge.err" ] || fail "merge flow reported a PR-ready handoff: $(cat "$dir/merge.err")"
   pass "PR-ready handoff is idempotent, suppresses reconciliation, and preserves keyed decisions"
 }
 

@@ -2,7 +2,8 @@
 # Record a PR-ready task: store one validated canonical pr=<url> and the forge's
 # exact pr_head=<sha> when available, atomically arm a static merge poll, then
 # append the idempotent captain-held handoff that marks the task as waiting for
-# the captain's merge.
+# the captain's merge. FM_PR_CHECK_HANDOFF=0 skips that handoff for
+# bin/fm-pr-merge.sh, whose own merge replaces the wait.
 # The watcher check source is byte-for-byte bin/fm-pr-poll.sh; task and PR data
 # live only in a private sidecar and are never interpolated into shell source.
 # A GitHub pull request URL and a GitLab merge request URL are both accepted,
@@ -140,31 +141,36 @@ fm_pr_poll_publish_prepared || {
   exit 1
 }
 
-CAPTAIN_HELD_LINE="captain-held: PR $URL is waiting on the captain's merge"
-fm_lock_acquire_wait "$META_LOCK"
-META_LOCK_HELD=1
-if [ -L "$STATUS" ] || { [ -e "$STATUS" ] && { [ ! -f "$STATUS" ] || [ "$(fm_pr_file_link_count "$STATUS")" != 1 ]; }; }; then
-  echo "error: task status log is unavailable" >&2
-  exit 1
-fi
-# The unkeyed handoff cannot close any explicitly keyed decision. Refuse the
-# append when the legacy unkeyed/default decision is open, because an unkeyed
-# captain-held record would otherwise close that real decision in the status
-# fold. The task remains visible for reconciliation until that decision closes.
-OPEN_DECISIONS=$(status_open_decisions "$STATUS")
-case $'\n'"$OPEN_DECISIONS"$'\n' in
-  *$'\ndefault\t'*)
-    echo "error: task has an open unkeyed decision; captain-held handoff was not recorded" >&2
+if [ "${FM_PR_CHECK_HANDOFF:-1}" != 0 ]; then
+  CAPTAIN_HELD_LINE="captain-held: PR $URL is waiting on the captain's merge"
+  fm_lock_acquire_wait "$META_LOCK"
+  META_LOCK_HELD=1
+  if [ -L "$STATUS" ] || { [ -e "$STATUS" ] && { [ ! -f "$STATUS" ] || [ "$(fm_pr_file_link_count "$STATUS")" != 1 ]; }; }; then
+    echo "error: task status log is unavailable" >&2
     exit 1
-    ;;
-esac
-if [ "$(last_status_line "$STATUS")" != "$CAPTAIN_HELD_LINE" ]; then
-  printf '%s\n' "$CAPTAIN_HELD_LINE" >> "$STATUS" || {
-    echo "error: captain-held handoff could not be recorded" >&2
-    exit 1
-  }
+  fi
+  # The unkeyed handoff cannot close any explicitly keyed decision. Skip the
+  # append when the legacy unkeyed/default decision is open, because an unkeyed
+  # captain-held record would otherwise close that real decision in the status
+  # fold. The task remains visible for reconciliation until that decision closes.
+  OPEN_DECISIONS=$(status_open_decisions "$STATUS")
+  case $'\n'"$OPEN_DECISIONS"$'\n' in
+    *$'\ndefault\t'*)
+      echo "warning: task has an open unkeyed decision; captain-held handoff was not recorded" >&2
+      ;;
+    *)
+      if [ "$(last_status_line "$STATUS")" != "$CAPTAIN_HELD_LINE" ]; then
+        rc=0
+        fm_wake_status_append_self_announced "$STATE" "$STATUS" "$CAPTAIN_HELD_LINE" || rc=$?
+        [ "$rc" -ne 2 ] || {
+          echo "error: captain-held handoff could not be recorded" >&2
+          exit 1
+        }
+      fi
+      ;;
+  esac
+  fm_lock_release "$META_LOCK"
+  META_LOCK_HELD=0
 fi
-fm_lock_release "$META_LOCK"
-META_LOCK_HELD=0
 
 printf 'armed: state/%s.check.sh\n' "$ID"
