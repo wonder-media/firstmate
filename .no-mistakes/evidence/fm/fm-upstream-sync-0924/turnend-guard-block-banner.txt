@@ -1,0 +1,7 @@
+$ echo {"stop_hook_active":false} | FM_HOME=<temp primary home with 1 in-flight task, no watcher> bin/fm-turnend-guard.sh
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  TURN WOULD END BLIND - SUPERVISION IS OFF
+●  1 task(s) in flight, but no live watcher holds this home lock (last beat: never).
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+exit=2

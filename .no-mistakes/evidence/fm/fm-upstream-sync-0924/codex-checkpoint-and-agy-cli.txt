@@ -1,0 +1,41 @@
+$ bin/fm-supervision-instructions.sh --harness codex   (clean temp home, FM_CODEX_WATCH_CHECKPOINT unset)
+================================================================================
+SUPERVISION OPERATING INSTRUCTIONS - primary harness: codex
+================================================================================
+Current state:
+- Lock: held by this session; this session owns normal supervision unless away mode says otherwise.
+- Away/quiet mode: inactive.
+- X mode: inactive; use the default watcher cadence.
+- Ordinary wake: take the next foreground bin/fm-watch-checkpoint.sh checkpoint as directed below.
+
+Mode: Codex foreground checkpoint.
+
+When this session owns supervision and away mode is not active:
+1. Drain first with `bin/fm-wake-drain.sh`.
+   After handling all emitted wakes and reconciling open decisions and unread status lines, run the exact `--ack-through` command printed as `WAKE_ACK_REQUIRED`; until then the work remains durable for idempotent re-handling after interruption.
+2. Source `/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/tmp.yofZDVqIuV/config/x-mode.env` first when Relay is active.
+3. First cycle: run one foreground watcher checkpoint with `bin/fm-watch-checkpoint.sh --seconds "${FM_CODEX_WATCH_CHECKPOINT:-300}"`.
+4. Ordinary wake: if the command prints `signal:`, `stale:`, `check:`, or `heartbeat`, drain queued wakes, handle that wake, then start the next checkpoint.
+5. If the command prints `checkpoint:` or exits 124 with no wake, drain queued wakes anyway, process any queued user message now visible to Codex, then start the next checkpoint.
+6. Never use shell `&` or Codex background tasks for firstmate watcher supervision.
+7. Do not run `bin/fm-watch-arm.sh` as Codex's normal supervision command.
+   If it is ever shelled anyway, a backgrounded, piped, or bundled anti-pattern is denied automatically by the PreToolUse seatbelt (`bin/fm-arm-pretool-check.sh`) registered in `.codex/hooks.json`.
+8. Failure or missing cycle only: drain queued wakes, inspect the failure, then start a fresh foreground checkpoint.
+
+Codex cannot reason while a foreground tool call is running.
+The bounded checkpoint returns control regularly so user messages and queued wakes can be handled without relying on background-task wake semantics.
+The 300-second default produces 12 quiet checkpoint returns per hour, down from 20 at the former 180-second default; `FM_CODEX_WATCH_CHECKPOINT` remains the supported explicit cadence override.
+An actionable watcher event still ends the current checkpoint as soon as it is detected; the checkpoint bound controls quiet recurring model turns and the maximum delay before Codex can service captain input received during the foreground call.
+Set `FM_CODEX_WATCH_CHECKPOINT=180` when the shorter captain-input servicing bound is preferred.
+
+
+$ bin/fm-watch-checkpoint.sh --help
+Usage: fm-watch-checkpoint.sh [--seconds <n>]
+
+Run bin/fm-watch.sh in the foreground for a bounded checkpoint.
+On an actionable watcher wake, pass through the watcher output and exit 0.
+On a quiet checkpoint, print "checkpoint: no actionable wake within <n>s" and exit 124.
+
+$ bin/fm-agy-trust.sh --help
+usage: fm-agy-trust.sh <worktree> <project>
+rc=2
