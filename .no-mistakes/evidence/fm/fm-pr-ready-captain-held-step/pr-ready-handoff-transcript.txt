@@ -1,0 +1,26 @@
+== status before
+needs-decision [key=release-window]: Choose the release window
+== run 1: bin/fm-pr-check.sh task-a https://github.com/o/r/pull/37
+armed: state/task-a.check.sh
+== run 2 (same task + PR)
+armed: state/task-a.check.sh
+== status after two runs
+needs-decision [key=release-window]: Choose the release window
+captain-held: PR https://github.com/o/r/pull/37 is waiting on the captain's merge
+== open decisions (fm-classify-lib status_open_decisions)
+release-window	needs-decision	Choose the release window== inactive reconcile scan cycle 1 output:
+(rc=0)
+== inactive reconcile scan cycle 2 output:
+(rc=0)
+== inactive reconcile scan cycle 3 output:
+(rc=0)
+== wake queue:
+(none)
+== crew-state probes:
+(none)
+== legacy unkeyed case
+warning: task has an open unkeyed decision; captain-held handoff was not recorded
+armed: state/task-a.check.sh
+(rc=0)
+status:
+blocked: waiting on infra
