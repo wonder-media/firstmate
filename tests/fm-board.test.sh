@@ -116,9 +116,10 @@ home=pathlib.Path(os.environ.get('FM_HOME','/')).resolve()
 keys=('FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE')
 record={'command':sys.argv[1:],'home':str(home),'overrides':{k:os.environ.get(k) for k in keys}}
 clean=all(k not in os.environ for k in keys)
-# The real sweep owner explicitly binds its recursive retire to this same state.
-recursive_retire=(sys.argv[1:2]==['retire'] and os.environ.get('FM_STATE_OVERRIDE')==str(home/'state') and all(k not in os.environ for k in keys[1:]))
-record['allowed']=home in (root/'main',root/'second') and (clean or recursive_retire)
+# The process-event owner explicitly binds its recursive lifecycle operations
+# to this same state while keeping data and projects unoverridden.
+state_bound=(sys.argv[1:2] in (['_start'],['_owner-watchdog'],['retire']) and os.environ.get('FM_STATE_OVERRIDE')==str(home/'state') and all(k not in os.environ for k in keys[1:]))
+record['allowed']=home in (root/'main',root/'second') and (clean or state_bound)
 with (root/'isolation.jsonl').open('a') as f:f.write(json.dumps(record)+'\\n')
 if not record['allowed']:sys.exit('fixture containment refused')
 os.execv('/bin/bash',['bash',str(pathlib.Path(__file__).with_name('fm-procevent-real.sh')),*sys.argv[1:]])
@@ -1181,8 +1182,9 @@ finally:
     assert any(r['command'][0]=='register' for r in executed)
     sweeps=[r for r in executed if r['command'][0]=='sweep-home']
     assert len(sweeps)==1 and sweeps[0]['home']==str(home)
-    assert all(all(v is None for v in r['overrides'].values()) for r in executed if r['command'][0]!='retire')
-    assert all(r['overrides']['FM_STATE_OVERRIDE']==str(home/'state') for r in executed if r['command'][0]=='retire')
+    recursive={'_start','_owner-watchdog','retire'}
+    assert all(all(v is None for v in r['overrides'].values()) for r in executed if r['command'][0] not in recursive)
+    assert all(r['overrides']['FM_STATE_OVERRIDE']==str(home/'state') for r in executed if r['command'][0] in recursive)
     assert sentinel_state()==sentinel_before
     out.close()
     passed('all cleanup uses only fixture FM_HOME; all three path overrides stripped; sentinel unchanged')
