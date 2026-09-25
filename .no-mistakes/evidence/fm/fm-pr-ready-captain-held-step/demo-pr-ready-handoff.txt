@@ -1,0 +1,57 @@
+================ base ================
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/37
+armed: state/task-a.check.sh
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/37   # repeated
+armed: state/task-a.check.sh
+--- state/task-a.status:
+working: implementing
+needs-decision [key=release-window]: Choose the release window
+done: PR https://github.com/o/r/pull/37 checks green
+--- watcher seen marker covers all bytes: yes (no self-wake)
+--- open decisions (fm-classify-lib):
+release-window	needs-decision	Choose the release window--- inactive reconcile cycle 1:
+actionable: inactive terminal outcome awaiting captain presentation: child=task-a state=done pr=https://github.com/o/r/pull/37
+(rc=0)
+--- inactive reconcile cycle 2:
+(rc=0)
+--- crew-state probes:        2
+================ change ================
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/37
+armed: state/task-a.check.sh
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/37   # repeated
+armed: state/task-a.check.sh
+--- state/task-a.status:
+working: implementing
+needs-decision [key=release-window]: Choose the release window
+done: PR https://github.com/o/r/pull/37 checks green
+captain-held: PR https://github.com/o/r/pull/37 is waiting on the captain's merge
+--- watcher seen marker covers all bytes: yes (no self-wake)
+--- open decisions (fm-classify-lib):
+release-window	needs-decision	Choose the release window--- inactive reconcile cycle 1:
+(rc=0)
+--- inactive reconcile cycle 2:
+(rc=0)
+/Users/patrick/.no-mistakes/evidence/01M3BDHVDJNS1TS80EJFZ5Q90J/demo-pr-ready-handoff.sh: line 55: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/tmp.YD9bLh2d00/change/crew.log: No such file or directory
+--- crew-state probes: 0
+================ change: open legacy unkeyed decision, PR-ready and merge ================
+$ fm-pr-check.sh task-a https://github.com/o/r/pull/37
+warning: task has an open unkeyed decision; captain-held handoff was not recorded
+armed: state/task-a.check.sh
+(rc=0)
+--- state/task-a.status:
+blocked: waiting on infra
+$ fm-pr-merge.sh task-a https://github.com/o/r/pull/37
+armed: state/task-a.check.sh
+(rc=0)
+--- gh-axi calls:
+gh-axi pr merge 37 --repo o/r --squash
+--- state/task-a.status:
+blocked: waiting on infra
+================ change: immediate merge leaves no stale captain-held ================
+$ fm-pr-merge.sh task-a https://github.com/o/r/pull/37
+armed: state/task-a.check.sh
+(rc=0)
+--- state/task-a.status:
+working: implementing
+needs-decision [key=release-window]: Choose the release window
+done: PR https://github.com/o/r/pull/37 checks green

@@ -42,4 +42,3 @@ ok - bootstrap isolates incomplete poll migration from unrelated recovery sweeps
 ok - watcher signals promptly stop custom checks and clean private state
 ok - returned custom check descendants are drained on installed and fallback timeout paths
 ok - teardown removes safe poll artifacts and refuses quarantine-directory symlinks without traversal
-bash tests/$t.test.sh  106.68s user 205.82s system 68% cpu 7:39.14 total

@@ -8,4 +8,3 @@ ok - fm-pr-merge refuses repo override args before recording state
 ok - fm-pr-merge does not add default --squash when the caller passes an explicit merge method
 ok - fm-pr-merge respects --method=<value> as an explicit merge method
 ok - fm-pr-merge parses a GitHub PR URL into gh-axi number and --repo arguments
-bash tests/$t.test.sh  2.07s user 4.43s system 29% cpu 22.008 total
