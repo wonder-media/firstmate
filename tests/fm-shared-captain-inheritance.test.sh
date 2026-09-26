@@ -372,11 +372,16 @@ EOF
 }
 
 test_session_start_digest_labels_shared_file_and_read_once_rule() {
-  local rec w root home _sm fakebin out contract
+  local rec w _root home _sm root fakebin out contract
   rec=$(new_git_world session-start-label)
-  IFS='|' read -r w root home _sm <<EOF
+  IFS='|' read -r w _root home _sm <<EOF
 $rec
 EOF
+  # The world's firstmate-shaped root is another checkout, which the inherited
+  # home guard refuses, so the digest runs against a plain git root instead.
+  root="$w/session-root"
+  git init -q -b main "$root"
+  git -C "$root" commit -q --allow-empty -m init
   fakebin=$(make_fake_spawn_toolchain "$w")
   add_bootstrap_compatible_tools "$fakebin"
   fm_fake_exit0 "$fakebin" pgrep
