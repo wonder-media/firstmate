@@ -202,7 +202,7 @@ When it is unset, most scripts use the repo root as the home; when it is set, sc
 `FM_ROOT_OVERRIDE` overrides the firstmate repo root used by scripts, including the primary checkout watched by the worktree-tangle guard.
 When `FM_HOME` is unset, it also behaves as the old whole-root override.
 Primary session and tracked primary-hook entrypoints are narrower than this general script contract.
-They first classify the checkout carrying the running hook, stay inert in an unmarked linked task worktree, and refuse before any home read or mutation when inherited `FM_HOME` or `FM_ROOT_OVERRIDE` resolves to a different checkout.
+They first classify the checkout carrying the running hook, stay inert in an unmarked linked task worktree, and refuse before any home read or mutation when inherited `FM_HOME` or `FM_ROOT_OVERRIDE` resolves anywhere other than that checkout.
 An explicit `FM_HOME` that resolves to the running primary or marked secondmate checkout remains valid, including symlink-equivalent spellings.
 The direct `bin/fm-session-start.sh`, `bin/fm-lock.sh`, `bin/fm-watch-arm.sh`, and `bin/fm-watch.sh` executables and the Pi watcher extension refuse, naming both paths, when inherited `FM_HOME` or `FM_ROOT_OVERRIDE` resolves to a different primary or marked secondmate checkout.
 They still accept a plain state home that is not a firstmate checkout.
