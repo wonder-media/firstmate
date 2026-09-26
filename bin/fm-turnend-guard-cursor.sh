@@ -52,15 +52,9 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+SCRIPT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GRACE=${FM_GUARD_GRACE:-300}
 WATCH="$SCRIPT_DIR/fm-watch.sh"
-OWNER="$STATE/.cursor-park-owner"
-OWNER_LOCK="$STATE/.cursor-park-owner.lock"
-BUDGET_FILE="$STATE/.turnend-cursor-blocks"
 
 LOOP_CEILING=${FM_CURSOR_TURNEND_LOOP_CEILING:-180}
 BLOCK_BUDGET=${FM_CURSOR_TURNEND_BLOCK_BUDGET:-3}
@@ -75,6 +69,10 @@ case "$LOCK_ATTEMPTS" in ''|*[!0-9]*|0) LOCK_ATTEMPTS=50 ;; esac
 
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+fm_primary_home_bind "$SCRIPT_ROOT" || exit 0
+OWNER="$STATE/.cursor-park-owner"
+OWNER_LOCK="$STATE/.cursor-park-owner.lock"
+BUDGET_FILE="$STATE/.turnend-cursor-blocks"
 # shellcheck source=bin/fm-supervision-lib.sh
 . "$SCRIPT_DIR/fm-supervision-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh

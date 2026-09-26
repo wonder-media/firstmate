@@ -55,15 +55,8 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+SCRIPT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 GRACE=${FM_GUARD_GRACE:-300}
-OWNER_LOCK="$STATE/.claude-autoarm.lock"
-EPOCH="$STATE/.claude-autoarm-epoch"
-FAILURE_NOTICE="$STATE/.claude-autoarm-failure-notified"
-FAILURE_ALARM="$STATE/.claude-autoarm-failure-alarmed"
 AUTOARM_ATTEMPTS=${FM_CLAUDE_AUTOARM_ATTEMPTS:-2}
 case "$AUTOARM_ATTEMPTS" in
   1|2|3) : ;;
@@ -72,6 +65,11 @@ esac
 
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+fm_primary_home_bind "$SCRIPT_ROOT" || exit 0
+OWNER_LOCK="$STATE/.claude-autoarm.lock"
+EPOCH="$STATE/.claude-autoarm-epoch"
+FAILURE_NOTICE="$STATE/.claude-autoarm-failure-notified"
+FAILURE_ALARM="$STATE/.claude-autoarm-failure-alarmed"
 # shellcheck source=bin/fm-supervision-lib.sh
 . "$SCRIPT_DIR/fm-supervision-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh

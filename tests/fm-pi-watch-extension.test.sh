@@ -24,6 +24,7 @@ install_pi_watch_extension_fixture() {
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" "$repo/.pi/extensions/lib/fm-operational-input.ts"
   mkdir -p "$repo/bin"
   cp "$ROOT/bin/fm-operational-input.sh" "$repo/bin/fm-operational-input.sh"
+  cp "$ROOT/bin/fm-primary-scope-lib.sh" "$repo/bin/fm-primary-scope-lib.sh"
   chmod +x "$repo/bin/fm-operational-input.sh"
   cat > "$repo/node_modules/@earendil-works/pi-coding-agent/package.json" <<'JSON'
 {"name":"@earendil-works/pi-coding-agent","type":"module","exports":"./index.js"}
@@ -135,6 +136,54 @@ EOF
   expect_code 0 "$status" "Pi extension must surface an external healthy watcher as an owned-wake failure"
   [ -z "$out" ] || fail "Pi external-healthy test printed output: $out"
   pass "Pi extension reports external healthy watcher output"
+}
+
+test_pi_extension_is_inert_under_inherited_foreign_home() {
+  local repo main plugin out status main_real repo_real
+  repo="$TMP_ROOT/pi-foreign-home-root"
+  main="$TMP_ROOT/pi-foreign-home-main"
+  mkdir -p "$repo/bin" "$main/bin" "$main/state"
+  git init -q "$main"
+  git -C "$main" -c user.name=fmtest -c user.email=fmtest@example.invalid commit -q --allow-empty -m init
+  : > "$main/AGENTS.md"
+  install_pi_watch_extension_fixture "$repo"
+  plugin="$repo/.pi/extensions/fm-primary-pi-watch.ts"
+  cat > "$repo/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+: > "$FM_HOME/state/arm-ran"
+exit 0
+SH
+  chmod +x "$repo/bin/fm-watch-arm.sh"
+  main_real=$(cd "$main" && pwd -P)
+  repo_real=$(cd "$repo" && pwd -P)
+  status=0
+  out=$(PLUGIN="$plugin" FM_HOME="$main" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
+import { writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+let execute = null;
+const pi = {
+  on() {},
+  registerCommand() {},
+  registerTool(tool) {
+    if (tool.name === "fm_watch_arm_pi") execute = tool.execute;
+  },
+  sendUserMessage: async () => {},
+};
+writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const mod = await import(pathToFileURL(process.env.PLUGIN).href);
+mod.default(pi);
+const result = await execute();
+console.log(result.content[0].text);
+EOF
+) || status=$?
+  expect_code 0 "$status" "Pi extension under a foreign inherited home: $out"
+  assert_contains "$out" "Pi extension is inert" "Pi extension did not report its inert home binding"
+  assert_contains "$out" "running checkout $repo_real" "Pi home mismatch diagnostic omitted the running checkout"
+  assert_contains "$out" "firstmate checkout $main_real" "Pi home mismatch diagnostic omitted the inherited home"
+  assert_absent "$main/state/.pi-watch-extension-loaded" "Pi extension marked a foreign inherited home as loaded"
+  assert_absent "$main/state/arm-ran" "Pi extension armed a foreign inherited home's watcher"
+  pass "Pi extension stays inert and names both paths under an inherited foreign home"
 }
 
 test_pi_tool_returns_agent_tool_result() {
@@ -2154,6 +2203,7 @@ EOF
 }
 
 test_pi_extension_reports_external_healthy_watcher
+test_pi_extension_is_inert_under_inherited_foreign_home
 test_pi_tool_returns_agent_tool_result
 test_pi_redundant_tool_call_is_owned_noop
 test_pi_scheduled_retry_call_is_owned_noop

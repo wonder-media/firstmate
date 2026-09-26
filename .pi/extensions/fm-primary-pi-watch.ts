@@ -84,6 +84,7 @@ const state = process.env.FM_STATE_OVERRIDE || `${fmHome}/state`;
 const config = process.env.FM_CONFIG_OVERRIDE || `${fmHome}/config`;
 const armScript = `${fmRoot}/bin/fm-watch-arm.sh`;
 const marker = `${state}/.pi-watch-extension-loaded`;
+const homeBindingError = inheritedHomeBindingError();
 const extensionVersion = `sha256:${createHash("sha256").update(readFileSync(extensionFile)).digest("hex")}`;
 const retryBaseMs = positiveInteger("FM_WATCH_REARM_RETRY_BASE_MS", 250);
 const retryMaxMs = positiveInteger("FM_WATCH_REARM_RETRY_MAX_MS", 4000);
@@ -143,7 +144,22 @@ function lockOwnership(): LockOwnership {
   return pidAlive(lockPid) ? "other" : "missing";
 }
 
+// A Pi secondmate or linked-worktree crewmate may inherit another checkout's
+// FM_HOME or FM_ROOT_OVERRIDE; the shared shell guard decides, and any mismatch
+// or failed check leaves this extension inert.
+function inheritedHomeBindingError(): string {
+  const result = spawnSync(
+    "bash",
+    ["-c", '. "$1/bin/fm-primary-scope-lib.sh" && fm_inherited_home_guard "$1"', "fm-primary-pi-watch", root],
+    { encoding: "utf8" },
+  );
+  if (result.status === 0) return "";
+  const diagnostic = (result.stderr || "").trim();
+  return `watcher: FAILED - Pi extension is inert because home binding failed\n${diagnostic || `error: firstmate home binding check failed for running checkout ${root}; inherited FM_HOME ${fmHome}`}`;
+}
+
 function markLoaded(): void {
+  if (homeBindingError) return;
   if (lockOwnership() === "other") return;
   mkdirSync(state, { recursive: true });
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
@@ -364,6 +380,7 @@ export default function (pi: ExtensionAPI) {
 
   function startArm(owner: SessionGeneration, predecessorArmPid = ""): ArmResult {
     if (!generationIsLive(owner)) return { ok: false, message: shuttingDownMessage };
+    if (homeBindingError) return { ok: false, message: homeBindingError };
     const ownership = lockOwnership();
     if (ownership === "other") return { ok: false, message: "watcher: read-only - session lock is held by another firstmate session" };
     if (ownership === "missing") {

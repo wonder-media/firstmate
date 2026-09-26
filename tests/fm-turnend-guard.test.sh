@@ -394,16 +394,20 @@ test_hook_allows_dormant_only_parent_home() {
   pass "fm-turnend-guard: dormant-only parent home needs no watcher"
 }
 
-test_hook_blocks_from_fm_home_state() {
-  local dir home out status
+test_hook_refuses_mismatched_fm_home() {
+  local dir home dir_real home_real out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-fm-home")
   home="$TMP_ROOT/hook-fm-home-op"
   mkdir -p "$home/state"
+  dir_real=$(cd "$dir" && pwd -P)
+  home_real=$(cd "$home" && pwd -P)
   : > "$home/state/task1.meta"
   out=$(printf '{"stop_hook_active":false}' | CLAUDECODE=1 FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
-  expect_code 2 "$status" "hook must inspect the active FM_HOME state dir"
-  assert_contains "$out" "$REQUIRED_REASON" "block reason must contain the exact required instruction"
-  pass "fm-turnend-guard: blocks from active FM_HOME state, not only repo-root state"
+  expect_code 0 "$status" "hook must refuse a mismatched FM_HOME without blocking the session"
+  assert_contains "$out" "running checkout $dir_real" "mismatch diagnostic omitted the running checkout"
+  assert_contains "$out" "inherited FM_HOME resolves to $home_real" "mismatch diagnostic omitted the inherited home"
+  assert_not_contains "$out" "TURN WOULD END BLIND" "a home mismatch was misreported as watcher failure"
+  pass "fm-turnend-guard: refuses a mismatched inherited FM_HOME before reading its state"
 }
 
 test_hook_x_mode_reason_sources_cadence() {
@@ -430,28 +434,47 @@ test_hook_x_mode_only_blocks_in_default_mode() {
 }
 
 test_hook_ignores_repo_state_when_fm_home_set() {
-  local dir home out status
+  local dir home dir_real home_real out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-fm-home-ignore-root")
   home="$TMP_ROOT/hook-fm-home-quiet"
   mkdir -p "$home/state"
+  dir_real=$(cd "$dir" && pwd -P)
+  home_real=$(cd "$home" && pwd -P)
   : > "$dir/state/task1.meta"
   out=$(printf '{"stop_hook_active":false}' | FM_HOME="$home" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
-  expect_code 0 "$status" "hook must ignore repo-root state when FM_HOME selects another state dir"
-  [ -z "$out" ] || fail "hook produced output from stale repo-root state despite FM_HOME: $out"
-  pass "fm-turnend-guard: ignores stale repo-root state when FM_HOME is set"
+  expect_code 0 "$status" "hook must refuse a mismatched FM_HOME without blocking"
+  assert_contains "$out" "running checkout $dir_real" "mismatch diagnostic omitted the running checkout"
+  assert_contains "$out" "inherited FM_HOME resolves to $home_real" "mismatch diagnostic omitted the inherited home"
+  pass "fm-turnend-guard: never substitutes an inherited operational home for its checkout"
 }
 
 test_hook_uses_state_override() {
   local dir home state out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-state-override")
-  home="$TMP_ROOT/hook-state-override-home"
+  home=$dir
   state="$TMP_ROOT/hook-state-override-active"
-  mkdir -p "$home/state" "$state"
+  mkdir -p "$state"
   : > "$state/task1.meta"
   out=$(printf '{"stop_hook_active":false}' | CLAUDECODE=1 FM_HOME="$home" FM_STATE_OVERRIDE="$state" bash "$dir/bin/fm-turnend-guard.sh" 2>&1); status=$?
   expect_code 2 "$status" "hook must let FM_STATE_OVERRIDE win over FM_HOME/state"
   assert_contains "$out" "$REQUIRED_REASON" "block reason must contain the exact required instruction"
   pass "fm-turnend-guard: uses FM_STATE_OVERRIDE ahead of FM_HOME/state"
+}
+
+test_hook_silent_in_worktree_with_inherited_primary_home() {
+  local base="$TMP_ROOT/hook-inherited-base" dir="$TMP_ROOT/hook-inherited-worker" out status
+  make_crewmate_worktree_dir "$base" "$dir" >/dev/null
+  mkdir -p "$base/bin" "$base/state"
+  : > "$base/AGENTS.md"
+  install_guard_scripts "$base"
+  : > "$base/state/task1.meta"
+
+  out=$(printf '{"stop_hook_active":false}' | CLAUDECODE=1 \
+    FM_HOME="$base" FM_ROOT_OVERRIDE="$base" bash "$dir/bin/fm-turnend-guard.sh" 2>&1)
+  status=$?
+  expect_code 0 "$status" "linked worker with inherited primary home"
+  [ -z "$out" ] || fail "linked worker inspected or reported the inherited primary home: $out"
+  pass "fm-turnend-guard: a linked worker stays inert despite inheriting the primary home"
 }
 
 test_hook_loop_guard_allows_retry() {
@@ -638,7 +661,7 @@ test_hook_silent_without_jq() {
     tool_path=$(command -v "$tool") || fail "test host must provide $tool"
     ln -s "$tool_path" "$fakebin/$tool"
   done
-  out=$(printf '{"stop_hook_active":false}' | PATH="$fakebin" bash "$dir/bin/fm-turnend-guard.sh" 2>&1)
+  out=$(printf '{"stop_hook_active":false}' | PATH="$fakebin" FM_HOME="$dir" bash "$dir/bin/fm-turnend-guard.sh" 2>&1)
   status=$?
   expect_code 0 "$status" "hook must fail open (exit 0) when jq is unavailable"
   [ -z "$out" ] || fail "hook produced output without jq: $out"
@@ -649,7 +672,7 @@ test_hook_silent_without_stdin() {
   local dir out status
   dir=$(make_primary_dir "$TMP_ROOT/hook-nostdin")
   : > "$dir/state/task1.meta"
-  out=$(bash "$dir/bin/fm-turnend-guard.sh" < /dev/null 2>&1); status=$?
+  out=$(FM_HOME="$dir" bash "$dir/bin/fm-turnend-guard.sh" < /dev/null 2>&1); status=$?
   expect_code 0 "$status" "hook must exit 0 on empty/absent stdin"
   [ -z "$out" ] || fail "hook produced output on empty stdin: $out"
   pass "fm-turnend-guard: silent no-op on empty stdin"
@@ -1649,11 +1672,12 @@ test_hook_non_claude_health_ignores_claude_budget_contention
 test_hook_blocks_with_live_lock_and_stale_beacon
 test_hook_blocks_when_unhealthy_in_primary
 test_hook_allows_dormant_only_parent_home
-test_hook_blocks_from_fm_home_state
+test_hook_refuses_mismatched_fm_home
 test_hook_x_mode_reason_sources_cadence
 test_hook_x_mode_only_blocks_in_default_mode
 test_hook_ignores_repo_state_when_fm_home_set
 test_hook_uses_state_override
+test_hook_silent_in_worktree_with_inherited_primary_home
 test_hook_loop_guard_allows_retry
 test_hook_blocks_in_secondmate_own_home
 test_hook_silent_in_idle_secondmate_home
