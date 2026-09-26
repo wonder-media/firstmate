@@ -1,0 +1,32 @@
+$ # 1) no pointer file -> unchanged captain behavior
+[fake gh] pr view 22 as=captain
+
+$ # 2) pointer set -> helper mints RS256 installation token, runs gh as App
+[fake gh] pr view 22 as=app(ghs_demo...)
+POST https://api.github.com/app/installations/456/access_tokens alg=RS256 iss=123 RS256-signature-valid=true
+cache mode: 600
+
+$ # 3) second call reuses cache (no new mint)
+[fake gh] pr view 22 as=app(ghs_demo...)
+mint count: 1
+
+$ # 4) gh-axi merge in repo App cannot reach -> one retry on captain login
+warning: GitHub App installation cannot reach this repository; retrying with captain GitHub login
+[fake gh-axi] pr merge 7 --repo other/repo as=captain
+rc=0
+
+$ # 5) real merge conflict -> real error, no retry
+error: Pull request is not mergeable: merge conflict
+rc=1
+
+$ # 6) gh project is refused (Projects v2 stays on captain login)
+error: GitHub App authentication is not approved for this command
+rc=2
+
+$ # 7) broken credentials -> one warning, captain login
+warning: GitHub App authentication unavailable; using captain GitHub login
+[fake gh] pr view 22 as=captain
+rc=0
+
+$ # 8) token material in repo / argv?
+token not found in worktree

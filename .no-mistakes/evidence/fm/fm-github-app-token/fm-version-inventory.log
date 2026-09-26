@@ -1,0 +1,4 @@
+ok - version inventory separates compatibility, stable freshness, and intentional pins
+ok - each release-channel request is hard bounded and degrades to unknown/offline
+ok - multi-digit installed and available versions are parsed whole
+# all fm-version-inventory tests passed

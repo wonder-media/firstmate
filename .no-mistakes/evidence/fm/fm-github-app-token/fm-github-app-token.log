@@ -1,0 +1,12 @@
+ok - absent GitHub App pointer preserves the prior command environment and output
+ok - private cached App token is passed only through the GitHub command environment
+ok - stale App token cache is refreshed and rewritten at mode 0600
+ok - minting and GitHub execution keep key and token material out of argv
+ok - App authentication failure falls back once without blocking the command
+ok - App installation that cannot reach the repository retries once on the captain login
+ok - gh-axi repository-not-found under App authentication retries once on the captain login
+ok - ordinary App-authenticated failure surfaces once without a captain-login retry
+ok - Projects v2 and non-allowlisted groups cannot run through App authentication
+ok - watcher merge poll uses App authentication
+ok - secondmate inheritance copies only the external credential pointer
+# all fm-github-app-token tests passed
