@@ -133,7 +133,7 @@ matrix_case E01 allow "bin/fm-watch-checkpoint.sh --seconds '180;still-one-arg'"
 matrix_case E02 allow "bin/fm-watch-checkpoint.sh --label 'fm-watch-arm.sh; literal argument'"
 matrix_case E03 allow 'bin/fm-watch-arm.sh # output > file &'
 matrix_case E04 allow $'# setup comment with fm-watch.sh; && >\nsource "config/x-mode.env"\nbin/fm-watch-checkpoint.sh --seconds 180'
-matrix_case E05 allow "FM_HOME=$ROOT bin/fm-watch-checkpoint.sh --seconds 180"
+matrix_case E05 deny "FM_HOME=$ROOT bin/fm-watch-checkpoint.sh --seconds 180"
 matrix_case E06 deny "env FM_HOME=$ROOT bin/fm-watch-arm.sh"
 matrix_case E07 deny "source '/tmp/not-firstmate/config/x-mode.env'; bin/fm-watch-checkpoint.sh --seconds 180"
 matrix_case E08 deny "bash -lc 'bin/fm-watch-checkpoint.sh --seconds 180'"
@@ -189,7 +189,7 @@ run_matrix_entry() {
   fi
 
   [ "$rc" -eq 2 ] || fail "$id via $entry must deny, got exit $rc"
-  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct|home-mismatch)|broad-watcher-kill|unclassifiable-protected-command)\\]"))' "$err_file" >/dev/null 2>&1 \
+  jq -e '.hookSpecificOutput.permissionDecision == "deny" and (.systemMessage | test("\\[(watcher-(background|pipeline|redirection|bundled|nested|direct)|broad-watcher-kill|unclassifiable-protected-command)\\]"))' "$err_file" >/dev/null 2>&1 \
     || fail "$id via $entry deny must carry a stable reason code on stderr: $(cat "$err_file")"
   if [ "$entry" = claude ]; then
     [ ! -s "$out_file" ] || fail "$id via claude deny must leave stdout empty: $(cat "$out_file")"
@@ -262,29 +262,6 @@ test_background_flag_accepted_and_non_gating() {
   [ "$rc_bg" -eq 0 ] || fail "--background true must not change the allow decision on its own, got exit $rc_bg"
   [ "$rc_bg" -eq "$rc_nobg" ] || fail "--background flag must be accepted without altering the decision"
   pass "--background is accepted for interface parity and is never itself a deny signal"
-}
-
-test_mismatched_ambient_home_requires_matching_prefix() {
-  local wrong="$MATRIX_TMP/wrong-home" entry rc out err
-  mkdir -p "$wrong"
-  for entry in codex claude grok opencode pi; do
-    FM_HOME="$wrong" run_matrix_entry "H01-$entry" deny "$entry" 'bin/fm-watch-arm.sh'
-    FM_HOME="$wrong" run_matrix_entry "H02-$entry" allow "$entry" "FM_HOME=$ROOT bin/fm-watch-arm.sh"
-  done
-
-  out="$MATRIX_TMP/H03-cursor.out"
-  err="$MATRIX_TMP/H03-cursor.err"
-  FM_HOME="$wrong" "$CHECK" --cursor --command 'bin/fm-watch-arm.sh' >"$out" 2>"$err"
-  rc=$?
-  expect_code 0 "$rc" "Cursor mismatched-home deny transport"
-  jq -e '.permission == "deny" and (.user_message | contains("watcher-home-mismatch"))' "$out" >/dev/null 2>&1 \
-    || fail "Cursor did not deny a bare watcher command under a mismatched inherited home: $(cat "$out")"
-
-  FM_HOME="$wrong" "$CHECK" --cursor --command "FM_HOME=$ROOT bin/fm-watch-arm.sh" >"$out" 2>"$err"
-  rc=$?
-  expect_code 0 "$rc" "Cursor matching-home prefix allow transport"
-  [ ! -s "$out" ] || fail "Cursor matching-home prefix should allow silently: $(cat "$out")"
-  pass "arm pretool: every primary transport refuses inherited-home watcher commands and accepts an explicit matching FM_HOME"
 }
 
 test_unknown_flag_errors() {
@@ -487,7 +464,6 @@ test_full_acceptance_matrix
 test_direct_policy_contract
 test_command_equals_form
 test_background_flag_accepted_and_non_gating
-test_mismatched_ambient_home_requires_matching_prefix
 test_unknown_flag_errors
 test_stdin_grok_schema_deny
 test_stdin_claude_codex_schema_allow

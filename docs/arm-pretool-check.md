@@ -29,8 +29,7 @@ It tokenizes the bytes and classifies lexical execution positions only.
 - `--claude` to preserve Claude's stderr-only deny requirement.
 
 The wrapper discovers the code root from its own location.
-The protected checkout is the code root carrying the checker.
-The ambient home is `${FM_HOME:-${FM_ROOT_OVERRIDE:-<code-root>}}` and must resolve to that checkout for a bare protected command.
+The active firstmate home is `${FM_HOME:-<code-root>}`.
 It passes both roots and the exact command string to the Node policy owner.
 
 The wrapper fast-allows a command without invoking the Node policy owner only when the command cannot contain the `fm-watch` byte sequence even after the classifier's decoders run.
@@ -107,12 +106,10 @@ Approved nodes may be separated by `;`, a real newline, or `&&`.
 `&&` is accepted after setup so a failed `cd`, `export`, or source prevents the protected call from running under the wrong setup.
 
 The final protected node may have one immediate `exec` wrapper.
-It may instead carry one direct `FM_HOME=<code-root>` prefix assignment whose path resolves to the protected checkout.
-That narrow prefix is the recovery form when a shared harness daemon supplied the wrong ambient home.
 Its arguments are ordinary shell words and may contain quoted semicolons or watcher names.
 No other wrapper is approved.
 
-Every other inline environment assignment, `env`, `sudo`, `nohup`, nested shell, `eval`, subshell group, substitution, redirection, pipeline, asynchronous list, `disown`, unrelated list node, and unsupported compound syntax is not blessed.
+Inline environment assignments, `env`, `sudo`, `nohup`, nested shells, `eval`, subshell groups, substitutions, redirections, pipelines, asynchronous lists, `disown`, unrelated list nodes, and unsupported compound syntax are not blessed.
 
 ## Broad watcher kills
 
@@ -142,7 +139,6 @@ Every semantic deny includes one stable code in square brackets before its prose
 | `broad-watcher-kill` | An actual broad process kill targets the watcher. |
 | `unclassifiable-protected-command` | Malformed or unsupported syntax contains a protected command and cannot be safely classified. |
 | `watcher-direct` | A direct `bin/fm-watch.sh` execution; the watcher must be reached through `bin/fm-watch-arm.sh` or `bin/fm-watch-checkpoint.sh`. |
-| `watcher-home-mismatch` | A bare protected command inherited a home other than the checkout carrying the checker; use the exact matching `FM_HOME=<code-root>` prefix. |
 
 Reason codes are the stable contract for tests and adapters.
 Prose may improve without changing adapter behavior.

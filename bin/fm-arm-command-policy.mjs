@@ -26,17 +26,15 @@ const REASONS = {
   "broad-watcher-kill": "a broad process kill targeting the firstmate watcher is forbidden",
   "unclassifiable-protected-command": "unsupported or malformed shell syntax contains a protected watcher command",
   "watcher-direct": "bin/fm-watch.sh must not be run directly; arm the watcher with bin/fm-watch-arm.sh or run bin/fm-watch-checkpoint.sh instead",
-  "watcher-home-mismatch": "the inherited FM_HOME does not match this checkout; prefix the standalone watcher command with FM_HOME=<this checkout>",
 };
 
 function parseArguments(argv) {
-  const result = { command: "", root: "", home: "", ambientHome: "" };
+  const result = { command: "", root: "", home: "" };
   for (let i = 0; i < argv.length; i += 1) {
     const name = argv[i];
-    if (name === "--command" || name === "--root" || name === "--home" || name === "--ambient-home") {
+    if (name === "--command" || name === "--root" || name === "--home") {
       if (i + 1 >= argv.length) throw new Error(`${name} requires a value`);
-      const key = name === "--ambient-home" ? "ambientHome" : name.slice(2);
-      result[key] = argv[i + 1];
+      result[name.slice(2)] = argv[i + 1];
       i += 1;
       continue;
     }
@@ -866,22 +864,6 @@ function ordinaryWordsOnly(tokens) {
   return tokens.every((token) => token.type === "word" && token.subs.length === 0);
 }
 
-function samePath(left, right) {
-  try {
-    return realpathSync(left) === realpathSync(right);
-  } catch {
-    return path.normalize(left) === path.normalize(right);
-  }
-}
-
-function hasMatchingHomePrefix(info, home) {
-  const { position } = info;
-  if (position.prefixAssignments !== 1 || position.wrappers.length > 0) return false;
-  const assignment = position.words[0]?.value || "";
-  if (!assignment.startsWith("FM_HOME=")) return false;
-  return samePath(assignment.slice("FM_HOME=".length), home);
-}
-
 function setupKind(info, context) {
   const { tokens, position } = info;
   if (!ordinaryWordsOnly(tokens) || position.prefixAssignments > 0 || position.wrappers.length > 0) return "";
@@ -893,10 +875,9 @@ function setupKind(info, context) {
   return "";
 }
 
-function finalProtectedAllowed(info, context) {
+function finalProtectedAllowed(info) {
   if (!info.protectedKind || info.protectedKind === "watch" || info.redirection || info.substitution) return false;
-  if (!ordinaryWordsOnly(info.tokens)) return false;
-  if (info.position.prefixAssignments > 0 && !hasMatchingHomePrefix(info, context.home)) return false;
+  if (!ordinaryWordsOnly(info.tokens) || info.position.prefixAssignments > 0) return false;
   const wrappers = info.position.wrappers;
   return wrappers.length === 0 || (wrappers.length === 1 && wrappers[0] === "exec");
 }
@@ -905,7 +886,7 @@ function blessedProgram(analysis, context) {
   const { nodeInfos } = analysis;
   const separators = analysis.program.separators;
   if (nodeInfos.length === 0 || separators.some((separator) => ![";", "newline", "&&"].includes(separator))) return false;
-  if (!finalProtectedAllowed(nodeInfos.at(-1), context)) return false;
+  if (!finalProtectedAllowed(nodeInfos.at(-1))) return false;
   if (nodeInfos.slice(0, -1).some((info) => info.protectedKind || info.nestedProtected)) return false;
 
   const setup = nodeInfos.slice(0, -1).map((info) => setupKind(info, context));
@@ -918,7 +899,7 @@ function blessedProgram(analysis, context) {
   return true;
 }
 
-function decision(command, root, home, ambientHome) {
+function decision(command, root, home) {
   const context = { root: path.normalize(root), home: path.normalize(home), protectedVariables: new Set(), watcherPatterns: new Set(), watcherPids: new Set() };
   const analysis = analyzeProgram(command, context);
   if (analysis.broadKill) return deny("broad-watcher-kill");
@@ -926,9 +907,6 @@ function decision(command, root, home, ambientHome) {
   if (!analysis.protectedFound) return { decision: "allow" };
   if (analysis.nodeInfos?.some((info) => info.protectedKind === "watch")) return deny("watcher-direct");
   if (analysis.nestedProtected) return deny("watcher-nested");
-  if (!samePath(ambientHome || home, home) && !hasMatchingHomePrefix(analysis.nodeInfos.at(-1), home)) {
-    return deny("watcher-home-mismatch");
-  }
 
   const separators = analysis.program.separators;
   if (separators.includes("&") || analysis.nodeInfos.some((info) => info.position.wrappers.includes("nohup")) || analysis.nodeInfos.some((info) => basename(info.position.words[0]?.value || "") === "disown")) {
@@ -968,7 +946,7 @@ if (invokedDirectly()) {
     if (!args.command) {
       process.stdout.write("allow\n");
     } else {
-      const result = decision(args.command, args.root, args.home, args.ambientHome || args.home);
+      const result = decision(args.command, args.root, args.home);
       if (result.decision === "allow") {
         process.stdout.write("allow\n");
       } else {
