@@ -2153,6 +2153,33 @@ test_teardown_missing_busy_sidecar_completes() {
   pass "teardown completes when an exact busy-state sidecar is already absent"
 }
 
+test_teardown_retires_task_commit_hook() {
+  local case_dir rc exclude
+  case_dir=$(make_case retire-commit-hook)
+  write_meta "$case_dir" local-only ship
+  git -C "$case_dir/wt" config --local extensions.worktreeConfig true
+  git -C "$case_dir/wt" config --worktree core.hooksPath .fm-git-hooks
+  mkdir -p "$case_dir/wt/.fm-git-hooks"
+  printf '%s\n' '#!/bin/sh' 'exit 0' > "$case_dir/wt/.fm-git-hooks/commit-msg"
+  chmod +x "$case_dir/wt/.fm-git-hooks/commit-msg"
+  exclude=$(git -C "$case_dir/wt" rev-parse --git-path info/exclude)
+  case "$exclude" in /*) ;; *) exclude="$case_dir/wt/$exclude" ;; esac
+  mkdir -p "$(dirname "$exclude")"
+  printf '%s\n' '.fm-git-hooks/' >> "$exclude"
+
+  set +e
+  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "retire-commit-hook: teardown should succeed"
+  assert_absent "$case_dir/wt/.fm-git-hooks" \
+    "retire-commit-hook: teardown left the task-local hook directory in the returned worktree"
+  [ -z "$(git -C "$case_dir/wt" config --worktree --get core.hooksPath 2>/dev/null || true)" ] \
+    || fail "retire-commit-hook: teardown left the worktree bound to the retired hooks path"
+  pass "teardown retires the task-local commit hook and its worktree hooks-path binding"
+}
+
 test_herdr_teardown_clears_escalation_marker() {
   local case_dir marker
   case_dir=$(make_case herdr-marker-cleanup)
@@ -4060,6 +4087,7 @@ test_local_only_force_overrides_unpushed
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses
 test_teardown_missing_busy_sidecar_completes
+test_teardown_retires_task_commit_hook
 test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
 test_herdr_flat_teardown_refuses_records_on_unparseable_presence

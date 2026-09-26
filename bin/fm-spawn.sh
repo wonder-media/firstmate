@@ -264,6 +264,10 @@
 #   containment test reads local refs only and never fetches, so this gate stays
 #   usable offline; a stale remote-tracking ref can therefore make an unpushed
 #   commit look contained, which is exactly why no remedy command is printed.
+#   Every fresh or relaunched ship/scout worktree receives an idempotently
+#   replaced, worktree-local commit-msg hook through Git's worktree config.
+#   It removes only known coding-agent co-author emails, preserves human
+#   co-authors, and exits zero without changing the message on any hook error.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
@@ -3313,6 +3317,112 @@ freshen_spawn_worktree_base() { # <worktree>
   fi
 }
 
+write_chained_hook_tail() {  # <hook-name>
+  cat <<'HOOK'
+previous_hooks=$(git config --show-scope --type=path --get-all core.hooksPath 2>/dev/null \
+  | awk -F '\t' '$1 != "worktree" { sub(/^[^\t]*\t/, ""); last = $0 } END { print last }' 2>/dev/null)
+if [ -z "$previous_hooks" ]; then
+  previous_hooks=$(git rev-parse --git-common-dir 2>/dev/null) || exit 0
+  [ -n "$previous_hooks" ] || exit 0
+  previous_hooks="$previous_hooks/hooks"
+fi
+HOOK
+  printf '%s\n' "hook=\"\$previous_hooks/$1\""
+  cat <<'HOOK'
+[ -f "$hook" ] && [ -x "$hook" ] || exit 0
+exec "$hook" "$@"
+HOOK
+}
+
+install_agent_commit_msg_hook() {  # <worktree>
+  local worktree=$1 hook_dir staging_dir worktree_config_enabled hook_name
+  hook_dir="$worktree/.fm-git-hooks"
+  staging_dir="$worktree/.fm-git-hooks.new.${BASHPID:-$$}.$RANDOM"
+
+  worktree_config_enabled=$(git -C "$worktree" config --local --type=bool --get extensions.worktreeConfig 2>/dev/null || true)
+  if [ "$worktree_config_enabled" != true ] && ! git -C "$worktree" config --local extensions.worktreeConfig true; then
+    echo "error: could not enable worktree-local git configuration for '$worktree'" >&2
+    return 1
+  fi
+
+  rm -rf -- "$staging_dir" || return 1
+  mkdir -p "$staging_dir" || return 1
+  for hook_name in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit \
+    prepare-commit-msg post-commit pre-rebase post-checkout post-merge pre-push post-rewrite \
+    pre-auto-gc reference-transaction sendemail-validate post-index-change; do
+    if ! { { printf '%s\n' '#!/bin/sh'; write_chained_hook_tail "$hook_name"; } > "$staging_dir/$hook_name" \
+      && chmod 0755 "$staging_dir/$hook_name"; }; then
+      rm -rf -- "$staging_dir"
+      return 1
+    fi
+  done
+  if ! { {
+    printf '%s\n' '#!/bin/sh' '('
+    cat <<'HOOK'
+# Remove only known coding-agent co-author identities.
+# Any missing tool, unreadable input, or rewrite failure leaves the message untouched.
+message_file=${1-}
+[ -n "$message_file" ] || exit 0
+[ -f "$message_file" ] && [ -r "$message_file" ] && [ -w "$message_file" ] || exit 0
+command -v perl >/dev/null 2>&1 || exit 0
+command -v mktemp >/dev/null 2>&1 || exit 0
+command -v mv >/dev/null 2>&1 || exit 0
+command -v rm >/dev/null 2>&1 || exit 0
+
+temporary=$(mktemp "${message_file}.fm-agent-coauthor.XXXXXX" 2>/dev/null) || exit 0
+cleanup() {
+  command rm -f -- "$temporary" >/dev/null 2>&1 || :
+}
+trap cleanup EXIT
+trap 'exit 0' HUP INT TERM
+
+perl -e '
+  use strict;
+  use warnings;
+  my ($source, $destination) = @ARGV;
+  open my $input, "<:raw", $source or exit 2;
+  local $/;
+  my $message = <$input>;
+  $message = "" unless defined $message;
+  close $input or exit 2;
+
+  my $agent_email = qr/(?:cursoragent\@cursor\.com|noreply\@anthropic\.com|noreply\@openai\.com|noreply\@opencode\.ai|noreply\@pi\.dev)/i;
+  my $removed = $message =~ s/^Co-authored-by:[ \t]*[^\r\n]*<$agent_email>[ \t]*\r?(?:\n|\z)//gim;
+  exit 3 unless $removed;
+
+  open my $output, ">:raw", $destination or exit 2;
+  print {$output} $message or exit 2;
+  close $output or exit 2;
+' "$message_file" "$temporary" >/dev/null 2>&1
+rewrite_status=$?
+
+if [ "$rewrite_status" -eq 0 ]; then
+  mv -- "$temporary" "$message_file" >/dev/null 2>&1 || exit 0
+fi
+exit 0
+HOOK
+    printf '%s\n' ')'
+    write_chained_hook_tail commit-msg
+  } > "$staging_dir/commit-msg" && chmod 0755 "$staging_dir/commit-msg"; }; then
+    rm -rf -- "$staging_dir"
+    return 1
+  fi
+
+  rm -rf -- "$hook_dir" || {
+    rm -rf -- "$staging_dir"
+    return 1
+  }
+  mv -- "$staging_dir" "$hook_dir" || {
+    rm -rf -- "$staging_dir"
+    return 1
+  }
+
+  if ! git -C "$worktree" config --worktree --replace-all core.hooksPath .fm-git-hooks; then
+    echo "error: could not bind the task-local commit hook for '$worktree'" >&2
+    return 1
+  fi
+}
+
 herdr_projection_meta_field_exact() { # <meta> <key>
   local meta=$1 key=$2 count
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 1
@@ -4336,6 +4446,14 @@ exclude_path() {
   mkdir -p "$(dirname "$EXCL")"
   grep -qxF "$rel" "$EXCL" 2>/dev/null || echo "$rel" >>"$EXCL"
 }
+if [ "$KIND" != secondmate ]; then
+  exclude_path '.fm-git-hooks/'
+  exclude_path '.fm-git-hooks.new.*'
+  install_agent_commit_msg_hook "$WT" || {
+    echo "error: could not install the task-local agent co-author filter for task $ID; refusing to launch without commit protection" >&2
+    exit 1
+  }
+fi
 if [ "$RELAUNCH" -eq 1 ]; then
   # Retire the previous incarnation's per-task harness wiring before arming the
   # new one. Without this, a harness switch would leave the old adapter's hook

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Record a PR-ready task: store one validated canonical pr=<url> and the forge's
-# exact pr_head=<sha> when available, then atomically arm a static merge poll.
+# exact pr_head=<sha> when available, atomically arm a static merge poll, then
+# append the idempotent captain-held handoff that marks the task as waiting for
+# the captain's merge.
 # Refuses when bin/fm-dod-lib.sh will not accept the named head as reachable
 # outside the worker's disposable copy; in no-mistakes mode a forge-reported
 # head is that named head and is already stored on the forge.
@@ -16,7 +18,8 @@
 # draft on purpose declares a wait instead of reporting done. An unreadable
 # draft state does not refuse, matching how the head read below is optional.
 # bin/fm-pr-merge.sh records through this script with FM_PR_CHECK_MERGE=1 and
-# skips this refusal, because its own merge-time draft refusal is authoritative.
+# skips this refusal and the captain-held handoff, because its own merge-time
+# draft refusal is authoritative and its merge replaces the wait.
 # Usage: fm-pr-check.sh <task-id> <pr-url>
 set -eu
 
@@ -52,6 +55,7 @@ NUMBER=$FM_PR_NUMBER
 
 # Task-derived paths are constructed only after the canonical ID validation.
 META="$STATE/$ID.meta"
+STATUS="$STATE/$ID.status"
 if [ ! -f "$META" ] || [ -L "$META" ] || [ "$(fm_pr_file_link_count "$META")" != 1 ]; then
   echo "error: task metadata is unavailable" >&2
   exit 1
@@ -205,6 +209,42 @@ else
   PR_POLL_PUBLISH_LOCK_HELD=0
   echo "error: could not publish PR poll" >&2
   exit 1
+fi
+# Captain-held handoff: the PR-ready task now waits on the captain's merge.
+if [ "${FM_PR_CHECK_MERGE:-}" != 1 ]; then
+  CAPTAIN_HELD_LINE="captain-held: PR $URL is waiting on the captain's merge"
+  fm_lock_acquire_wait "$META_LOCK"
+  META_LOCK_HELD=1
+  if [ -L "$STATUS" ] || { [ -e "$STATUS" ] && { [ ! -f "$STATUS" ] || [ "$(fm_pr_file_link_count "$STATUS")" != 1 ]; }; }; then
+    echo "error: task status log is unavailable" >&2
+    exit 1
+  fi
+  # The unkeyed handoff cannot close any explicitly keyed decision. Skip the
+  # append when the legacy unkeyed/default decision is open, because an unkeyed
+  # captain-held record would otherwise close that real decision in the status
+  # fold. The task remains visible for reconciliation until that decision closes.
+  OPEN_DECISIONS=$(status_open_decisions "$STATUS")
+  case $'\n'"$OPEN_DECISIONS"$'\n' in
+    *$'\ndefault\t'*)
+      echo "warning: task has an open unkeyed decision; captain-held handoff was not recorded" >&2
+      ;;
+    *)
+      # Status lines carry an emission stamp, so compare the latest event
+      # untimed (bin/fm-classify-lib.sh) to keep the handoff idempotent.
+      LAST_EVENT=$(last_status_line "$STATUS")
+      _fm_status_untimed "$LAST_EVENT" LAST_EVENT
+      if [ "$LAST_EVENT" != "$CAPTAIN_HELD_LINE" ]; then
+        rc=0
+        fm_wake_status_append_self_announced "$STATE" "$STATUS" "$CAPTAIN_HELD_LINE" || rc=$?
+        [ "$rc" -ne 2 ] || {
+          echo "error: captain-held handoff could not be recorded" >&2
+          exit 1
+        }
+      fi
+      ;;
+  esac
+  fm_lock_release "$META_LOCK"
+  META_LOCK_HELD=0
 fi
 # Opt-in fleet activity ledger (docs/fleet-ledger.md); off costs one file test.
 # The merge-time re-record is not a new review-ready PR, so it writes nothing.

@@ -2582,6 +2582,15 @@ retire_secondmate_lifecycle_wiring() {  # <home> <state-dir> <task-id>
   esac
 }
 
+remove_task_commit_hook() {  # <worktree>
+  local worktree=$1 configured
+  configured=$(git -C "$worktree" config --worktree --get core.hooksPath 2>/dev/null || true)
+  if [ "$configured" = .fm-git-hooks ]; then
+    git -C "$worktree" config --worktree --unset-all core.hooksPath >/dev/null 2>&1 || true
+  fi
+  rm -rf -- "$worktree/.fm-git-hooks"
+}
+
 remove_firstmate_home() {
   local home=$1 label=$2 expected_id=${3:-} abs_home_path process_event_backup
   [ -n "$home" ] || return 0
@@ -3188,6 +3197,7 @@ cleanup_firstmate_home_children() {
     elif [ "$child_backend" = orca ]; then
       if [ -n "$child_wt" ] && [ -d "$child_wt" ]; then
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
+        remove_task_commit_hook "$child_wt"
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
       fi
@@ -3207,6 +3217,7 @@ cleanup_firstmate_home_children() {
         require_owned_worktree_slot_record "$child_id" "$child_wt" || return 1
       else
         validate_child_worktree_for_removal "$child_wt" "$child_proj" >/dev/null || return 1
+        remove_task_commit_hook "$child_wt"
         rm -f "$child_wt/.claude/settings.local.json" "$child_wt/.opencode/plugins/fm-turn-end.js" \
           "$child_wt/.opencode/plugins/fm-busy-state.js" \
           "$child_wt/.fm-grok-turnend" "$child_wt/.fm-kimi-turnend"
@@ -3511,6 +3522,7 @@ if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
         git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
       fi
     fi
+    remove_task_commit_hook "$WT"
     rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
       "$WT/.opencode/plugins/fm-busy-state.js" \
       "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
@@ -3530,6 +3542,7 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
     fi
   fi
   # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
+  remove_task_commit_hook "$WT"
   rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
     "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
   # Kills remaining processes in the worktree (including the agent), resets, returns
