@@ -1,0 +1,47 @@
+== Home binding end-to-end (commit 2b93ff8). <tmp>/main = primary, <tmp>/second = secondmate home, <tmp>/crew = linked crewmate worktree of main ==
+
+-- 1. Secondmate inherits main FM_HOME and runs its own session-start directly (AGENTS.md fallback) --
+$ env -u FM_ROOT_OVERRIDE FM_HOME=$T/main second/bin/fm-session-start.sh </dev/null
+error: firstmate home mismatch: running checkout <tmp>/second; inherited FM_HOME resolves to firstmate checkout <tmp>/main; refusing to read, lock, or mutate either home
+[exit 1]
+
+-- 2. Secondmate inherits main FM_HOME and tries to take the lock --
+$ env -u FM_ROOT_OVERRIDE FM_HOME=$T/main second/bin/fm-lock.sh acquire
+error: firstmate home mismatch: running checkout <tmp>/second; inherited FM_HOME resolves to firstmate checkout <tmp>/main; refusing to read, lock, or mutate either home
+[exit 1]
+
+-- 3. Secondmate inherits main FM_HOME and tries to arm the watcher --
+$ env -u FM_ROOT_OVERRIDE FM_HOME=$T/main second/bin/fm-watch-arm.sh </dev/null
+error: firstmate home mismatch: running checkout <tmp>/second; inherited FM_HOME resolves to firstmate checkout <tmp>/main; refusing to read, lock, or mutate either home
+[exit 1]
+
+-- 4. Primary inherits secondmate FM_HOME --
+$ env -u FM_ROOT_OVERRIDE FM_HOME=$T/second main/bin/fm-lock.sh status
+error: firstmate home mismatch: running checkout <tmp>/main; inherited FM_HOME resolves to firstmate checkout <tmp>/second; refusing to read, lock, or mutate either home
+[exit 1]
+
+-- 5. Main and secondmate state after all refusals (must be empty) --
+$ echo "main:[$(ls -A main/state)] second:[$(ls -A second/state)]"
+main:[] second:[]
+[exit 0]
+
+-- 6. Legit explicit FM_HOME that matches the secondmate checkout still works --
+$ env -u FM_ROOT_OVERRIDE FM_HOME=$T/second second/bin/fm-lock.sh status
+lock: free
+[exit 0]
+
+-- 7. Legit plain (non-checkout) state home still works for the executable --
+$ env -u FM_ROOT_OVERRIDE FM_HOME=$T/plainhome main/bin/fm-lock.sh status
+lock: free
+[exit 0]
+
+-- 8. Pre-tool policy allows a bare arm under a plain FM_HOME (duplicate rule removed; empty output = allow) --
+$ FM_HOME=$T/plainhome main/bin/fm-arm-pretool-check.sh --command "bin/fm-watch-arm.sh"
+
+[exit 0]
+
+-- 9. Crewmate linked worktree: turn-end guard stays inert even with main FM_HOME inherited (empty output = not blocked) --
+$ echo "{}" | env FM_HOME=$T/main crew/bin/fm-turnend-guard.sh
+
+[exit 0]
+
