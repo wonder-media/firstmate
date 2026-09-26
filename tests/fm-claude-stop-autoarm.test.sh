@@ -283,15 +283,15 @@ test_stale_lock_recovery_preserves_afk_and_need_gates() {
   pass "auto-arm: stale-owner recovery leaves the AFK and supervision-need gates unchanged"
 }
 
-test_resolves_outermost_claude_pid_in_nested_bgspare_chain() {
+test_resolves_outermost_claude_pid_in_nested_session_chain() {
   local dir out status inner_pid lock_pid
   dir=$(make_primary_dir "$TMP_ROOT/nested-chain")
   : > "$dir/state/task.meta"
   write_arm_fixture "$dir" actionable
-  # A genuine multi-level contiguous claude-named ancestry: the hook fires
-  # inside an inner fake-claude process (its recorded pid is distinct from its
-  # own parent, a second, outer fake-claude process holding the session lock -
-  # the bg-spare shape). Only the outer pid may own the lock; a
+  # A genuine multi-level contiguous claude-named session ancestry: the hook
+  # fires inside an inner fake-claude process whose recorded pid is distinct
+  # from its own parent, a second outer fake-claude process holding the session
+  # lock. Only the outer eligible session pid may own the lock; a
   # first-match-wins walk would resolve to the inner pid instead and leave the
   # hook inert. The inner process records its own pid before running the hook
   # so bash cannot tail-exec-collapse it into the outer pid, which would
@@ -311,7 +311,7 @@ test_resolves_outermost_claude_pid_in_nested_bgspare_chain() {
   expect_code 2 "$status" "a nested contiguous claude ancestry must resolve to the outer lock-owning pid and arm"
   [ -e "$dir/state/arm-ran" ] || fail "hook did not resolve past the inner claude-named process to the outer lock owner"
   [ "$(epoch_outcome "$dir")" = rewake ] || fail "nested-chain arm must record outcome=rewake"
-  pass "auto-arm: resolves the outermost pid of a nested contiguous claude ancestry (bg-spare chain)"
+  pass "auto-arm: resolves the outermost eligible pid of a nested contiguous Claude session ancestry"
 }
 
 test_inert_when_fleet_idle() {
@@ -577,13 +577,116 @@ test_fm_lock_status_still_works_with_shared_lib() {
   pass "fm-lock: shared session-lock lib preserves the status path"
 }
 
+# Launch the fake Claude with <subcommand...> as its exact argv after the
+# executable, the shape Claude uses for daemon and background helpers. Bash
+# resolves the first word as a script in the fixture directory, so the process
+# table shows `claude daemon run` rather than any -c payload.
+write_helper_scripts() {
+  local scripts=$1 body=$2 name
+  mkdir -p "$scripts"
+  for name in daemon bg-pty-host bg-spare; do
+    printf '%s\n' "$body" > "$scripts/$name"
+  done
+}
+
+test_daemon_and_background_helpers_never_own_session_lock() {
+  local dir kind pid out status scripts
+  scripts="$TMP_ROOT/lock-helper-scripts"
+  write_helper_scripts "$scripts" 'sleep 60'
+  for kind in "daemon run" bg-pty-host bg-spare; do
+    dir=$(make_primary_dir "$TMP_ROOT/lock-helper-${kind%% *}")
+    # shellcheck disable=SC2086 # the helper role is the split argv itself.
+    (cd "$scripts" && exec "$FAKE_CLAUDE" $kind) &
+    pid=$!
+    printf '%s\n' "$pid" > "$dir/state/.lock"
+    out=$(FM_HOME="$dir" "$dir/bin/fm-lock.sh" status 2>&1)
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    assert_contains "$out" "lock: stale" "$kind was accepted as a live session-lock owner"
+  done
+
+  dir=$(make_primary_dir "$TMP_ROOT/lock-helper-acquire")
+  scripts="$TMP_ROOT/lock-helper-acquire-scripts"
+  write_helper_scripts "$scripts" '"$FM_HOME/bin/fm-lock.sh"; rc=$?; :; exit "$rc"'
+  status=0
+  out=$(cd "$scripts" && FM_HOME="$dir" "$FAKE_CLAUDE" daemon run 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "a daemon-only ancestry acquired the session lock"
+  assert_contains "$out" "cannot locate harness process in ancestry" "daemon-only ancestry did not fail closed"
+  assert_absent "$dir/state/.lock" "a daemon pid was written as the session-lock owner"
+  pass "fm-lock: daemon, bg-pty-host, and bg-spare processes are stale and never become owners"
+}
+
+test_spaced_install_path_helpers_never_own_session_lock() {
+  local dir kind pid out scripts spaced
+  spaced="$TMP_ROOT/Application Support/Claude/claude-code/2.1.281"
+  mkdir -p "$spaced"
+  ln -s /bin/bash "$spaced/claude"
+  scripts="$TMP_ROOT/spaced-helper-scripts"
+  write_helper_scripts "$scripts" 'sleep 60'
+  for kind in "daemon run" bg-pty-host bg-spare; do
+    dir=$(make_primary_dir "$TMP_ROOT/spaced-helper-${kind%% *}")
+    # shellcheck disable=SC2086 # the helper role is the split argv itself.
+    (cd "$scripts" && exec "$spaced/claude" $kind) &
+    pid=$!
+    printf '%s\n' "$pid" > "$dir/state/.lock"
+    out=$(FM_HOME="$dir" "$dir/bin/fm-lock.sh" status 2>&1)
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    assert_contains "$out" "lock: stale" "$kind under a spaced install path was accepted as a live session-lock owner"
+  done
+  pass "fm-lock: daemon helpers under a spaced install path never become owners"
+}
+
+test_session_prompt_naming_helpers_still_owns_session_lock() {
+  local dir pid out status
+  dir=$(make_primary_dir "$TMP_ROOT/lock-helper-prompt")
+  "$FAKE_CLAUDE" -c 'sleep 60; :' "look into the bg-spare hook ancestry and daemon run bg-pty-host" &
+  pid=$!
+  printf '%s\n' "$pid" > "$dir/state/.lock"
+  out=$(FM_HOME="$dir" "$dir/bin/fm-lock.sh" status 2>&1)
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  assert_contains "$out" "lock: held by live harness pid $pid" "a session whose prompt names daemon helpers was read as infrastructure"
+
+  dir=$(make_primary_dir "$TMP_ROOT/lock-helper-prompt-acquire")
+  status=0
+  out=$(FM_HOME="$dir" "$FAKE_CLAUDE" -c '"$FM_HOME/bin/fm-lock.sh"; rc=$?; :; exit "$rc"' "check bg-spare ancestry" 2>&1) || status=$?
+  expect_code 0 "$status" "a session whose prompt names bg-spare could not acquire its lock: $out"
+  [ -s "$dir/state/.lock" ] || fail "a session whose prompt names bg-spare wrote no session lock"
+  pass "fm-lock: prompt text naming daemon helpers never demotes a session owner"
+}
+
+test_lock_refuses_inherited_foreign_home() {
+  local main sm out status
+  main=$(make_primary_dir "$TMP_ROOT/lock-bind-main")
+  sm=$(make_secondmate_dir "$TMP_ROOT/lock-bind-sm")
+  status=0
+  out=$(FM_HOME="$main" "$FAKE_CLAUDE" -c '"$0/bin/fm-lock.sh"; rc=$?; :; exit "$rc"' "$sm" 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "a secondmate fm-lock.sh accepted an inherited main FM_HOME"
+  assert_contains "$out" "firstmate home mismatch" "secondmate lock refusal did not name the mismatch"
+  assert_contains "$out" "$(cd "$sm" && pwd -P)" "secondmate lock refusal did not name the running checkout"
+  assert_contains "$out" "$(cd "$main" && pwd -P)" "secondmate lock refusal did not name the inherited home"
+  assert_absent "$main/state/.lock" "a secondmate fm-lock.sh locked the main home"
+  assert_absent "$sm/state/.lock" "a refused secondmate fm-lock.sh still locked its own home"
+
+  status=0
+  out=$(FM_HOME="$sm" "$main/bin/fm-lock.sh" status 2>&1) || status=$?
+  [ "$status" -ne 0 ] || fail "a primary fm-lock.sh accepted an inherited secondmate FM_HOME"
+  assert_contains "$out" "firstmate home mismatch" "primary lock refusal did not name the mismatch"
+
+  ln -s "$sm" "$TMP_ROOT/lock-bind-sm-link"
+  out=$(FM_HOME="$TMP_ROOT/lock-bind-sm-link" "$sm/bin/fm-lock.sh" status 2>&1)
+  assert_contains "$out" "lock: free" "a matching explicit secondmate FM_HOME spelled through a symlink was refused"
+  pass "fm-lock: an inherited foreign firstmate home fails closed and a matching explicit home works"
+}
+
 test_inert_in_child_worktree
 test_inert_without_session_lock
 test_reclaims_stale_session_lock_before_arming
 test_inert_when_lock_held_by_other_harness
 test_inert_when_afk
 test_stale_lock_recovery_preserves_afk_and_need_gates
-test_resolves_outermost_claude_pid_in_nested_bgspare_chain
+test_resolves_outermost_claude_pid_in_nested_session_chain
 test_inert_when_fleet_idle
 test_actionable_close_rewakes_with_reason
 test_actionable_close_with_live_successor_rewakes_once
@@ -599,3 +702,7 @@ test_need_vanished_mid_cycle_closes_quietly
 test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
 test_fm_lock_status_still_works_with_shared_lib
+test_daemon_and_background_helpers_never_own_session_lock
+test_spaced_install_path_helpers_never_own_session_lock
+test_session_prompt_naming_helpers_still_owns_session_lock
+test_lock_refuses_inherited_foreign_home

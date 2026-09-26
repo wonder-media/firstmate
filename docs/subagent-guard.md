@@ -137,6 +137,7 @@ The shipped hook fires only in a genuine firstmate primary home, using the share
 This is the same predicate `bin/fm-sessionstart-nudge.sh` and `bin/fm-turnend-guard.sh` use, so the three tracked primary-scoped hooks cannot drift apart.
 
 A home is in scope when it has `AGENTS.md`, a `bin/` directory, an existing state directory, and either a plain checkout where git-dir equals git-common-dir or a valid `.fm-secondmate-home` marker.
+The hook resolves that scope from the checkout carrying it, so an inherited `FM_HOME` or `FM_ROOT_OVERRIDE` that resolves elsewhere leaves it inert under the binding owned by [`turnend-guard.md`](turnend-guard.md#guard-predicates).
 A marked secondmate home is in scope on purpose: it operates its own fleet and must dispatch through it for the same durability reasons.
 
 A crewmate's disposable task worktree is a linked git worktree, which is the shape `bin/fm-spawn.sh` always hands out, so it is out of scope.

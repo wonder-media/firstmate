@@ -6,6 +6,23 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
+Primary home binding is upstream of runtime backend selection.
+The session-open and primary-hook entrypoints refuse a mismatched inherited home before `fm-session-start.sh`, watcher inspection, or any backend adapter runs, so tmux, Herdr, Zellij, Orca, and cmux have no backend-specific identity branch.
+The direct session, lock, and watcher executables and the Pi watcher extension apply the same refusal when run outside the hook path.
+The 2026-09-24 portable regression exercised the shared boundary with both main-to-secondmate and secondmate-to-main mismatches and with a linked worker inheriting primary state.
+The relevant commands were `tests/fm-sessionstart-nudge.test.sh`, `tests/fm-turnend-guard.test.sh`, `tests/fm-claude-stop-autoarm.test.sh`, `tests/fm-cursor-primary.test.sh`, and `tests/fm-pi-watch-extension.test.sh`.
+Each command exited 0, and the mismatch cases reported both resolved paths without creating a session lock or reading the inherited primary watcher.
+
+```text
+ok - session-start run: inherited main and secondmate homes cannot cross-bind in either direction
+ok - fm-turnend-guard: a linked worker stays inert despite inheriting the primary home
+ok - fm-lock: daemon, bg-pty-host, and bg-spare processes are stale and never become owners
+ok - fm-lock: prompt text naming daemon helpers never demotes a session owner
+ok - direct session, lock, and watcher executables refuse inherited foreign homes
+ok - Pi extension stays inert and names both paths under an inherited foreign home
+ok - cursor park: inert inside a child crewmate worktree
+```
+
 ## tmux
 
 Foreground-process behavior was verified on 2026-07-07 with tmux 3.6a on macOS.

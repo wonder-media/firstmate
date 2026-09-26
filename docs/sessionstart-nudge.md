@@ -54,6 +54,9 @@ The deferred network stage deliberately runs in its own process group under its 
 They source `bin/fm-gate-refuse-lib.sh` and stay silent for a no-mistakes gate agent identified by `NO_MISTAKES_GATE` or a `.no-mistakes/repos/*.git` git-common-dir.
 They share `bin/fm-primary-scope-lib.sh` with `bin/fm-turnend-guard.sh`, so every hook uses one primary-detection owner.
 The Guard Predicates section of [`turnend-guard.md`](turnend-guard.md#guard-predicates) owns marker validation, plain-checkout detection, and required Firstmate-shaped paths.
+That shared owner resolves scope from the checkout carrying the wrapper before it reads inherited home state.
+An unmarked linked task worktree stays silently out of scope even when it inherited the primary's `FM_HOME`, while a genuine primary or marked secondmate checkout refuses with one diagnostic naming both paths when `FM_HOME` or `FM_ROOT_OVERRIDE` points elsewhere.
+The refusal exits 0 so a native session-open hook cannot strand the harness, but it runs no digest and never reads, locks, or mutates either home.
 
 The nudge payload starts with U+2063 and the stable `FIRSTMATE_OP: ` label, carries the current `session-start` protocol kind, and retains exactly ``Run `bin/fm-session-start.sh` now, exactly once, before executing any other instructions.`` as its body.
 The Ahoy skill owns the rule that this marked operational input is never a captain-authored session boundary, including its narrow legacy compatibility cases, and its own step 0 helm check is the fallback that protects a nudge-tier harness whose first command is a skill.
@@ -93,7 +96,7 @@ That alternative expands trust and writes outside this repository, so Firstmate 
 
 `tests/fm-sessionstart-nudge.test.sh` proves the nudge wrapper's silence for both gate signals, an unmarked linked worktree, a missing state directory, and an already-owned lock, plus its exact U+2063 `FIRSTMATE_OP:`-prefixed, `session-start`-typed one-line output.
 It separately proves the run wrapper's silence for the gate environment and an unmarked linked worktree.
-It proves the run wrapper's source routing end to end against a real `fm-session-start.sh`, including completion-gated `--reemit` selection, resume delegation, Pi CLI continuation classification, an unrecognized source falling through to the full digest, and bounded loud delivery of an oversized Pi digest.
+It proves the run wrapper's source routing end to end against a real `fm-session-start.sh`, including completion-gated `--reemit` selection, resume delegation, bidirectional main/secondmate inherited-home refusal, Pi CLI continuation classification, an unrecognized source falling through to the full digest, and bounded loud delivery of an oversized Pi digest.
 `tests/fm-session-start.test.sh` proves the runtime bound through the forced pure-Bash fallback: a TERM-resistant digest that exceeds its budget is force-killed with its grandchild, still emits its completed stages, names the incomplete stage and every stage it never reached, leaves no completion proof, and exits 0.
 `tests/fm-pi-primary-live-e2e.test.sh` and `tests/fm-opencode-primary-live-e2e.test.sh` exercise native startup paths with first-message and later-message Ahoy regressions.
 `tests/fm-cursor-primary.test.sh` proves the Cursor adapter over real processes: `sessionStart` emits the whole digest as `additional_context` with a caller-supplied `--source`, stays silent in a child worktree, lets the run wrapper stand down on the Cursor-delivered duplicate, and keeps `preCompact` unregistered so the deferred surface cannot be reintroduced unnoticed.

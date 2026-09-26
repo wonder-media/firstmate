@@ -6,7 +6,6 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-CHECK="$ROOT/bin/fm-subagent-pretool-check.sh"
 TMP_ROOT=$(fm_test_tmproot fm-subagent-pretool-tests)
 PRIMARY="$TMP_ROOT/primary"
 STATE="$PRIMARY/state"
@@ -16,6 +15,9 @@ ERR="$TMP_ROOT/err"
 mkdir -p "$PRIMARY/bin" "$STATE"
 printf '# fixture\n' > "$PRIMARY/AGENTS.md"
 git -C "$PRIMARY" init -q
+cp "$ROOT/bin/fm-subagent-pretool-check.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$PRIMARY/bin/"
+chmod +x "$PRIMARY/bin/fm-subagent-pretool-check.sh"
+CHECK="$PRIMARY/bin/fm-subagent-pretool-check.sh"
 
 BRIEF_ONLY_ROUTE='first classify the work under the AGENTS.md intake contract, then use bin/fm-brief.sh followed by bin/fm-spawn.sh for dispatched work'
 SCOUT_ROUTE='first classify the work under the AGENTS.md intake contract: work already classified as a scout goes to bin/fm-scout.sh "<question>" [project], while authorized ship work and its bounded research go to bin/fm-brief.sh then bin/fm-spawn.sh'
@@ -188,19 +190,23 @@ test_task_worktree_and_non_firstmate_repo_are_inert() {
   git -C "$PRIMARY" worktree add -q -b fixture-child "$child"
   mkdir -p "$child/bin" "$child/state"
   printf '# fixture\n' > "$child/AGENTS.md"
+  cp "$ROOT/bin/fm-subagent-pretool-check.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$child/bin/"
+  chmod +x "$child/bin/fm-subagent-pretool-check.sh"
   : > "$OUT"
   : > "$ERR"
-  FM_ROOT_OVERRIDE="$child" FM_HOME="$child" FM_STATE_OVERRIDE="$child/state" \
-    "$CHECK" --claude --tool Agent > "$OUT" 2> "$ERR" || rc=$?
+  FM_ROOT_OVERRIDE="$PRIMARY" FM_HOME="$PRIMARY" FM_STATE_OVERRIDE="$STATE" \
+    "$child/bin/fm-subagent-pretool-check.sh" --claude --tool Agent > "$OUT" 2> "$ERR" || rc=$?
   [ "$rc" -eq 0 ] || fail "a crewmate task worktree must be out of scope, got exit $rc: $(cat "$ERR")"
   [ ! -s "$OUT" ] || fail "task-worktree no-op wrote stdout: $(cat "$OUT")"
   [ ! -s "$ERR" ] || fail "task-worktree no-op wrote stderr: $(cat "$ERR")"
 
   mkdir -p "$plain/bin"
   git -C "$plain" init -q
+  cp "$ROOT/bin/fm-subagent-pretool-check.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$plain/bin/"
+  chmod +x "$plain/bin/fm-subagent-pretool-check.sh"
   rc=0
   FM_ROOT_OVERRIDE="$plain" FM_HOME="$plain" FM_STATE_OVERRIDE="$plain/state" \
-    "$CHECK" --claude --tool Agent > "$OUT" 2> "$ERR" || rc=$?
+    "$plain/bin/fm-subagent-pretool-check.sh" --claude --tool Agent > "$OUT" 2> "$ERR" || rc=$?
   [ "$rc" -eq 0 ] || fail "a non-firstmate repo must be out of scope, got exit $rc"
   pass "the guard is inert in a crewmate task worktree and in a non-firstmate repo"
 }
@@ -211,8 +217,10 @@ test_secondmate_home_is_in_scope() {
   mkdir -p "$second/bin" "$second/state"
   printf '# fixture\n' > "$second/AGENTS.md"
   printf 'sm-fixture\n' > "$second/.fm-secondmate-home"
+  cp "$ROOT/bin/fm-subagent-pretool-check.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$second/bin/"
+  chmod +x "$second/bin/fm-subagent-pretool-check.sh"
   FM_ROOT_OVERRIDE="$second" FM_HOME="$second" FM_STATE_OVERRIDE="$second/state" \
-    "$CHECK" --claude --tool Agent > "$OUT" 2> "$ERR" || rc=$?
+    "$second/bin/fm-subagent-pretool-check.sh" --claude --tool Agent > "$OUT" 2> "$ERR" || rc=$?
   [ "$rc" -eq 2 ] || fail "a marked secondmate home operates a fleet and must be guarded, got exit $rc"
   pass "a marked secondmate home is guarded even though it is a linked worktree"
 }
