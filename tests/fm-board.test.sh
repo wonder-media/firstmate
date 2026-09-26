@@ -17,9 +17,10 @@ assert (root/'.fm-test-fixture').is_file(), 'fixture root is not newly created b
 code=pathlib.Path(os.environ['FM_BOARD_TEST_CODE']).resolve()
 fixture=root/'code'; (fixture/'bin').mkdir(parents=True)
 for path in (code/'bin').iterdir():
-    if path.name not in ('board','fm-board.py','fm-board.sh','fm-procevent-board-answers.sh'):
+    if path.name not in ('board','fm-board.py','fm-board.sh','fm-procevent-board-answers.sh','fm-extension.mjs'):
         (fixture/'bin'/path.name).symlink_to(path,target_is_directory=path.is_dir())
-for name in ('fm-board.py','fm-board.sh','fm-procevent-board-answers.sh'):
+# fm-procevent.sh refuses a symlinked extension host, so the fixture carries a real copy.
+for name in ('fm-board.py','fm-board.sh','fm-procevent-board-answers.sh','fm-extension.mjs'):
     shutil.copy2(code/'bin'/name,fixture/'bin'/name)
 shutil.copytree(code/'bin/board',fixture/'bin/board',ignore=shutil.ignore_patterns('__pycache__'))
 shutil.move(fixture/'bin/board/board-answers-handle.sh',fixture/'bin/board/board-answers-handle-real.sh')
@@ -1174,14 +1175,20 @@ finally:
     for key in ('FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'):
         cleanup_env.pop(key,None)
     assert pathlib.Path(cleanup_env['FM_HOME']).resolve()==home
-    cleanup=subprocess.run([str(pe),'sweep-home'],env=cleanup_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+    # The sweep deliberately refuses while a just-stopped capture runner is
+    # still settling; give it a bounded settle window, never an unconditional pass.
+    deadline=time.monotonic()+15
+    while True:
+        cleanup=subprocess.run([str(pe),'sweep-home'],env=cleanup_env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=30)
+        if cleanup.returncode==0 or b'preflight failed' not in cleanup.stderr or time.monotonic()>=deadline:break
+        time.sleep(0.5)
     assert cleanup.returncode==0,cleanup.stderr.decode()
     audit=[json.loads(line) for line in (root/'isolation.jsonl').read_text().splitlines()]
     executed=[record for record in audit if record['allowed']]
     assert any(r['command'][0]=='start' for r in executed)
     assert any(r['command'][0]=='register' for r in executed)
     sweeps=[r for r in executed if r['command'][0]=='sweep-home']
-    assert len(sweeps)==1 and sweeps[0]['home']==str(home)
+    assert sweeps and all(r['home']==str(home) for r in sweeps)
     recursive={'_start','_owner-watchdog','retire'}
     assert all(all(v is None for v in r['overrides'].values()) for r in executed if r['command'][0] not in recursive)
     assert all(r['overrides']['FM_STATE_OVERRIDE']==str(home/'state') for r in executed if r['command'][0] in recursive)

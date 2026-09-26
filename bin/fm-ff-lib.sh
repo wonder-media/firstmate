@@ -302,7 +302,9 @@ remote_sync_failure_reason() { # <exit-status> <output>
 
 # Firstmate-owned lifecycle wiring in a persistent secondmate home is not
 # captain work and must not strand that home on a stale checkout.
-FM_FF_HOME_OWNED_UNTRACKED_RE='^\?\? (\.claude/settings\.local\.json|\.opencode/plugins/fm-(busy-state|turn-end)\.js|\.fm-grok-turnend|\.fm-kimi-turnend)$'
+# Bracket expressions instead of backslash escapes: awk -v processes escapes in
+# the value, and gawk warns on (and may rewrite) a sequence such as \? or \.
+FM_FF_HOME_OWNED_UNTRACKED_RE='^[?][?] ([.]claude/settings[.]local[.]json|[.]opencode/plugins/fm-(busy-state|turn-end)[.]js|[.]fm-grok-turnend|[.]fm-kimi-turnend)$'
 
 # Translate a remote inheritance push's combined output into an operator-
 # actionable reason. The push prints one "unchanged: <item>" line per item that

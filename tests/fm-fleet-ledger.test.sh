@@ -154,10 +154,11 @@ test_flag_on_records_a_pr_registration() {
   assert_equals "$(cat <<EOF
 ["task.dispatched",null,null]
 ["task.status","done",null]
+["task.status","captain-held",null]
 ["task.pr_ready",null,"$pr_url"]
 EOF
 )" "$rows" "PR registration rows"
-  pass "flag on: registering a PR records task.pr_ready with its full URL after the task's pending status lines, and the merge-time re-record adds nothing"
+  pass "flag on: registering a PR records the captain-held merge wait, then task.pr_ready with its full URL, and the merge-time re-record adds nothing"
 }
 
 # Scaffold a real brief for TASK and print its status command, filled the way a

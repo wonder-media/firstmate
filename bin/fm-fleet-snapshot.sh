@@ -1038,8 +1038,11 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
             report_path:((.report_path // null) | if . == null then null else trunc(500) end),
             local_note:((.local_note // null) | if . == null then null else trunc(120) end),completion} ]
        | sort_by([(.completion.date // ""), .id]) | reverse) as $landed_all
+    # A local secondmate whose harness has no direct coordinator-state proof
+    # reads unknown by design (bin/fm-crew-state.sh), which says nothing about
+    # delegated child work; an unreadable remote secondmate still counts.
     | ([ $tasks[]
-         | select(.kind != "secondmate")
+         | select(.kind != "secondmate" or .remote != null)
          | select(.current_state.state == "unknown") ]) as $unknown_children
     | ([ $owned_in_flight[]
          | select(.requires_child_metadata)

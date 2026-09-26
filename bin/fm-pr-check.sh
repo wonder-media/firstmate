@@ -230,6 +230,13 @@ if [ "${FM_PR_CHECK_MERGE:-}" != 1 ]; then
     echo "error: task status log is unavailable" >&2
     exit 1
   fi
+  # Create an absent log empty first, so the provenance-guarded append below
+  # sees a known zero-byte prefix and owns its own bytes instead of leaving a
+  # brand-new file for the watcher to wake on.
+  [ -e "$STATUS" ] || : >> "$STATUS" || {
+    echo "error: task status log is unavailable" >&2
+    exit 1
+  }
   # The unkeyed handoff cannot close any explicitly keyed decision. Skip the
   # append when the legacy unkeyed/default decision is open, because an unkeyed
   # captain-held record would otherwise close that real decision in the status

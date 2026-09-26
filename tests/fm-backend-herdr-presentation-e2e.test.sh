@@ -1265,7 +1265,7 @@ pass "real Herdr lab: Hi Bit and Wheelhouse-style same-identity restarts reclaim
 # agent-free one proceeds through the existing exact recovery contract.
 GUARD_OFF_ID=guard-off-r1
 mkdir -p "$HOME_DIR/data/$GUARD_OFF_ID"
-printf 'Presentation-off recovery guard fixture.\n' > "$HOME_DIR/data/$GUARD_OFF_ID/brief.md"
+write_ship_brief "$HOME_DIR" "$GUARD_OFF_ID" 'Presentation-off recovery guard fixture.'
 spawn_task "$GUARD_OFF_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/guard-off-first.out" 2> "$TMP_ROOT/guard-off-first.err" \
   || fail "presentation-off guard fixture's projected spawn failed: $(cat "$TMP_ROOT/guard-off-first.err")"
 GUARD_OFF_META="$HOME_DIR/state/$GUARD_OFF_ID.meta"
@@ -1324,7 +1324,7 @@ pass "real Herdr lab: a pending journal runs the recovery guard under presentati
 GROUP_START=$(log_line_count)
 for GROUP_ID in group-fresh-a group-fresh-b; do
   mkdir -p "$HOME_DIR/data/$GROUP_ID"
-  printf 'Project grouping precedence fixture.\n' > "$HOME_DIR/data/$GROUP_ID/brief.md"
+  write_ship_brief "$HOME_DIR" "$GROUP_ID" 'Project grouping precedence fixture.'
   spawn_task "$GROUP_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/$GROUP_ID.out" 2> "$TMP_ROOT/$GROUP_ID.err" \
     || fail "project-grouped spawn $GROUP_ID failed: $(cat "$TMP_ROOT/$GROUP_ID.err")"
   [ ! -e "$HOME_DIR/state/$GROUP_ID.herdr-presentation" ] \
