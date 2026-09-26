@@ -21,6 +21,9 @@ The guard remains a backstop; [`watcher-continuity.md`](watcher-continuity.md) o
 ## Guard predicates
 
 The guard first calls the shared primary scope.
+A primary entrypoint derives its checkout from the running hook path before consulting inherited home variables.
+A genuine primary or marked secondmate checkout accepts only an `FM_HOME` and `FM_ROOT_OVERRIDE` that resolve back to that checkout, while an unmarked linked task worktree stays inert before any inherited primary state is read.
+A mismatch prints both resolved paths and exits without watcher reads, repair, or mutation.
 A secondmate home runs its own primary Firstmate session, so a genuine `.fm-secondmate-home` marker includes it whether the home is a linked worktree or plain clone.
 The marker must be a regular non-symlink file whose whitespace-stripped first line is a non-empty identifier containing only letters, digits, dots, underscores, and dashes.
 An unmarked checkout or invalid marker falls through to the git-dir check.
@@ -60,7 +63,7 @@ The proof covers ownership only, never freshness: the guard still requires a fre
 That beacon check uses the poll-derived grace described below rather than the flat `FM_GUARD_GRACE` default, because the daemon starts a fresh one-shot watcher only after it finishes handling the previous wake, and that handling can legitimately outrun a fixed 300-second window under load (a slow registered check, a busy supervisor pane) with the daemon perfectly healthy throughout.
 With `state/.afk` absent the daemon lock proves nothing and the strict watcher predicate is unchanged.
 
-`FM_STATE_OVERRIDE` wins over `FM_HOME/state`, and `FM_HOME` wins over repository-root `state/`.
+After checkout and home identity agree, `FM_STATE_OVERRIDE` wins over the matched home's `state/` for tests and specialized harness setup.
 `FM_GUARD_GRACE` controls beacon freshness and defaults to 300 seconds.
 If `jq` is missing or hook stdin is empty, the guard exits 0 because it cannot safely read loop-guard fields.
 
@@ -204,7 +207,7 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 
 ## Regression coverage
 
-`tests/fm-turnend-guard.test.sh` covers the predicate, main and secondmate primary scope, child-worktree exclusion, `FM_HOME` and `FM_STATE_OVERRIDE` precedence, the live-lock and fresh-beacon guard predicate, the cooperative `--claude` open-generation claim wait, monotonic failed-epoch progression, bounded attended fail-open, the same bound against a ledger frozen by an inert auto-arm with and without a verified failure episode, post-alarm continuation suppression, positive recovery reset, generation and legacy claim cases that must block or clear instead of allowing a blind stop, away-mode daemon ownership between watcher cycles and over a watcher lock left behind by an exited watcher, plus its dead, pid-reused, absent, stale-beacon, and away-mode-off negatives, the away-mode beacon's poll-derived grace widening for a live daemon still mid-cycle and its bound against a dead daemon, a beacon older than that wider grace, and FM_POLL's inapplicability with away mode off, Pi logical-run latching, missing-`jq` behavior, all five primary registrations, Grok native and legacy selection, typed field precedence, malformed input, and exactly-one-path safety.
+`tests/fm-turnend-guard.test.sh` covers the predicate, main and secondmate primary scope, bidirectional home-mismatch refusal, child-worktree exclusion despite inherited primary state, `FM_STATE_OVERRIDE` precedence after binding, the live-lock and fresh-beacon guard predicate, the cooperative `--claude` open-generation claim wait, monotonic failed-epoch progression, bounded attended fail-open, the same bound against a ledger frozen by an inert auto-arm with and without a verified failure episode, post-alarm continuation suppression, positive recovery reset, generation and legacy claim cases that must block or clear instead of allowing a blind stop, away-mode daemon ownership between watcher cycles and over a watcher lock left behind by an exited watcher, plus its dead, pid-reused, absent, stale-beacon, and away-mode-off negatives, the away-mode beacon's poll-derived grace widening for a live daemon still mid-cycle and its bound against a dead daemon, a beacon older than that wider grace, and FM_POLL's inapplicability with away mode off, Pi logical-run latching, missing-`jq` behavior, all five primary registrations, Grok native and legacy selection, typed field precedence, malformed input, and exactly-one-path safety.
 `tests/fm-turnend-foreign-owner-arm-fix.test.sh` runs the extracted isolated executable reproduction against real auto-arm and turn-end guard scripts, proving that a live foreign owner still prevents arming while repeated non-owner Stops receive a diagnostic and exit safely.
 `tests/fm-guard-stale-banner.test.sh` covers the pull-guard predicate, including the persistent-model fresh-leftover-beacon negative control; the auto-arm model's healthy fresh-beacon-without-a-watcher case, session-and-recovery-bound long-turn rewake tolerance, independently broken tolerance signals, open-claim negative control, stale-beacon alarm, and isolation from other models; and the extension model's live-watcher path, ownership-qualified fresh hand-off, held-lock failures, independently broken ownership signals, stale-beacon alarm, queued-wake warning, and Pi and pi-signed harness routing.
 It also covers true-reason banner wording and reason-keyed episode dedup surviving a beacon mtime change.

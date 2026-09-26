@@ -95,6 +95,35 @@ fm_harness_process_matches() {  # <comm> <args>
   return 1
 }
 
+# True when a Claude-named process is the shared `daemon run` infrastructure
+# rather than a session owner. It may sit in a hook or tool's ancestry, but it
+# outlives and is shared across sessions and therefore may never own a per-home
+# session lock. Transient background helpers (`bg-spare`, `bg-pty-host`) stay
+# visible: an unattended session's model loop runs in bg-spare, and the trusted
+# same-session path below needs CLAUDE_PID in the reported ancestry.
+# Only the subcommand words right after the executable, or after the script of
+# a bare interpreter, identify that role; prompt text elsewhere never does.
+fm_harness_process_is_infrastructure() {  # <comm> <args>
+  local comm=$1 args=$2 base rest
+  fm_harness_process_matches "$comm" "$args" || return 1
+  [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || return 1
+  # macOS reports the full argv[0] as comm but Linux only its basename, so cut
+  # argv after the executable's basename; an install path may contain spaces.
+  base=$(basename -- "$comm")
+  case "$args" in
+    *"$base "*) rest=${args#*"$base "} ;;
+    *) rest=${args#* } ;;
+  esac
+  [ "$rest" != "$args" ] || return 1
+  case "$base" in
+    node*|python*) rest=${rest#* } ;;
+  esac
+  case "$rest " in
+    "daemon run "*) return 0 ;;
+  esac
+  return 1
+}
+
 # Walk the current process ancestry (up to 16 hops) and print this session's
 # contiguous verified-harness ancestry, innermost pid first.
 #
@@ -109,16 +138,23 @@ fm_harness_process_matches() {  # <comm> <args>
 # "pi-signed" launcher can be the direct parent of the inner "pi" engine pid that
 # owns the lock, and the wrapper pid above it is not that owner. Claude Code
 # instead runs hooks several levels below the session inside its own nested
-# worker chain (hook shell -> claude bg-spare -> claude bg-pty-host -> claude ->
-# claude), with no non-harness process between them. Which pid in that run is the
-# session cannot be read off the ancestry at all, so the whole contiguous run is
-# reported and the callers below decide what they need from it.
+# worker chain with no non-harness process between its eligible session
+# processes. The shared `daemon run` infrastructure may also appear in that run,
+# but it is traversed without being reported.
+# Which eligible pid is the session cannot be read off the ancestry alone, so
+# the whole eligible contiguous run is reported and the callers below decide
+# what they need from it.
 fm_harness_ancestry_pids() {
   local pid=$$ comm args extending=0 printed=0
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || break
     args=$(ps -o args= -p "$pid" 2>/dev/null)
-    if fm_harness_process_matches "$comm" "$args"; then
+    if fm_harness_process_is_infrastructure "$comm" "$args"; then
+      # Infrastructure is part of the Claude-shaped run but is never an owner.
+      # Mark the run as started so the first ordinary parent remains a hard
+      # boundary and the walk cannot jump across it into an unrelated harness.
+      extending=1
+    elif fm_harness_process_matches "$comm" "$args"; then
       printf '%s\n' "$pid"
       printed=1
       [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ] || break
@@ -166,6 +202,7 @@ fm_harness_pid_alive() {
   kill -0 "$pid" 2>/dev/null || return 1
   comm=$(ps -o comm= -p "$pid" 2>/dev/null) || return 1
   args=$(ps -o args= -p "$pid" 2>/dev/null)
+  fm_harness_process_is_infrastructure "$comm" "$args" && return 1
   fm_harness_process_matches "$comm" "$args"
 }
 
@@ -267,9 +304,10 @@ fm_session_lock_anchor_pid() {
 # pid when a harness-named daemon parents the session. The same-session path
 # requires the recorded pid alive so that a dead one is reclaimed through
 # bin/fm-lock.sh's ordinary stale-owner path, which refreshes line 1, rather than
-# silently owned with a dead anchor. A missing lock, a malformed lock, a lock
-# held by a harness outside this ancestry under another (or no) session id, or
-# an ancestry that cannot be resolved all fail closed.
+# silently owned with a dead anchor. The shared `daemon run` process is absent
+# from the ancestry set and never counts as a live owner. A missing lock, a
+# malformed lock, a lock held by a harness outside this ancestry under another
+# (or no) session id, or an ancestry that cannot be resolved all fail closed.
 fm_session_lock_owned_by_self() {
   local state=$1 lock_pid pids pid
   lock_pid=$(cat "$state/.lock" 2>/dev/null || true)

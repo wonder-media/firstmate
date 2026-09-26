@@ -685,6 +685,7 @@ tests/fm-agy-signals-live-e2e.test.sh 49
 tests/fm-ask-user-authority.test.sh 131
 tests/fm-backend-cmux-smoke.test.sh 33
 tests/fm-backend-cmux.test.sh 3498
+tests/fm-backend-herdr-focus-flash-e2e.test.sh 45
 tests/fm-backend-orca.test.sh 23381
 tests/fm-backend-tmux-smoke.test.sh 363
 tests/fm-backend-zellij-smoke.test.sh 21
@@ -697,6 +698,7 @@ tests/fm-bearings-board-lavish-live-e2e.test.sh 48
 tests/fm-bearings-board-render.test.sh 12591
 tests/fm-bearings-board.test.sh 36490
 tests/fm-bearings-snapshot.test.sh 171176
+tests/fm-board.test.sh 111126
 tests/fm-bootstrap-network-parallel.test.sh 9539
 tests/fm-bootstrap.test.sh 46634
 tests/fm-branch-supervision.test.sh 8915
@@ -845,6 +847,7 @@ tests/fm-turnend-foreign-owner-arm-fix.test.sh 2397
 tests/fm-turnend-guard.test.sh 33450
 tests/fm-update.test.sh 11572
 tests/fm-vendor-auth-probe.test.sh 45255
+tests/fm-version-inventory.test.sh 3611
 tests/fm-voice-relay.test.sh 32486
 tests/fm-wake-daemon-lifecycle-e2e.test.sh 7477
 tests/fm-wake-drain-open-decisions-cursor.test.sh 38506

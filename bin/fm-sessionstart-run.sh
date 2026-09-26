@@ -45,19 +45,10 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-COMPLETION_FILE="$STATE/.session-start-complete"
+SCRIPT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# shellcheck source=bin/fm-gate-refuse-lib.sh
-. "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
-# shellcheck source=bin/fm-session-lock-lib.sh
-. "$SCRIPT_DIR/fm-session-lock-lib.sh"
-# shellcheck source=bin/fm-hook-host-lib.sh
-. "$SCRIPT_DIR/fm-hook-host-lib.sh"
 
 SOURCE=
 PI_PREREQUISITE=0
@@ -81,6 +72,26 @@ stand_down() {
   fi
   exit 0
 }
+
+# Bind the running checkout to its inherited home before any home read. A
+# checkout outside primary scope (an unmarked linked task worktree) is the same
+# intentional ineligibility as the scope check below; a genuine home mismatch
+# has already printed its diagnostic and ends the ordinary way.
+BIND_RC=0
+fm_primary_home_bind "$SCRIPT_ROOT" || BIND_RC=$?
+case "$BIND_RC" in
+  0) ;;
+  1) stand_down ;;
+  *) exit 0 ;;
+esac
+COMPLETION_FILE="$STATE/.session-start-complete"
+
+# shellcheck source=bin/fm-gate-refuse-lib.sh
+. "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-session-lock-lib.sh
+. "$SCRIPT_DIR/fm-session-lock-lib.sh"
+# shellcheck source=bin/fm-hook-host-lib.sh
+. "$SCRIPT_DIR/fm-hook-host-lib.sh"
 
 # The same two eligibility owners the nudge wrapper uses, so a no-mistakes gate
 # agent and an unmarked task worktree can never run a session start for a home

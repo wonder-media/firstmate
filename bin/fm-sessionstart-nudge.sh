@@ -6,14 +6,14 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+SCRIPT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=bin/fm-primary-scope-lib.sh
+. "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+fm_primary_home_bind "$SCRIPT_ROOT" || exit 0
 
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
-# shellcheck source=bin/fm-primary-scope-lib.sh
-. "$SCRIPT_DIR/fm-primary-scope-lib.sh"
 # shellcheck source=bin/fm-operational-input.sh
 . "$SCRIPT_DIR/fm-operational-input.sh"
 

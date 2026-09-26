@@ -179,6 +179,9 @@ So a truncated digest does neither of these:
 - They share `bin/fm-primary-scope-lib.sh` with `bin/fm-turnend-guard.sh`, so every hook uses one primary-detection owner.
 
 The Guard Predicates section of [`turnend-guard.md`](turnend-guard.md#guard-predicates) owns marker validation, plain-checkout detection, and required Firstmate-shaped paths.
+That shared owner resolves scope from the checkout carrying the wrapper before it reads inherited home state.
+An unmarked linked task worktree stays silently out of scope even when it inherited the primary's `FM_HOME`, while a genuine primary or marked secondmate checkout refuses with one diagnostic naming both paths when `FM_HOME` or `FM_ROOT_OVERRIDE` points elsewhere.
+The refusal exits 0 so a native session-open hook cannot strand the harness, but it runs no digest and never reads, locks, or mutates either home.
 
 ### Nudge payload
 
@@ -387,6 +390,7 @@ It proves the run wrapper's source routing end to end against a real `fm-session
 
 - Completion-gated `--reemit` selection.
 - Resume delegation.
+- Bidirectional main/secondmate inherited-home refusal.
 - Pi CLI continuation classification.
 - An unrecognized source falling through to the full digest.
 - Bounded loud delivery of an oversized Pi digest.
