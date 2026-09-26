@@ -1,0 +1,13 @@
+## Case 1: linked task worktree (out of primary scope), Pi prerequisite mode
+$ FM_HOME=<this worktree> bin/fm-sessionstart-run.sh --source startup --pi-prerequisite
+exit=3
+
+## Case 2: two plain firstmate checkouts; A runs with inherited FM_HOME=B
+$ FM_HOME=<tmp>/B <tmp>/A/bin/fm-sessionstart-run.sh --source startup
+error: firstmate home mismatch: running checkout /private<tmp>/A; inherited FM_HOME resolves to /private<tmp>/B; refusing to read, lock, or mutate either home
+exit=0
+lock in A: none; lock in B: none
+
+## Case 2b: same mismatch, Pi prerequisite mode (still a diagnostic + exit 0, not silent exit 3)
+error: firstmate home mismatch: running checkout /private<tmp>/A; inherited FM_HOME resolves to /private<tmp>/B; refusing to read, lock, or mutate either home
+exit=0
