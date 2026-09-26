@@ -89,9 +89,12 @@
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
 #   dormant    For a local kind=secondmate only, prove its own home has no
-#              state/*.meta work, stop it through the exact exit path above,
-#              then atomically write state/<id>.dormant with the time, reason,
-#              and convergence owed on wake. Already-dormant is idempotent.
+#              state/*.meta work, then, holding the mate's shared liveness
+#              lock so no supervision probe can see it stopped but unmarked,
+#              stop it through the exact exit path above and atomically write
+#              state/<id>.dormant with the time, reason, and convergence owed
+#              on wake. A liveness episode already in progress refuses the
+#              verb; retry once it finishes. Already-dormant is idempotent.
 #              Supervision liveness treats a dormant mate as an expected
 #              stopped state and never relaunches it.
 #   wake       For a local kind=secondmate only, launch through the ordinary
@@ -193,6 +196,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-worker-account-lib.sh
 . "$SCRIPT_DIR/fm-worker-account-lib.sh"
+# shellcheck source=bin/fm-secondmate-liveness-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-liveness-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -208,6 +213,7 @@ die() {  # <message>
 
 CONTROL_LOCK=
 CONTROL_LOCK_HELD=0
+LIVENESS_LOCK_HELD=0
 RELAUNCH_ACTIVE=0
 RELAUNCH_PHASE=start
 
@@ -220,6 +226,10 @@ control_cleanup() {
   if [ "$CONTROL_LOCK_HELD" = 1 ]; then
     CONTROL_LOCK_HELD=0
     fm_lock_release "$CONTROL_LOCK" || true
+  fi
+  if [ "$LIVENESS_LOCK_HELD" = 1 ]; then
+    LIVENESS_LOCK_HELD=0
+    fm_secondmate_liveness_unlock "$ID"
   fi
   if declare -F fm_lease_guard_release >/dev/null 2>&1; then
     fm_lease_guard_release || true
@@ -710,9 +720,14 @@ do_dormant() {
   if secondmate_home_has_inflight_work; then
     die "secondmate $ID still has in-flight work in $SECOND_MATE_HOME/state ($(basename "$DORMANT_CHILD_META")); let that home finish before making it dormant"
   fi
+  fm_secondmate_liveness_lock "$ID" \
+    || die "secondmate $ID has a supervision liveness check or relaunch in progress; retry dormant once it finishes"
+  LIVENESS_LOCK_HELD=1
   result=$(do_exit)
   fm_secondmate_dormant_write "$STATE" "$ID" "explicit control-plane request" \
     || die "secondmate $ID was stopped but its durable dormant marker could not be written; keep it stopped and repair $STATE before retrying"
+  LIVENESS_LOCK_HELD=0
+  fm_secondmate_liveness_unlock "$ID"
   echo "dormant $ID exit=$result marker=$STATE/$ID.dormant worktree=$WT"
 }
 

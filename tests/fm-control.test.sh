@@ -1054,6 +1054,8 @@ test_secondmate_dormant_stops_marks_and_is_idempotent() {
     "dormant marker must record inherited convergence owed"
   [ "$(cat "$dir/fake/command")" = zsh ] || fail "dormant did not stop the agent through exit"
   assert_contains "$out" "dormant domain exit=stopped" "dormant result should name the verified stop"
+  [ ! -e "$dir/home/state/.secondmate-liveness-domain.lock" ] \
+    || fail "dormant left the shared liveness lock held after marking the mate"
 
   before=$(cat "$marker")
   out=$(run_control "$dir" domain dormant); rc=$?
@@ -1079,6 +1081,35 @@ test_secondmate_dormant_refuses_child_work() {
   [ "$(cat "$dir/fake/command")" = claude ] || fail "in-flight refusal stopped the agent"
   [ ! -e "$dir/home/state/domain.dormant" ] || fail "in-flight refusal wrote a dormant marker"
   pass "fm-control dormant: secondmate-home in-flight work refuses before stop"
+}
+
+test_secondmate_dormant_refuses_during_liveness_episode() {
+  local dir out rc holder lock i=0
+  dir=$(new_case dormant-liveness-locked)
+  add_task "$dir" domain claude secondmate
+  mkdir -p "$dir/wt-domain/state"
+  printf '%s\n' domain > "$dir/wt-domain/.fm-secondmate-home"
+  alive_as "$dir" claude
+  lock="$dir/home/state/.secondmate-liveness-domain.lock"
+  ( STATE="$dir/home/state" bash -c \
+      '. "$1" && fm_lock_acquire_wait "$2" && sleep 30' \
+      _ "$ROOT/bin/fm-wake-lib.sh" "$lock" ) &
+  holder=$!
+  while [ ! -d "$lock" ] && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -d "$lock" ] || fail "the fixture never acquired the liveness lock"
+
+  out=$(run_control "$dir" domain dormant); rc=$?
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  expect_code 1 "$rc" "dormant must refuse while a supervision liveness episode holds the mate"
+  assert_contains "$out" "liveness check or relaunch in progress" \
+    "refusal should name the in-progress liveness episode"
+  [ "$(cat "$dir/fake/command")" = claude ] || fail "dormant stopped the agent under a live liveness episode"
+  [ ! -e "$dir/home/state/domain.dormant" ] || fail "dormant wrote its marker under a live liveness episode"
+  pass "fm-control dormant: never stops a mate while a liveness probe or relaunch owns it"
 }
 
 run_control_with_stub_spawn() { # <case-dir> <args...>
@@ -1168,4 +1199,5 @@ test_secondmate_control_command_carries_no_marker
 test_fm_send_still_marks_the_same_secondmate_task
 test_secondmate_dormant_stops_marks_and_is_idempotent
 test_secondmate_dormant_refuses_child_work
+test_secondmate_dormant_refuses_during_liveness_episode
 test_secondmate_wake_delegates_and_clears_only_after_alive
