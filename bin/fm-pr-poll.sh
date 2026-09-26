@@ -10,6 +10,15 @@ set -u
 LC_ALL=C
 export LC_ALL
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+case "$0" in
+  *.check.sh)
+    FM_HOME="${FM_HOME:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+    APP_RUNNER="${FM_ROOT_OVERRIDE:-$FM_HOME}/bin/fm-github-app-token.sh"
+    ;;
+  *) APP_RUNNER="$SCRIPT_DIR/fm-github-app-token.sh" ;;
+esac
+
 if [ "$#" -eq 6 ] && [ "$1" = --validated ]; then
   provider=$2
   url=$3
@@ -62,7 +71,13 @@ case "$provider" in
       .|..|*[!A-Za-z0-9._-]*) exit 0 ;;
     esac
     [ "$url" = "https://github.com/$owner/$repo/pull/$number" ] || exit 0
-    state=$(gh pr view "$url" --json state -q .state 2>/dev/null) || exit 0
+    if [ -x "$APP_RUNNER" ]; then
+      state=$("$APP_RUNNER" run-safe gh pr view "$url" --json state -q .state 2>/dev/null) || exit 0
+    else
+      # A check copied by an older tracked code root keeps its pre-App behavior
+      # until that home advances to a revision containing the helper.
+      state=$(gh pr view "$url" --json state -q .state 2>/dev/null) || exit 0
+    fi
     [ "$state" = MERGED ] && printf '%s\n' merged
     ;;
   gitlab)
