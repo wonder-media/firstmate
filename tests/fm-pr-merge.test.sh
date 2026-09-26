@@ -170,6 +170,8 @@ SH
   cat > "$case_dir/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+[ -z "${FM_TEST_GH_IDENTITY_LOG:-}" ] \
+  || printf '%s %s:%s\n' "${1:-}" "${2:-}" "${GH_TOKEN:-}" >> "$FM_TEST_GH_IDENTITY_LOG"
 case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
@@ -516,6 +518,38 @@ test_verified_merge_records_pr_and_head() {
     "records-before-merge: pr_head= was not recorded"
   assert_logged_gh_merge "$case_dir" 9 example/repo --squash
   pass "fm-pr-merge records pr= and pr_head= for a verified GitHub merge"
+}
+
+# With the opt-in GitHub App pointer configured, the PR head read and the merge
+# itself run under the cached installation token.
+test_app_token_routes_check_and_merge() {
+  local case_dir expires token
+  case_dir=$(make_case app-token-routing)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" deadbeefcafefeed0000000000000000deadbeef
+  token='fixture-installation-token-1234567890'
+  expires=$(date -u -v+30M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null \
+    || date -u -d '+30 minutes' +%Y-%m-%dT%H:%M:%SZ)
+  printf '%s\n' "$case_dir/credentials.json" > "$case_dir/home/config/github-app-credentials"
+  printf '{"token":"%s","expires_at":"%s"}\n' "$token" "$expires" \
+    > "$case_dir/state/github-app-installation-token.json"
+  chmod 0600 "$case_dir/state/github-app-installation-token.json"
+  : > "$case_dir/identity.log"
+  : > "$case_dir/gh-axi.log"
+
+  FM_TEST_GH_IDENTITY_LOG="$case_dir/identity.log" \
+    run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/127 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "app-token-routing: fm-pr-merge failed: $(cat "$case_dir/stderr")"
+
+  grep -qxF "pr view:$token" "$case_dir/identity.log" \
+    || fail "app-token-routing: fm-pr-check did not use App authentication"
+  grep -qxF "pr merge:$token" "$case_dir/identity.log" \
+    || fail "app-token-routing: merge did not use App authentication"
+  assert_logged_gh_merge "$case_dir" 127 example/repo --squash
+  assert_grep 'pr_head=deadbeefcafefeed0000000000000000deadbeef' "$case_dir/state/task-x1.meta" \
+    "app-token-routing: App-authenticated merge did not preserve PR metadata"
+  pass "fm-pr-check and fm-pr-merge use App authentication while preserving metadata"
 }
 
 # The forge call is the point of no return: once gh-axi has merged, nothing this
@@ -2222,6 +2256,7 @@ test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
 test_github_conflicting_queue_rules_report_ambiguity
 test_verified_merge_records_pr_and_head
+test_app_token_routes_check_and_merge
 test_pr_metadata_is_recorded_before_the_forge_call
 test_merge_failure_propagates_after_recording
 test_github_open_unqueued_outcome_refuses

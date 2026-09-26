@@ -6,7 +6,9 @@
 # profile rules, primary config/crew-harness=codex makes a secondmate's crewmates
 # spawn on codex too, primary config/backlog-backend=manual makes that home
 # hand-edit backlog files too, primary config/backend pins that home's local
-# runtime-backend default for future spawns, primary config/startup-memory-budget
+# runtime-backend default for future spawns, primary
+# config/github-app-credentials points at the same external App credential record
+# without copying credentials into a home, primary config/startup-memory-budget
 # bounds that home's startup-memory curation, and primary
 # config/herdr-project-spaces carries the same opt-in project-grouping choice,
 # and config/herdr-presentation-spaces carries the same Herdr presentation-projection
@@ -69,7 +71,7 @@ FM_SHARED_CAPTAIN_MODE="444"
 # The declared inheritable set (space-separated, config-dir-relative item paths).
 # Extend here to inherit more of the primary's local config; override via the
 # environment only in tests. Items must not contain whitespace.
-FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json council.json crew-harness crew-autocompact backlog-backend backend herdr-project-spaces herdr-presentation-spaces startup-memory-budget trace-context launch-env-allowlist claude-permission-mode lavish-axi-host}"
+FM_INHERITABLE_CONFIG="${FM_INHERITABLE_CONFIG:-crew-dispatch.json council.json crew-harness crew-autocompact backlog-backend backend github-app-credentials herdr-project-spaces herdr-presentation-spaces startup-memory-budget trace-context launch-env-allowlist claude-permission-mode lavish-axi-host}"
 
 # Items whose value is a home-SESSION enablement decision rather than durable
 # local configuration. They are inherited at the launch convergence point, where
