@@ -225,7 +225,8 @@ Wake uses the normal `bin/fm-spawn.sh <id> --secondmate` recovery path, which cl
 Every secondmate launch clears the marker, so `relaunch` and direct recovery spawns also revive a dormant secondmate rather than leaving a live agent recorded as dormant.
 A failed launch retains the marker for a safe retry, while `wake` on a dead non-dormant secondmate remains the ordinary recovery path.
 
-Session-start liveness treats a valid dormant marker as healthy expected stopped state and never relaunches it.
+Secondmate liveness, both the session-start sweep and the watcher's liveness tick through `bin/fm-secondmate-liveness-lib.sh`, treats a valid dormant marker as healthy expected stopped state and never relaunches it.
+`dormant` holds that mate's per-mate liveness lock across the stop and the marker write, so a tick never sees a stopped but unmarked mate; a liveness episode already in progress makes `dormant` refuse until it finishes.
 Parent supervision excludes only a dormant `kind=secondmate` meta; every live secondmate and every other meta still counts normally.
 The session-start digest prints dormant instead of dead so intake can see the routing state without changing `data/secondmates.md` syntax.
 
