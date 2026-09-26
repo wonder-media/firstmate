@@ -136,23 +136,37 @@
 #      running/fixing with recent reported activity: a killed or timed-out drive
 #      call is not daemon death, so that claim is answered by steering the crew
 #      to reattach, not by escalating.
-#   4. No current run for this crew (pre-validation, uninitialized repository,
-#      proven historical head, or kind=scout): fall back to the recorded
-#      backend's pane busy state, then the resolved status declaration
+#   4. A local secondmate has no run of its own. A trailing declared paused:/
+#      blocked:/failed: status line is the coordinator's own statement about
+#      itself, so it is current truth: it outranks every unknown reason and
+#      healthy idle, and only a live busy verdict outranks it. Everything else
+#      needs full proof - a recovery-grade live endpoint, a metadata-bound
+#      current lifecycle generation, and that generation's trusted semantic
+#      record. Busy means its coordinator is active; idle plus an open folded
+#      decision means parked/blocked; idle with no open decision is healthy
+#      idle. Missing proof with no such declaration remains unknown.
+#   5. No current run for an ordinary crew (pre-validation, uninitialized
+#      repository, proven historical head, or kind=scout): fall back to the
+#      recorded backend's pane busy state, then the resolved status declaration
 #      when its verb maps to a recognized run-state. Decision-only events such as
 #      `resolved` never become current state or detail.
-#   5. Missing meta or torn-down worktree: report unknown · none. If no run is
-#      attributed to this crew, a dead endpoint also reports unknown · none rather
-#      than trusting a stale status log. On tmux and herdr, which own a
+#   6. Missing meta or torn-down worktree: report unknown · none. If no run is
+#      attributed to an ordinary crew, a dead endpoint also reports unknown · none
+#      rather than trusting a stale status log, and a timed-out Herdr presence
+#      read reports a distinct "unreadable" detail, never "gone"; a secondmate
+#      instead keeps its own declared paused/blocked/failed line, per item 4.
+#      On tmux and herdr, which own a
 #      recovery-grade classifier, only its positive death evidence reads as gone
 #      (the endpoint is authoritatively absent, or its pane holds no agent); an
 #      endpoint that merely failed to answer reports unknown · none as
 #      unreachable, and an alive endpoint whose scrollback read failed is still
-#      classified by step 4. Backends with no classifier keep reading a failed
+#      classified by step 5. Backends with no classifier keep reading a failed
 #      capture as gone. The fallback's own comment owns the per-verdict rules.
 #
-# Read-only and side-effect free. Always exits 0 on a successful read regardless
-# of state; exit 2 only on a usage error (no id).
+# Read-only and side-effect free. `--json` adds the endpoint evidence already
+# observed while classifying a secondmate, so structured callers never repeat
+# the same potentially slow backend probe. Always exits 0 on a successful read
+# regardless of state; exit 2 only on a usage error (no id).
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -177,8 +191,13 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 
+OUTPUT_MODE=line
+if [ "${1:-}" = --json ]; then
+  OUTPUT_MODE=json
+  shift
+fi
 ID=${1:-}
-[ -n "$ID" ] || { echo "usage: fm-crew-state.sh <id>" >&2; exit 2; }
+[ -n "$ID" ] || { echo "usage: fm-crew-state.sh [--json] <id>" >&2; exit 2; }
 
 # Fleet snapshot composition supplies its captured metadata path here so every
 # state read resolves the same task generation selected by that snapshot.
@@ -195,12 +214,43 @@ case "$NM_TIMEOUT" in ''|*[!0-9]*) NM_TIMEOUT=10 ;; esac
 FM_CREW_STATE_RUNS_LIMIT=${FM_CREW_STATE_RUNS_LIMIT:-200}
 case "$FM_CREW_STATE_RUNS_LIMIT" in ''|*[!0-9]*) FM_CREW_STATE_RUNS_LIMIT=200 ;; esac
 SEP=' · '
+ENDPOINT_EXISTS=null
+AGENT_ALIVE=not_checked
+ENDPOINT_STATE=
+
+# Record a secondmate's endpoint verdict once, from the local recovery-grade
+# classifier or the remote host's own answer, for --json callers.
+record_secondmate_endpoint() {  # <alive|dead|missing|other>
+  ENDPOINT_STATE=$1
+  case "$1" in
+  alive) ENDPOINT_EXISTS=true; AGENT_ALIVE=alive ;;
+  dead) ENDPOINT_EXISTS=true; AGENT_ALIVE=dead ;;
+  missing) ENDPOINT_EXISTS=false; AGENT_ALIVE=dead ;;
+  *) ENDPOINT_EXISTS=null; AGENT_ALIVE=unknown ;;
+  esac
+}
+
+observe_secondmate_endpoint() {
+  [ "${KIND:-}" = secondmate ] || return 0
+  [ -z "$ENDPOINT_STATE" ] || return 0
+  [ -z "${REMOTE_HOST:-}" ] || { AGENT_ALIVE=unknown; return 0; }
+  [ -n "${BACKEND_TARGET:-}" ] || return 0
+  record_secondmate_endpoint "$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")"
+}
 
 # Emit the one canonical line and exit 0. Detail is optional.
 emit() {  # <state> <source> [detail]
-  local line="state: $1${SEP}source: $2"
-  [ -n "${3:-}" ] && line="$line${SEP}$3"
-  printf '%s\n' "$line"
+  local state=$1 source=$2 detail=${3:-} line="state: $1${SEP}source: $2"
+  [ -n "$detail" ] && line="$line${SEP}$detail"
+  if [ "$OUTPUT_MODE" = json ]; then
+    observe_secondmate_endpoint
+    command -v jq >/dev/null 2>&1 || { echo "fm-crew-state: jq not found for --json" >&2; exit 1; }
+    jq -n --arg state "$state" --arg source "$source" --arg detail "$detail" \
+      --arg raw "$line" --arg alive "$AGENT_ALIVE" --argjson exists "$ENDPOINT_EXISTS" \
+      '{current_state:{state:$state,source:$source,detail:$detail,raw:$raw},endpoint:{exists:$exists,agent_alive:$alive}}'
+  else
+    printf '%s\n' "$line"
+  fi
   exit 0
 }
 
@@ -217,6 +267,9 @@ KIND=$(meta_value kind)
 HARNESS=$(meta_value harness)
 REMOTE_HOST=$(meta_value remote_host)
 [ -n "$KIND" ] || KIND=ship
+TASK_BACKEND=$(fm_backend_of_meta "$META")
+BACKEND_TARGET=$(fm_backend_target_of_meta "$META")
+EXPECTED_LABEL="fm-$ID"
 
 # A torn-down (or never-created) worktree has no current state to read. A
 # remote secondmate's recorded worktree is a path on ITS host, so the local
@@ -278,6 +331,7 @@ if [ -n "$REMOTE_HOST" ]; then
     REMOTE_STATE=
   fi
   REMOTE_STATE=$(printf '%s\n' "$REMOTE_STATE" | tail -1)
+  [ "$KIND" != secondmate ] || record_secondmate_endpoint "${REMOTE_STATE:-unknown}"
   case "$REMOTE_STATE" in
     alive)
       if [ -n "$LOG_VERB" ]; then
@@ -307,9 +361,6 @@ fi
 # (fm_backend_of_meta defaults absent backend= to tmux, the P1 contract): a
 # Herdr task uses the bounded passive presence read; timeout or malformed output
 # is unreadable, never proof that the endpoint is gone.
-TASK_BACKEND=$(fm_backend_of_meta "$META")
-BACKEND_TARGET=$(fm_backend_target_of_meta "$META")
-EXPECTED_LABEL="fm-$ID"
 target_presence() {  # <target> -> present|gone|unreadable
   case "$TASK_BACKEND" in
   tmux) tmux display-message -p -t "$1" '#{pane_id}' >/dev/null 2>&1 && printf present || printf gone ;;
@@ -1240,7 +1291,7 @@ if [ "$KIND" = secondmate ]; then
     emit "$@"
   }
 
-  ENDPOINT_STATE=$(fm_backend_agent_state "$TASK_BACKEND" "$BACKEND_TARGET")
+  observe_secondmate_endpoint
   [ "$ENDPOINT_STATE" = alive ] \
     || emit_secondmate_declared_or unknown none "secondmate endpoint state unavailable ($ENDPOINT_STATE)"
   META_BUSY_GEN=$(meta_value busy_gen)

@@ -3188,6 +3188,28 @@ test_secondmate_liveness_tick_skips_mate_whose_lock_is_held() {
   pass "watch liveness: a mate mid-episode under the shared liveness lock is skipped entirely"
 }
 
+test_secondmate_liveness_tick_leaves_dormant_mate_stopped() {
+  local dir state pid
+  dir=$(make_secondmate_liveness_case liveness-dormant)
+  state="$dir/state"
+  printf 'v1\nid=sm1\nreason=test\n' > "$state/sm1.dormant"
+
+  run_liveness_leg "$dir" dormant FM_FAKE_TMUX_CURRENT_COMMAND=zsh; pid=$LIVENESS_PID
+  sleep 4
+  is_live_non_zombie "$pid" \
+    || fail "the watcher exited against a dormant secondmate: $(cat "$dir/watch-dormant.out" "$dir/watch-dormant.err")"
+  kill_liveness_leg "$pid"
+  [ -e "$state/.secondmate-liveness-tick" ] || fail "the liveness tick never ran"
+  assert_not_contains "$(cat "$dir/tmux.log" 2>/dev/null)" "new-window" \
+    "a dormant secondmate was relaunched by the liveness tick"
+  assert_not_contains "$(cat "$dir/tmux.log" 2>/dev/null)" "kill-window" \
+    "a dormant secondmate endpoint was killed by the liveness tick"
+  [ -f "$state/sm1.dormant" ] || fail "the liveness tick cleared the dormant marker"
+  [ ! -e "$state/.secondmate-relaunch-sm1" ] || fail "a dormant mate gained relaunch ledger rows"
+  [ ! -s "$state/.wake-queue" ] || fail "a dormant mate queued a wake: $(cat "$state/.wake-queue")"
+  pass "watch liveness: a dormant secondmate stays stopped and keeps its marker"
+}
+
 test_secondmate_liveness_tick_preserves_unreachable_remote() {
   local dir state
   dir=$(make_secondmate_liveness_case liveness-remote-down)
@@ -3293,4 +3315,5 @@ test_secondmate_liveness_tick_fails_closed_on_ledger_errors
 test_secondmate_liveness_tick_error_keeps_scanning_and_wakes
 test_secondmate_liveness_tick_unqueued_outcome_is_an_error_not_a_wake
 test_secondmate_liveness_tick_skips_mate_whose_lock_is_held
+test_secondmate_liveness_tick_leaves_dormant_mate_stopped
 test_secondmate_liveness_tick_preserves_unreachable_remote

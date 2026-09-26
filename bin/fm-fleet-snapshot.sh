@@ -51,10 +51,13 @@
 #     generation changes while observations run, its selected metadata remains
 #     but mutable current-state, status, report, and endpoint evidence is discarded
 #     rather than attributed to the replacement generation.
-#     Local current_state is parsed from bin/fm-crew-state.sh <id> and preserves
-#     state, source, detail, and raw line separately. Remote secondmate rows use
-#     an explicit unknown value because their endpoint liveness belongs to
-#     supervision rather than this snapshot path.
+#     current_state is read from bin/fm-crew-state.sh --json <id> under the
+#     whole-read bound FM_SNAPSHOT_CREW_STATE_TIMEOUT (see --help) and preserves
+#     state, source, detail, and raw line separately; a read that overruns or
+#     returns malformed output is disclosed as unknown for that task only.
+#     Remote secondmate rows use an explicit unknown value because their
+#     endpoint liveness belongs to supervision and their current state to the
+#     structured home ledger, never a per-task remote probe on this path.
 #     paths.status_log.last_event is historical wake-event data only, never
 #     current state. age_seconds is null when the emission time is unknown;
 #     fm-classify-lib.sh owns the optional emission-time field, and only the
@@ -64,10 +67,14 @@
 #     fm-classify-lib.sh's authoritative status_open_decisions fold and reconciled
 #     against current_state; hints.pending_decision and hints.blocked_event are
 #     booleans derived from that set.
-#     endpoint.exists is the cheap local backend endpoint-presence read.
+#     endpoint.exists is the bounded backend endpoint-presence read: true,
+#     false only on confirmed absence, null when the read timed out or was
+#     otherwise unreadable (never false on a timeout).
 #     endpoint.agent_alive is populated for local secondmates only, where it is
 #     useful return-channel supervision data; remote secondmates use "unknown"
-#     without a probe, and other tasks use "not_checked".
+#     without a probe, and other tasks use "not_checked". For a local secondmate
+#     both endpoint fields come from the same fm-crew-state.sh --json
+#     observation, so the endpoint is probed once per task, not twice.
 #   scout_reports[]: present data/<id>/report.md pointers.
 #   main_inventory: {valid,reason,orphan_in_flight[],unstructured_current_count} -
 #     main-home current-inventory checks shared with secondmate_home_summary_json
@@ -153,7 +160,7 @@ esac
 # Cross-home bounds are explicit so one broken or unexpectedly large home cannot
 # hang or explode the parent snapshot.
 FM_SNAPSHOT_SECONDMATES=${FM_SNAPSHOT_SECONDMATES:-20}
-FM_SNAPSHOT_CREW_STATE_TIMEOUT=${FM_SNAPSHOT_CREW_STATE_TIMEOUT:-10}
+FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT=${FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT:-2}
 FM_SNAPSHOT_LOCAL_READ_CONCURRENCY=${FM_SNAPSHOT_LOCAL_READ_CONCURRENCY:-8}
 FM_SNAPSHOT_BUDGET=${FM_SNAPSHOT_BUDGET:-5}
 FM_SNAPSHOT_CACHE_DIR=${FM_SNAPSHOT_CACHE_DIR:-$STATE/secondmate-summary-cache}
@@ -186,7 +193,7 @@ case "$FM_SNAPSHOT_SECONDMATES" in
     exit 2
     ;;
 esac
-validate_positive_bound FM_SNAPSHOT_CREW_STATE_TIMEOUT "$FM_SNAPSHOT_CREW_STATE_TIMEOUT"
+validate_positive_bound FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT "$FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT"
 validate_positive_bound FM_SNAPSHOT_LOCAL_READ_CONCURRENCY "$FM_SNAPSHOT_LOCAL_READ_CONCURRENCY"
 validate_positive_bound FM_SNAPSHOT_BUDGET "$FM_SNAPSHOT_BUDGET"
 validate_positive_bound FM_SNAPSHOT_SECONDMATE_MAX_BYTES "$FM_SNAPSHOT_SECONDMATE_MAX_BYTES"
@@ -227,6 +234,13 @@ esac
 # shellcheck source=bin/fm-landed-lib.sh
 # shellcheck disable=SC1091
 . "$SCRIPT_DIR/fm-landed-lib.sh"  # FM_LANDED_JQ_DEFS: the shared landed selector
+
+# One crew-state read performs, in sequence, at most two snapshot-scoped run
+# lookups and at most three Herdr endpoint reads, each already bounded. The
+# whole-read bound is derived from those inner bounds so it always covers them.
+fm_backend_source herdr  # FM_BACKEND_HERDR_READ_TIMEOUT: the per-endpoint read bound
+FM_SNAPSHOT_CREW_STATE_TIMEOUT=${FM_SNAPSHOT_CREW_STATE_TIMEOUT:-$((2 * FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT + 3 * FM_BACKEND_HERDR_READ_TIMEOUT + 1))}
+validate_positive_bound FM_SNAPSHOT_CREW_STATE_TIMEOUT "$FM_SNAPSHOT_CREW_STATE_TIMEOUT"
 # shellcheck source=bin/fm-merge-authority-lib.sh
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
 
@@ -264,10 +278,14 @@ schema, even when it contains no captain holds; older summaries are rejected. A
 home with neither a valid current ledger nor a valid current cached copy is
 reported unreadable with the reason; collection never computes a summary in
 that home.
-Each local per-task current-state read is bounded by FM_SNAPSHOT_CREW_STATE_TIMEOUT
-(default 10 seconds); a read that hits the bound reports state unknown. Local task
-observations run concurrently, up to FM_SNAPSHOT_LOCAL_READ_CONCURRENCY (default 8).
-Remote secondmate endpoint liveness is not probed by this command.
+Each task's current-state read is a hard-bounded whole read. Its no-mistakes
+run lookups use FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT (default 2) each and its Herdr
+endpoint reads use FM_BACKEND_HERDR_READ_TIMEOUT (default 3) each; the whole
+bound FM_SNAPSHOT_CREW_STATE_TIMEOUT defaults to two run lookups plus three
+endpoint reads plus one second so it always covers the reads it contains. A
+whole read that still overruns is disclosed as unknown for that task only.
+Local task observations run concurrently, up to FM_SNAPSHOT_LOCAL_READ_CONCURRENCY
+(default 8). Remote secondmate endpoint liveness is not probed by this command.
 Terminal contradiction evidence uses
 FM_SNAPSHOT_TERMINAL_LINES, FM_SNAPSHOT_TERMINAL_BYTES, and
 FM_SNAPSHOT_TERMINAL_TIMEOUT and never becomes canonical current state.
@@ -317,13 +335,12 @@ last_nonempty_line() {  # <file>
   grep -v '^[[:space:]]*$' "$1" 2>/dev/null | tail -1
 }
 
-# A local crew-state read is bounded so one slow child cannot extend this
-# snapshot without limit. Remote secondmate endpoint liveness is never read here.
-# A local read that hits the bound folds to state unknown.
+# One task's current-state observation, {current_state,endpoint}, bounded so
+# one slow child cannot extend this snapshot without limit. A read that overruns
+# or returns malformed output folds to unknown with an unreadable endpoint.
 crew_state_json() {  # <id> [<captured-meta>] [<captured-status>]
-  local id=$1 captured_meta=${2:-} captured_status=${3:-} raw rest state source detail sep
-  raw=$(
-    fm_run_timed "$FM_SNAPSHOT_CREW_STATE_TIMEOUT" \
+  local id=$1 captured_meta=${2:-} captured_status=${3:-} raw rc detail
+  raw=$(fm_run_timed "$FM_SNAPSHOT_CREW_STATE_TIMEOUT" \
       env FM_ROOT_OVERRIDE="$FM_ROOT" \
       FM_HOME="$FM_HOME" \
       FM_STATE_OVERRIDE="$STATE" \
@@ -332,26 +349,25 @@ crew_state_json() {  # <id> [<captured-meta>] [<captured-status>]
       FM_DATA_OVERRIDE="$DATA" \
       FM_PROJECTS_OVERRIDE="$PROJECTS" \
       FM_CONFIG_OVERRIDE="$CONFIG" \
-      "$SCRIPT_DIR/fm-crew-state.sh" "$id" 2>/dev/null || true
+      FM_CREW_STATE_NM_TIMEOUT="$FM_SNAPSHOT_RUN_LOOKUP_TIMEOUT" \
+      "$SCRIPT_DIR/fm-crew-state.sh" --json "$id" 2>/dev/null
   )
-  raw=$(printf '%s\n' "$raw" | head -1)
-  sep=' · '
-  state=unknown
-  source=none
-  detail=
-  case "$raw" in
-    state:\ *"$sep"source:\ *)
-      rest=${raw#state: }
-      state=${rest%%"$sep"source: *}
-      rest=${rest#*"$sep"source: }
-      case "$rest" in
-        *"$sep"*) source=${rest%%"$sep"*}; detail=${rest#*"$sep"} ;;
-        *) source=$rest ;;
-      esac
-      ;;
-  esac
-  jq -n --arg raw "$raw" --arg state "$state" --arg source "$source" --arg detail "$detail" \
-    '{state:$state,source:$source,detail:$detail,raw:$raw}'
+  rc=$?
+  if printf '%s' "$raw" | jq -e '
+    .current_state.state and .current_state.source
+    and (.endpoint.exists == null or (.endpoint.exists | type) == "boolean")
+    and (.endpoint.agent_alive | type) == "string"
+  ' >/dev/null 2>&1; then
+    printf '%s' "$raw"
+  else
+    if [ "$rc" -eq 124 ]; then
+      detail="current-state read timed out after ${FM_SNAPSHOT_CREW_STATE_TIMEOUT}s"
+    else
+      detail="current-state read unavailable"
+    fi
+    jq -n --arg raw "$raw" --arg detail "$detail" \
+      '{current_state:{state:"unknown",source:"none",detail:$detail,raw:$raw},endpoint:{exists:null,agent_alive:"unknown"}}'
+  fi
 }
 
 status_event_json() {  # <observed-status-log> [<contract-path>]
@@ -629,7 +645,7 @@ snapshot_task_generation_is_current() {  # <captured-meta> <id>
 
 prefetch_task_observations() {  # <meta> <id>
   local meta=$1 id=$2 remote_host current_file endpoint_file current_pid='' current_rc=0
-  local status_log status_capture report_path report_capture
+  local status_log status_capture report_path report_capture observation_file observation
   local kind backend target endpoint_exists=null agent_alive=not_checked generation_current=1
   remote_host=$(meta_value "$meta" remote_host)
   current_file="$SNAPSHOT_TASK_DIR/$id.json"
@@ -638,6 +654,7 @@ prefetch_task_observations() {  # <meta> <id>
   status_capture="$SNAPSHOT_TASK_DIR/$id.status"
   report_path="$DATA/$id/report.md"
   report_capture="$SNAPSHOT_TASK_DIR/$id.report"
+  observation_file="$SNAPSHOT_TASK_DIR/$id.observation"
 
   snapshot_task_generation_is_current "$meta" "$id" || generation_current=0
   if [ "$generation_current" = 1 ]; then
@@ -645,25 +662,22 @@ prefetch_task_observations() {  # <meta> <id>
     snapshot_mark_optional_present "$report_path" "$report_capture" || current_rc=1
   fi
 
+  kind=$(meta_value "$meta" kind)
   if [ -n "$remote_host" ]; then
     jq -n '{state:"unknown",source:"none",detail:"remote endpoint liveness not collected by fleet snapshot",raw:""}' \
       > "$current_file" || current_rc=1
     agent_alive=unknown
   elif [ "$generation_current" = 1 ]; then
-    crew_state_json "$id" "$meta" "$status_capture" > "$current_file" &
+    crew_state_json "$id" "$meta" "$status_capture" > "$observation_file" &
     current_pid=$!
-    kind=$(meta_value "$meta" kind)
     backend=$(fm_backend_of_meta "$meta")
     target=$(fm_backend_target_of_meta "$meta")
-    if [ -n "$target" ]; then
-      if fm_backend_target_exists "$backend" "$target" "fm-$id" >/dev/null 2>&1; then
-        endpoint_exists=true
-      else
-        endpoint_exists=false
-      fi
-      if [ "$kind" = secondmate ]; then
-        agent_alive=$(fm_backend_agent_alive "$backend" "$target" 2>/dev/null || printf unknown)
-      fi
+    if [ "$kind" != secondmate ] && [ -n "$target" ]; then
+      case "$(fm_backend_target_presence "$backend" "$target" "fm-$id" 2>/dev/null)" in
+        present) endpoint_exists=true ;;
+        gone) endpoint_exists=false ;;
+        *) endpoint_exists=null ;;
+      esac
     fi
   else
     jq -n '{state:"unknown",source:"none",detail:"task generation changed during snapshot",raw:""}' \
@@ -671,7 +685,15 @@ prefetch_task_observations() {  # <meta> <id>
     agent_alive=unknown
   fi
 
-  [ -z "$current_pid" ] || wait "$current_pid" || current_rc=1
+  if [ -n "$current_pid" ]; then
+    wait "$current_pid" || current_rc=1
+    observation=$(<"$observation_file") || current_rc=1
+    printf '%s' "$observation" | jq -c '.current_state' > "$current_file" || current_rc=1
+    if [ "$kind" = secondmate ]; then
+      endpoint_exists=$(printf '%s' "$observation" | jq -c '.endpoint.exists') || current_rc=1
+      agent_alive=$(printf '%s' "$observation" | jq -r '.endpoint.agent_alive') || current_rc=1
+    fi
+  fi
   # All mutable observations must belong to the metadata generation captured in
   # the manifest. If teardown/relaunch raced any read, discard the whole sample.
   if ! snapshot_task_generation_is_current "$meta" "$id"; then

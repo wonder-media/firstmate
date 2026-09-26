@@ -1070,9 +1070,30 @@ The CLI matrix was checked directly:
 All destructive verification used `bin/fm-herdr-lab.sh` with a non-default `fm-lab-` name and a byte-identical default-session tripwire.
 No ambient `herdr server stop` command is a supported test operation.
 
-### Bounded passive reads
+### Bounded passive reads and fleet snapshot wall time
 
-Verified on 2026-09-17 on macOS aarch64 against five Herdr-backed secondmates and one Herdr-backed ship. Passive endpoint reads are bounded by `FM_BACKEND_HERDR_READ_TIMEOUT`; timeout is `unknown`, never absence or idle. The pre-fix fleet snapshot exceeded a 90-second Bridge bound, while the bounded implementation completed repeated captures in roughly 31-34 seconds. Upstream's concurrent local-observation implementation is retained as the broader wall-time owner.
+Verified on 2026-09-17 on macOS aarch64 against the real captain fleet: five Herdr-backed secondmates and one Herdr-backed ship, all in one running Herdr server.
+The passive reads `pane get` and `agent get` are bounded per call by `FM_BACKEND_HERDR_READ_TIMEOUT` (default 3 s) through the shared runner in `bin/fm-timeout-lib.sh`; a timeout is an unreadable observation and reads as `unknown`, never as an absent pane or an idle agent.
+Each `fm-fleet-snapshot.sh` current-state read is one whole bounded read whose default bound is derived from the bounds it contains (two snapshot-scoped run lookups plus three endpoint reads plus one second).
+The concurrent task observation in `bin/fm-fleet-snapshot.sh` remains the broader wall-time owner; these bounds apply inside each concurrent read.
+
+```sh
+FM_HOME=<home> fm-fleet-snapshot.sh --json </dev/null   # non-TTY, as the Bridge daemon calls it
+FM_HOME=<home> fm-fleet-snapshot.sh --json              # under a pseudo-terminal
+```
+
+Each run was wrapped in a 90 s process-group bound, the Bridge ingest timeout.
+These timings predate the concurrent task observation and were measured with serial reads.
+
+| Code | Caller | Wall time | Result |
+| --- | --- | --- | --- |
+| Before (base of the change) | non-TTY | exceeded 90 s bound | killed, no snapshot |
+| Before (base of the change) | TTY | exceeded 90 s bound | killed, no snapshot |
+| After | non-TTY | 31.3 s (repeat: 33.6 s) | complete snapshot |
+| After | TTY | 32.8 s | complete snapshot |
+
+In both after runs every secondmate row carried its real current state from the endpoint (`idle` from the lifecycle record, or `parked`/`blocked` from its own status log) with `endpoint.exists` true and `agent_alive` alive; no row degraded to `unknown`.
+The earlier incident evidence recorded snapshots exceeding 100 s and single reads near 170 s.
 
 ### fm-remote server birth and login-keychain access
 

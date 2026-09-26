@@ -7,6 +7,8 @@
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
+#        fm-control.sh <task-id> dormant
+#        fm-control.sh <task-id> wake
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -86,6 +88,19 @@
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
+#   dormant    For a local kind=secondmate only, prove its own home has no
+#              state/*.meta work, stop it through the exact exit path above,
+#              then atomically write state/<id>.dormant with the time, reason,
+#              and convergence owed on wake. Already-dormant is idempotent.
+#              Supervision liveness treats a dormant mate as an expected
+#              stopped state and never relaunches it.
+#   wake       For a local kind=secondmate only, launch through the ordinary
+#              fm-spawn.sh <id> --secondmate recovery path. That path re-syncs
+#              tracked files and inherited local material before launch and
+#              clears the dormant record once the agent is launched, as every
+#              secondmate revival path does. wake then proves the replacement
+#              alive before reporting success; a launch failure leaves the
+#              dormant record in place so the wake is safely retryable.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
