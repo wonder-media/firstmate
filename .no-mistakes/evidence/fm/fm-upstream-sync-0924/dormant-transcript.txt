@@ -1,0 +1,20 @@
+$ grep -E "dormant|liveness" fm-control.test.sh output
+ok - fm-control dormant: verified stop, durable convergence record, idempotent repeat
+ok - fm-control dormant: secondmate-home in-flight work refuses before stop
+ok - fm-control dormant: never stops a mate while a liveness probe or relaunch owns it
+
+$ bin/fm-control.sh --help | grep -E "dormant|wake"
+       fm-control.sh <task-id> dormant
+       fm-control.sh <task-id> wake
+  dormant    For a local kind=secondmate only, prove its own home has no
+             state/<id>.dormant with the time, reason, and convergence owed
+             on wake. A liveness episode already in progress refuses the
+             verb; retry once it finishes. Already-dormant is idempotent.
+             Supervision liveness treats a dormant mate as an expected
+  wake       For a local kind=secondmate only, launch through the ordinary
+
+$ fm-secondmate-liveness dormant results
+ok - sweep: dormant is healthy expected stopped state and survives session start
+
+$ pre-fix regression run
+not ok - dormant must refuse while a supervision liveness episode holds the mate: expected exit 1, got 0
