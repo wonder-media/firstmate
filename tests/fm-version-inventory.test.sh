@@ -94,14 +94,14 @@ test_inventory_separates_compatibility_freshness_and_pins() {
   out=$(PATH="$fakebin:$BASE_PATH" FM_FAKE_GITHUB_LOG="$github_log" FM_FAKE_NPM_LOG="$npm_log" \
     "$ROOT/bin/fm-version-inventory.sh")
 
-  assert_row "$out" $'no-mistakes\t1.31.2\t1.31.2\t1.64.0\tsupported\tupdate-available\tnone\tgithub:kunchenguid/no-mistakes'
+  assert_row "$out" $'no-mistakes\t1.31.2\t1.46.0\t1.64.0\tbelow-minimum\tupdate-available\tnone\tgithub:kunchenguid/no-mistakes'
   assert_row "$out" $'treehouse\t2.0.1\tlease-capable\t2.3.0\tsupported\tintentionally-pinned\tCI=2.0.1\tgithub:kunchenguid/treehouse'
   assert_row "$out" $'herdr\t0.7.4\tprotocol>=14\t0.8.2\tunknown (protocol not probed)\tintentionally-pinned\tCI=0.7.4\tgithub:ogulcancelik/herdr'
   assert_row "$out" $'gh-axi\t0.1.35\t0.1.29\t0.1.35\tsupported\tcurrent-stable\tnone\tnpm:gh-axi'
   assert_row "$out" $'chrome-devtools-axi\t0.1.34\tpresent\t0.1.34\tsupported\tcurrent-stable\tnone\tnpm:chrome-devtools-axi'
-  assert_row "$out" $'lavish-axi\t0.1.46\t0.1.46\t0.1.64\tsupported\tupdate-available\tnone\tnpm:lavish-axi'
-  assert_row "$out" $'tasks-axi\t0.2.3\t0.2.4\t0.2.5\tbelow-minimum\tupdate-available\tnone\tnpm:tasks-axi'
-  assert_row "$out" $'quota-axi\t0.1.38\t0.1.25\t0.1.37\tsupported\tahead-of-stable\tnone\tnpm:quota-axi'
+  assert_row "$out" $'lavish-axi\t0.1.46\t0.1.77\t0.1.64\tbelow-minimum\tupdate-available\tnone\tnpm:lavish-axi'
+  assert_row "$out" $'tasks-axi\t0.2.3\t0.2.6\t0.2.5\tbelow-minimum\tupdate-available\tnone\tnpm:tasks-axi'
+  assert_row "$out" $'quota-axi\t0.1.38\t0.1.51\t0.1.37\tbelow-minimum\tahead-of-stable\tnone\tnpm:quota-axi'
   [ "$(cat "$github_log")" = $'kunchenguid/no-mistakes\nkunchenguid/treehouse\nogulcancelik/herdr' ] \
     || fail "GitHub release channels were not exact: $(cat "$github_log")"
   [ "$(cat "$npm_log")" = $'gh-axi\nchrome-devtools-axi\nlavish-axi\ntasks-axi\nquota-axi' ] \
@@ -131,7 +131,7 @@ SH
   elapsed=$((ended - started))
 
   [ "$elapsed" -lt 10 ] || fail "three bounded GitHub requests ran for ${elapsed}s"
-  assert_row "$out" $'no-mistakes\t1.31.2\t1.31.2\tunknown/offline\tsupported\tunknown/offline\tnone\tgithub:kunchenguid/no-mistakes'
+  assert_row "$out" $'no-mistakes\t1.31.2\t1.46.0\tunknown/offline\tbelow-minimum\tunknown/offline\tnone\tgithub:kunchenguid/no-mistakes'
   assert_row "$out" $'treehouse\t2.0.1\tlease-capable\tunknown/offline\tsupported\tunknown/offline\tCI=2.0.1\tgithub:kunchenguid/treehouse'
   pass "each release-channel request is hard bounded and degrades to unknown/offline"
 }
@@ -170,8 +170,8 @@ SH
   out=$(PATH="$fakebin:$BASE_PATH" FM_FAKE_GITHUB_LOG="$github_log" FM_FAKE_NPM_LOG="$npm_log" \
     "$ROOT/bin/fm-version-inventory.sh")
 
-  assert_row "$out" $'no-mistakes\t12.3.4\t1.31.2\t1.64.0\tsupported\tahead-of-stable\tnone\tgithub:kunchenguid/no-mistakes'
-  assert_row "$out" $'tasks-axi\t10.20.30\t0.2.4\t11.0.0\tsupported\tupdate-available\tnone\tnpm:tasks-axi'
+  assert_row "$out" $'no-mistakes\t12.3.4\t1.46.0\t1.64.0\tsupported\tahead-of-stable\tnone\tgithub:kunchenguid/no-mistakes'
+  assert_row "$out" $'tasks-axi\t10.20.30\t0.2.6\t11.0.0\tsupported\tupdate-available\tnone\tnpm:tasks-axi'
   pass "multi-digit installed and available versions are parsed whole"
 }
 

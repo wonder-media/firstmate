@@ -4,11 +4,11 @@
 #
 # Usage: fm-control.sh <task-id> interrupt
 #        fm-control.sh <task-id> exit
-#        fm-control.sh <task-id> dormant
-#        fm-control.sh <task-id> wake
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
+#        fm-control.sh <task-id> dormant
+#        fm-control.sh <task-id> wake
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -27,21 +27,57 @@
 #              still exists, and the agent is still alive where the backend can
 #              classify that. Cancellation is confirmed only from an adapter-
 #              owned acknowledgement and otherwise reported unconfirmed. Busy
-#              state is never rewritten as proof of the action.
+#              state is never rewritten as proof of the action. Devin
+#              cancellation invalidates it to unknown because its native hooks
+#              emit no cancellation close; this is not a success claim.
+#              An adapter whose repeated interrupt key does something else on
+#              an idle agent (Devin's revert picker) sends its later presses
+#              only after the first press rendered a running turn, and
+#              otherwise reports `cancel=not-running` having sent one press.
 #   exit       Stop the agent, preserving its terminal endpoint, worktree, and
 #              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
-#              Already-stopped is success (idempotent).
+#              Already-stopped is success (idempotent). An endpoint that reads
+#              `missing` is put through the control plane's per-backend absence
+#              proof (fm_control_endpoint_absence_verdict) before anything is
+#              claimed about it, because `missing` also covers an endpoint that
+#              is merely unreachable from this seat. That proof exists only on
+#              HERDR, whose reads are scoped to the session the record names:
+#              proven gone reports `endpoint-gone` rather than
+#              `already-stopped`, because the endpoint this verb normally
+#              preserves did not survive; a pane that turns out to be there and
+#              idle is the ordinary `already-stopped`; one whose agent is back
+#              takes the ordinary interrupt-then-exit path. A tmux `missing`
+#              always REFUSES: a task record carries no socket identity for its
+#              endpoint, so this verb cannot tell a destroyed window from one on
+#              a tmux server it cannot address, and it will not claim a stop it
+#              cannot see.
 #   relaunch   Transactionally replace the running agent with a new one, in the
-#              SAME endpoint and SAME worktree, on the same or a newly chosen
+#              SAME worktree - and the same endpoint whenever that endpoint
+#              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
-#              of this verb. With no explicit axis, a secondmate re-resolves its
-#              durable config/secondmate-harness pin (harness plus its optional
-#              model and effort tokens) exactly as any other respawn does, while
-#              a ship or scout keeps the exact adapter already recorded for it.
+#              of this verb. When the recorded endpoint is instead proven gone -
+#              a Herdr pane or workspace destroyed in churn - the launch owner
+#              re-creates one in that worktree, in the herdr session the record
+#              names, and the task's record rebinds to it; that is how a task
+#              whose terminal was destroyed is reclaimed by the home that owns
+#              it, rather than being stranded with a parked approval nobody can
+#              answer. Reclaim is HERDR-ONLY for the reason `exit` gives above:
+#              a tmux `missing` cannot be proven absent from a task record, so
+#              it refuses.
+#              An explicit `default` model or effort clears that
+#              axis for the replacement. With no explicit axis, a secondmate
+#              re-resolves its durable config/secondmate-harness pin (harness
+#              plus its optional model and effort tokens) exactly as any other
+#              respawn does, while a ship or scout keeps the exact adapter
+#              already recorded for it.
 #              A prefixed raw-command basename cannot reconstruct its launch
 #              command, so relaunch requires an explicit --harness for it.
+#              A replacement Claude or Pi profile must also pass this home's
+#              worker account pin (bin/fm-worker-account-lib.sh) here, so a pin
+#              that no longer resolves or is signed out refuses before the old
+#              agent stops.
 #              --note is required for a ship or scout, whose replacement
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
@@ -53,9 +89,14 @@
 #              state; it never leaves a half-transitioned task claiming to be
 #              running.
 #   dormant    For a local kind=secondmate only, prove its own home has no
-#              state/*.meta work, stop it through the exact exit path above,
-#              then atomically write state/<id>.dormant with the time, reason,
-#              and convergence owed on wake. Already-dormant is idempotent.
+#              state/*.meta work, then, holding the mate's shared liveness
+#              lock so no supervision probe can see it stopped but unmarked,
+#              stop it through the exact exit path above and atomically write
+#              state/<id>.dormant with the time, reason, and convergence owed
+#              on wake. A liveness episode already in progress refuses the
+#              verb; retry once it finishes. Already-dormant is idempotent.
+#              Supervision liveness treats a dormant mate as an expected
+#              stopped state and never relaunches it.
 #   wake       For a local kind=secondmate only, launch through the ordinary
 #              fm-spawn.sh <id> --secondmate recovery path. That path re-syncs
 #              tracked files and inherited local material before launch and
@@ -95,10 +136,14 @@
 #     than reported as successful blind.
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
 #     classified state acts.
+#   - A composer that visibly holds pending text refuses before an exit command
+#     is typed, so existing text is preserved instead of being concatenated.
 #
 # Environment knobs (all bounded waits, seconds):
 #   FM_CONTROL_POLL              poll interval for postcondition waits (0.5)
 #   FM_CONTROL_SETTLE_WAIT       adapter acknowledgement wait after interrupt (5)
+#   FM_CONTROL_ARM_WAIT          wait for an armed interrupt's rendered proof
+#                                after the press gap (1.5)
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
 #   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
@@ -118,6 +163,8 @@ esac
 
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
+# shellcheck source=bin/fm-secondmate-dormant-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-dormant-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never
 # drive a crewmate's lifecycle (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -147,11 +194,14 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
-# shellcheck source=bin/fm-secondmate-dormant-lib.sh
-. "$SCRIPT_DIR/fm-secondmate-dormant-lib.sh"
+# shellcheck source=bin/fm-worker-account-lib.sh
+. "$SCRIPT_DIR/fm-worker-account-lib.sh"
+# shellcheck source=bin/fm-secondmate-liveness-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-liveness-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
+ARM_WAIT=${FM_CONTROL_ARM_WAIT:-1.5}
 EXIT_WAIT=${FM_CONTROL_EXIT_WAIT:-30}
 LAUNCH_WAIT=${FM_CONTROL_LAUNCH_WAIT:-90}
 EXIT_RETRIES=${FM_CONTROL_EXIT_RETRIES:-3}
@@ -163,6 +213,7 @@ die() {  # <message>
 
 CONTROL_LOCK=
 CONTROL_LOCK_HELD=0
+LIVENESS_LOCK_HELD=0
 RELAUNCH_ACTIVE=0
 RELAUNCH_PHASE=start
 
@@ -175,6 +226,13 @@ control_cleanup() {
   if [ "$CONTROL_LOCK_HELD" = 1 ]; then
     CONTROL_LOCK_HELD=0
     fm_lock_release "$CONTROL_LOCK" || true
+  fi
+  if [ "$LIVENESS_LOCK_HELD" = 1 ]; then
+    LIVENESS_LOCK_HELD=0
+    fm_secondmate_liveness_unlock "$ID"
+  fi
+  if declare -F fm_lease_guard_release >/dev/null 2>&1; then
+    fm_lease_guard_release || true
   fi
   return "$status"
 }
@@ -207,45 +265,48 @@ MODEL_SET=0
 EFFORT_SET=0
 NOTE=
 NOTE_SET=0
-want_value=
-for a in "$@"; do
-  if [ -n "$want_value" ]; then
-    case "$a" in
-      --*) die "--$want_value requires a value" ;;
+control_want_value=
+for control_arg in "$@"; do
+  if [ -n "$control_want_value" ]; then
+    case "$control_arg" in
+      --*) die "--$control_want_value requires a value" ;;
     esac
-    case "$want_value" in
-      harness) NEW_HARNESS=$a; HARNESS_SET=1 ;;
-      model) NEW_MODEL=$a; MODEL_SET=1 ;;
-      effort) NEW_EFFORT=$a; EFFORT_SET=1 ;;
-      note) NOTE=$a; NOTE_SET=1 ;;
-      note-file)
-        [ -f "$a" ] || die "--note-file '$a' is not a readable file"
-        NOTE=$(cat "$a")
+    case "$control_want_value" in
+      harness) NEW_HARNESS=$control_arg; HARNESS_SET=1 ;;
+      model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
+      effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
+      note) NOTE=$control_arg; NOTE_SET=1 ;;
+      note_file)
+        [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
+        NOTE=$(cat "$control_arg")
         NOTE_SET=1
         ;;
     esac
-    want_value=
+    control_want_value=
     continue
   fi
-  case "$a" in
-    --harness) want_value=harness ;;
-    --harness=*) NEW_HARNESS=${a#--harness=}; HARNESS_SET=1 ;;
-    --model) want_value=model ;;
-    --model=*) NEW_MODEL=${a#--model=}; MODEL_SET=1 ;;
-    --effort) want_value=effort ;;
-    --effort=*) NEW_EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
-    --note) want_value=note ;;
-    --note=*) NOTE=${a#--note=}; NOTE_SET=1 ;;
-    --note-file) want_value=note-file ;;
+  case "$control_arg" in
+    --harness) control_want_value=harness ;;
+    --harness=*) NEW_HARNESS=${control_arg#--harness=}; HARNESS_SET=1 ;;
+    --model) control_want_value=model ;;
+    --model=*) NEW_MODEL=${control_arg#--model=}; MODEL_SET=1 ;;
+    --effort) control_want_value=effort ;;
+    --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
+    --note) control_want_value=note ;;
+    --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
+    --note-file) control_want_value=note_file ;;
     --note-file=*)
-      [ -f "${a#--note-file=}" ] || die "--note-file '${a#--note-file=}' is not a readable file"
-      NOTE=$(cat "${a#--note-file=}")
+      [ -f "${control_arg#--note-file=}" ] || die "--note-file '${control_arg#--note-file=}' is not a readable file"
+      NOTE=$(cat "${control_arg#--note-file=}")
       NOTE_SET=1
       ;;
-    *) die "unexpected argument '$a'" ;;
+    *) die "unexpected argument '$control_arg'" ;;
   esac
 done
-[ -z "$want_value" ] || die "--$want_value requires a value"
+if [ -n "$control_want_value" ]; then
+  [ "$control_want_value" = note_file ] && die "--note-file requires a value"
+  die "--$control_want_value requires a value"
+fi
 
 if [ "$VERB" != relaunch ]; then
   [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
@@ -255,8 +316,8 @@ fi
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
 [ "$EFFORT_SET" = 0 ] || [ -n "$NEW_EFFORT" ] || die "--effort requires a non-empty value"
 case "$NEW_EFFORT" in
-  ''|low|medium|high|xhigh|max) ;;
-  *) die "--effort must be one of low, medium, high, xhigh, max" ;;
+  ''|default|low|medium|high|xhigh|max|ultra) ;;
+  *) die "--effort must be one of default, low, medium, high, xhigh, max, ultra" ;;
 esac
 
 # --- exact task-id resolution ----------------------------------------------
@@ -268,6 +329,12 @@ if ! fm_task_id_creation_valid "$RAW_ID"; then
   die "'$RAW_ID' is not a valid task id"
 fi
 ID=$RAW_ID
+# Supervision lease guard: lifecycle control is overlap territory between the
+# two Pi supervision actors; refuse while the OTHER actor holds this task's
+# live lease (contract: bin/fm-lease-lib.sh; no-op in homes without leases).
+# shellcheck source=bin/fm-lease-lib.sh
+. "$SCRIPT_DIR/fm-lease-lib.sh"
+fm_lease_guard "$ID" "lifecycle control (fm-control)"
 CONTROL_LOCK="$STATE/.control-$ID.lock"
 trap control_cleanup EXIT
 fm_lock_try_acquire "$CONTROL_LOCK" \
@@ -305,15 +372,14 @@ LABEL="fm-$ID"
 RECORDED_HARNESS=$(fm_meta_get "$META" harness)
 KIND=$(fm_meta_get "$META" kind)
 WT=$(fm_meta_get "$META" worktree)
+[ -n "$KIND" ] || KIND=ship
 SECOND_MATE_HOME=$(fm_meta_get "$META" home)
 [ -n "$SECOND_MATE_HOME" ] || SECOND_MATE_HOME=$WT
-[ -n "$KIND" ] || KIND=ship
 
 case "$VERB" in
-  dormant|wake)
-    [ "$KIND" = secondmate ] \
-      || die "'$VERB' applies only to a kind=secondmate task; task $ID records kind '$KIND'"
-    ;;
+dormant|wake)
+  [ "$KIND" = secondmate ] || die "'$VERB' applies only to a kind=secondmate task; task $ID records kind '$KIND'"
+  ;;
 esac
 
 if [ "$VERB" = dormant ] && fm_secondmate_dormant_present "$STATE" "$ID"; then
@@ -367,26 +433,79 @@ require_state_verified_backend() {  # <verb>
   die "task $ID runs on the $BACKEND backend, which has no recovery-grade agent-state classifier, so '$1' cannot prove the agent actually stopped; refusing rather than reporting an unproven transition as done"
 }
 
+# rendered_matches <ere>: whether any row of the visible viewport matches.
+# An unreadable viewport is a no, so every caller treats it as missing proof.
+rendered_matches() {  # <ere>
+  local screen
+  screen=$(fm_backend_visible_capture "$BACKEND" "$T" "$LABEL" 2>/dev/null) || return 1
+  printf '%s\n' "$screen" | grep -Eq -- "$1"
+}
+
+# wait_rendered <ere> <timeout>: poll the viewport until a row matches.
+wait_rendered() {  # <ere> <timeout>
+  local elapsed=0 step
+  step=$(awk -v p="$POLL" 'BEGIN{printf "%s", (p < 0.1 ? p : 0.1)}')
+  while :; do
+    rendered_matches "$1" && return 0
+    awk -v e="$elapsed" -v t="$2" 'BEGIN{exit !(e < t)}' || return 1
+    sleep "$step"
+    elapsed=$(awk -v e="$elapsed" -v p="$step" 'BEGIN{printf "%.3f", e + p}')
+  done
+}
+
+# dismiss_interrupt_hazard <key> <ere>: after the presses, close a surface a
+# mistimed press opened (Devin's revert picker) with one more key, before
+# anything else can be typed into it. Sets INTERRUPT_HAZARD.
+dismiss_interrupt_hazard() {  # <key> <ere>
+  local key=$1 hazard=$2 gap
+  gap=$(fm_control_interrupt_press_gap "$HARNESS")
+  sleep "$gap"
+  rendered_matches "$hazard" || return 0
+  fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" \
+    || die "task $ID shows the $HARNESS revert picker after its interrupt, and the $key that closes it was not delivered; nothing else was typed. Close it with $key, never Enter, before any other action"
+  sleep "$gap"
+  ! rendered_matches "$hazard" \
+    || die "task $ID still shows the $HARNESS revert picker after one $key; nothing else was typed. Close it with $key, never Enter, before any other action"
+  INTERRUPT_HAZARD=dismissed
+}
+
 # send_interrupt_keys: deliver the harness's interrupt key the verified number
 # of times, then the composer-clear key when the adapter needs one. Refuses
 # before sending anything when the backend cannot deliver either key, because
 # an interrupt that cancels the turn but leaves the restored prompt in the
-# composer would make the next submitted line concatenate onto it.
+# composer would make the next submitted line concatenate onto it. An adapter
+# with an arm signal (fm_control_interrupt_arm_signal) gets each later press
+# only after the viewport proves the first one armed a running turn, and never
+# sooner than its press gap; without that proof INTERRUPT_ARMED=no and no
+# further press is sent. Its hazard surface is then closed before returning.
 send_interrupt_keys() {
-  local key repeat clear i=0
+  local key repeat clear arm hazard gap i=0
   key=$(fm_control_interrupt_key "$HARNESS")
   repeat=$(fm_control_interrupt_repeat "$HARNESS")
   clear=$(fm_control_interrupt_clear_key "$HARNESS")
+  arm=$(fm_control_interrupt_arm_signal "$HARNESS")
+  hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")
+  gap=$(fm_control_interrupt_press_gap "$HARNESS")
   fm_control_backend_supports_key "$BACKEND" "$key" \
     || die "harness $HARNESS interrupts with $key, which the $BACKEND backend cannot deliver; refusing to send a different key"
   [ -z "$clear" ] || fm_control_backend_supports_key "$BACKEND" "$clear" \
     || die "harness $HARNESS needs $clear to clear its composer after an interrupt, which the $BACKEND backend cannot deliver; refusing to leave the cancelled prompt where the next submitted line would concatenate onto it"
+  [ -z "$arm$hazard" ] || fm_backend_visible_capture_supported "$BACKEND" \
+    || die "harness $HARNESS must see its screen between interrupt presses, because a repeated $key on an idle agent opens its revert picker, and the $BACKEND backend has no verified viewport read; refusing to press blind"
+  INTERRUPT_ARMED=yes
+  INTERRUPT_HAZARD=none
   while [ "$i" -lt "$repeat" ]; do
     fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" \
       || die "interrupt key $key was not delivered to task $ID on $BACKEND"
     i=$((i + 1))
-    [ "$i" -ge "$repeat" ] || sleep 0.2
+    [ "$i" -lt "$repeat" ] || break
+    sleep "$gap"
+    if [ -n "$arm" ] && ! wait_rendered "$arm" "$ARM_WAIT"; then
+      INTERRUPT_ARMED=no
+      break
+    fi
   done
+  [ -z "$hazard" ] || dismiss_interrupt_hazard "$key" "$hazard"
   [ -z "$clear" ] || fm_backend_send_key "$BACKEND" "$T" "$clear" "$LABEL" \
     || die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action"
 }
@@ -424,12 +543,28 @@ interrupt_cancel_claim() {
 }
 
 # deliver_interrupt: deliver and observe the strongest adapter-owned
-# cancellation claim available after delivery.
+# cancellation claim available after delivery. `not-running` means an armed
+# adapter's first press rendered no running turn, so nothing was cancelled; a
+# dismissed revert picker is reported beside the claim.
 deliver_interrupt() {
-  local cancel
+  local cancel devin_gen=
+  # Devin does not emit Stop for cancellation. Capture this incarnation before
+  # keys, then invalidate its state conservatively rather than claiming idle.
+  if [ "$HARNESS" = devin ]; then
+    devin_gen=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
+  fi
   prepare_interrupt_ack
   send_interrupt_keys
-  cancel=$(interrupt_cancel_claim)
+  if [ "$INTERRUPT_ARMED" = no ]; then
+    cancel=not-running
+  else
+    cancel=$(interrupt_cancel_claim)
+    if [ "$HARNESS" = devin ] && [ -n "$devin_gen" ]; then
+      "$SCRIPT_DIR/fm-busy-event.sh" apply "$STATE" "$ID" unknown \
+        --gen "$devin_gen" --source fm-interrupt --event interrupt >/dev/null 2>&1 || true
+    fi
+  fi
+  [ "$INTERRUPT_HAZARD" = none ] || cancel="$cancel revert-picker=$INTERRUPT_HAZARD"
   printf '%s' "$cancel"
 }
 
@@ -463,9 +598,9 @@ retire_busy_incarnation() {
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
-# `already-stopped` or `stopped`.
+# `already-stopped`, `endpoint-gone`, or `stopped`.
 do_exit() {
-  local state cmd verdict cancel interrupt_result=not-needed
+  local state cmd hazard verdict composer_state cancel absence interrupt_result=not-needed
   require_state_verified_backend exit
   state=$(agent_state)
   case "$state" in
@@ -474,7 +609,40 @@ do_exit() {
       return 0
       ;;
     alive) ;;
-    missing) die "task $ID's recorded endpoint is gone, so there is no agent to stop; reconcile the task before any further control action" ;;
+    missing)
+      # `missing` on its own is not a finding about the endpoint: it conflates
+      # "destroyed" with "unreachable from this seat". Route it through the
+      # control plane's one absence proof - the same one the relaunch gate uses
+      # - and report what that proof actually established, never more.
+      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+      case "${absence%%$'\t'*}" in
+        gone)
+          # Proven gone, so the agent that lived in it went with it: exit's
+          # postcondition already holds and there is nothing to send. Its own
+          # outcome rather than `already-stopped`, because the endpoint this
+          # verb normally preserves did not survive. The worktree and every
+          # uncommitted change are untouched, and `relaunch` re-creates the
+          # endpoint from here.
+          printf 'endpoint-gone'
+          return 0
+          ;;
+        dead)
+          # The endpoint was only unreachable and is there after all, holding
+          # no agent - a herdr pane whose session server was merely stopped is
+          # the common case. Nothing is gone, so this is the ordinary
+          # already-stopped outcome.
+          printf 'already-stopped'
+          return 0
+          ;;
+        alive)
+          # The agent came back with its endpoint. Fall through to the ordinary
+          # alive path: interrupt if busy, then the harness's exit command.
+          ;;
+        *)
+          die "task $ID's endpoint $T reads 'missing', but ${absence#*$'\t'}; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one"
+          ;;
+      esac
+      ;;
     *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint" ;;
   esac
   # A busy agent is interrupted first before the exit command is submitted.
@@ -495,6 +663,21 @@ do_exit() {
       ;;
   esac
   cmd=$(fm_control_exit_command "$HARNESS")
+  hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")
+  if [ -n "$hazard" ] && rendered_matches "$hazard"; then
+    die "task $ID shows the $HARNESS revert picker, where typed text becomes a search and Enter reverts file changes; refusing to type the $cmd exit command. Close it with $(fm_control_interrupt_key "$HARNESS"), never Enter, then retry '$VERB'"
+  fi
+  composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) \
+    || composer_state=unknown
+  case "$composer_state" in
+    empty) ;;
+    pending)
+      die "task $ID's composer visibly holds pending text; refusing to type the $cmd exit command because it would concatenate onto that text. Clear or submit the pending text, then retry '$VERB'"
+      ;;
+    *)
+      die "task $ID's composer state is '$composer_state', not proven empty; refusing to type the $cmd exit command because it could concatenate onto existing text. Clear the composer, then retry '$VERB'"
+      ;;
+  esac
   # The submit verdict is NOT the postcondition here: a successful exit command
   # destroys the composer the verdict is read from, so a post-exit read can
   # legitimately report anything. Only a hard transport failure aborts; the
@@ -519,8 +702,7 @@ secondmate_home_has_inflight_work() {
   [ -n "$SECOND_MATE_HOME" ] || die "secondmate $ID has no recorded home; refusing to make an unlocatable home dormant"
   sub_state="$SECOND_MATE_HOME/state"
   if [ -e "$sub_state" ] || [ -L "$sub_state" ]; then
-    [ -d "$sub_state" ] && [ ! -L "$sub_state" ] \
-      || die "secondmate $ID home has an unsafe state path at $sub_state"
+    [ -d "$sub_state" ] && [ ! -L "$sub_state" ] || die "secondmate $ID home has an unsafe state path at $sub_state"
   else
     return 1
   fi
@@ -538,9 +720,14 @@ do_dormant() {
   if secondmate_home_has_inflight_work; then
     die "secondmate $ID still has in-flight work in $SECOND_MATE_HOME/state ($(basename "$DORMANT_CHILD_META")); let that home finish before making it dormant"
   fi
+  fm_secondmate_liveness_lock "$ID" \
+    || die "secondmate $ID has a supervision liveness check or relaunch in progress; retry dormant once it finishes"
+  LIVENESS_LOCK_HELD=1
   result=$(do_exit)
   fm_secondmate_dormant_write "$STATE" "$ID" "explicit control-plane request" \
     || die "secondmate $ID was stopped but its durable dormant marker could not be written; keep it stopped and repair $STATE before retrying"
+  LIVENESS_LOCK_HELD=0
+  fm_secondmate_liveness_unlock "$ID"
   echo "dormant $ID exit=$result marker=$STATE/$ID.dormant worktree=$WT"
 }
 
@@ -549,25 +736,21 @@ do_wake() {
   fm_secondmate_dormant_present "$STATE" "$ID" && marker_present=1
   before=$(agent_state)
   case "$before" in
-    alive)
-      [ "$marker_present" -eq 0 ] \
-        || die "secondmate $ID is marked dormant but its recorded agent is alive; refusing to clear owed convergence without a normal wake launch"
-      echo "already-awake $ID backend=$BACKEND endpoint=$T worktree=$WT"
-      return 0
-      ;;
-    dead|missing) ;;
-    *) die "task $ID's endpoint reads '$before' rather than a recovery-grade dead or missing state; refusing to launch a duplicate secondmate" ;;
+  alive)
+    [ "$marker_present" -eq 0 ] || die "secondmate $ID is marked dormant but its recorded agent is alive; refusing to clear owed convergence without a normal wake launch"
+    echo "already-awake $ID backend=$BACKEND endpoint=$T worktree=$WT"
+    return 0
+    ;;
+  dead|missing) ;;
+  *) die "task $ID's endpoint reads '$before' rather than a recovery-grade dead or missing state; refusing to launch a duplicate secondmate" ;;
   esac
   if ! "$SCRIPT_DIR/fm-spawn.sh" "$ID" --secondmate >/dev/null; then
     die "secondmate $ID could not be launched through the normal recovery path; its dormant marker was retained"
   fi
-  fm_backend_validate_task_endpoint "$META" "$ID" \
-    || die "secondmate $ID launched but its replacement metadata failed endpoint validation; inspect the endpoint before routing work to it"
+  fm_backend_validate_task_endpoint "$META" "$ID" || die "secondmate $ID launched but its replacement metadata failed endpoint validation; inspect the endpoint before routing work to it"
   state=$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET")
-  [ "$state" = alive ] \
-    || die "secondmate $ID launch returned but its agent state is '$state'; inspect the endpoint before routing work to it"
-  fm_secondmate_dormant_clear "$STATE" "$ID" \
-    || die "secondmate $ID is awake and converged, but its dormant marker could not be cleared"
+  [ "$state" = alive ] || die "secondmate $ID launch returned but its agent state is '$state'; inspect the endpoint before routing work to it"
+  fm_secondmate_dormant_clear "$STATE" "$ID" || die "secondmate $ID is awake and converged, but its dormant marker could not be cleared"
   echo "awake $ID backend=$FM_BACKEND_VALIDATED_BACKEND endpoint=$FM_BACKEND_VALIDATED_TARGET worktree=$WT"
 }
 
@@ -658,8 +841,16 @@ relaunch_rollback() {
           echo "error: $ID's agent stopped but relaunch did not reach replacement launch; no agent is running, and its work plus progress note are preserved at $WT" >&2
           ;;
         *)
-          journal_write "failed:$RELAUNCH_PHASE" "rollback=none-agent-state-$state" || true
-          echo "error: relaunch of $ID failed while stopping the old agent and its state is '$state'; the durable record and progress note were retained for recovery" >&2
+          # The old agent was NOT proven stopped, so no replacement is coming
+          # and the agent that may still be reading these instructions is the
+          # original one. The note exists to brief a replacement; leaving it in
+          # a possibly-live agent's brief would be an unrequested edit to a
+          # running task. Restore byte-exact, exactly as the alive case does.
+          if [ -n "$RELAUNCH_BRIEF" ] && [ -f "$BRIEF_PRIOR" ]; then
+            cp -p "$BRIEF_PRIOR" "$RELAUNCH_BRIEF" 2>/dev/null || true
+          fi
+          journal_write "failed:$RELAUNCH_PHASE" "rollback=instructions-restored-agent-state-$state" || true
+          echo "error: relaunch of $ID failed while stopping the old agent and its state is '$state', so it was not proven stopped; its original instructions were restored and the durable record was retained for recovery" >&2
           ;;
       esac
       ;;
@@ -712,9 +903,9 @@ resolve_relaunch_profile() {
     CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
     CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
     case "$CONFIG_EFFORT" in
-      ''|low|medium|high|xhigh|max) ;;
+      ''|low|medium|high|xhigh|max|ultra) ;;
       *)
-        echo "warning: config/secondmate-harness effort token '$CONFIG_EFFORT' is not one of low, medium, high, xhigh, max; ignoring" >&2
+        echo "warning: config/secondmate-harness effort token '$CONFIG_EFFORT' is not one of low, medium, high, xhigh, max, ultra; ignoring" >&2
         CONFIG_EFFORT=
         ;;
     esac
@@ -757,6 +948,16 @@ resolve_relaunch_profile() {
   else
     TARGET_EFFORT=default
   fi
+  if [ "$TARGET_EFFORT" = ultra ]; then
+    "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
+  fi
+  # The launch owner applies this home's worker account pin too, but only after
+  # the old agent has been stopped, so a pin that no longer resolves or is
+  # signed out must refuse here, while nothing has changed yet.
+  local account_model=$TARGET_MODEL
+  [ "$account_model" != default ] || account_model=
+  fm_worker_account_select "$TARGET_HARNESS" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
+    "$account_model" "$TARGET_HARNESS" >/dev/null || return 1
 }
 
 # safe_checkpoint: prove, before anything is stopped, that the work a relaunch
@@ -806,10 +1007,10 @@ safe_checkpoint() {
     marker=$(cat "$WT/.fm-secondmate-home" 2>/dev/null || true)
     [ "$marker" = "$ID" ] \
       || die "task $ID's home $WT is not marked as its own seeded secondmate home (marker: ${marker:-none}); refusing to relaunch"
-    [ -d "$WT/state" ] \
+    # Do not walk state/ with find(1): watcher scratch files can vanish
+    # mid-scan and make find fail even when every child *.meta is readable.
+    [ -d "$WT/state" ] && [ -r "$WT/state" ] && [ -x "$WT/state" ] \
       || die "secondmate $ID's home has no readable state directory, so its child work cannot be accounted for; refusing to relaunch"
-    find "$WT/state" -mindepth 1 -maxdepth 1 -print >/dev/null 2>&1 \
-      || die "secondmate $ID's child records cannot be traversed; refusing to relaunch"
     children=0
     for child_meta in "$WT/state"/*.meta; do
       if [ ! -e "$child_meta" ] && [ ! -L "$child_meta" ]; then
@@ -846,6 +1047,10 @@ record_note() {
         echo
         echo "This task was relaunched. Continue from here; the local copy and every"
         echo "uncommitted change are exactly as the previous worker left them."
+        echo
+        echo "First, check your instruction inbox: list $STATE/$ID.inbox/*.msg, act on"
+        echo "each message in numeric order, then mv each handled file into"
+        echo "$STATE/$ID.inbox/handled/. A steer sent before the relaunch survives there."
         echo
         printf '%s\n' "$NOTE"
       } >> "$RELAUNCH_BRIEF" \
@@ -906,6 +1111,23 @@ do_relaunch() {
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
+    # $T was resolved from the record before the launch. When the recorded
+    # endpoint was gone, the launch owner created a fresh one and republished
+    # the record pointing at it, so every postcondition below must be read from
+    # the endpoint the task now HAS, not the one it had. Re-resolving through
+    # the same shared validation is what makes that safe: a record that no
+    # longer passes it refuses here rather than leaving this transaction
+    # polling an address nothing owns.
+    # stdout is dropped (it is only the resolved target), but the refusal on
+    # stderr names the exact row that failed - and in this one branch the record
+    # was just rewritten by the launch owner, so that row is the whole
+    # diagnostic. Let it through rather than dying with nothing to act on.
+    if fm_backend_validate_task_endpoint "$META" "$ID" >/dev/null \
+       && [ -n "$FM_BACKEND_VALIDATED_TARGET" ]; then
+      T=$FM_BACKEND_VALIDATED_TARGET
+    else
+      die "the replacement agent for $ID was launched, but task $ID's republished record no longer passes endpoint validation (the refusal above names the row), so this transaction cannot say which endpoint to confirm it on; reconcile $META before any further control action"
+    fi
   else
     [ "$(fm_meta_get "$META" control_relaunch_tx)" != "$RELAUNCH_TX" ] \
       || RELAUNCH_META_PUBLISHED=1

@@ -16,11 +16,11 @@
 # They are intentionally distinct from both compatibility floors and the latest
 # stable release.
 
-FM_NO_MISTAKES_MIN=1.31.2
+FM_NO_MISTAKES_MIN=1.46.0
 FM_GH_AXI_MIN=0.1.29
-FM_LAVISH_AXI_MIN=0.1.46
-FM_TASKS_AXI_MIN=0.2.4
-FM_QUOTA_AXI_MIN=0.1.25
+FM_LAVISH_AXI_MIN=0.1.77
+FM_TASKS_AXI_MIN=0.2.6
+FM_QUOTA_AXI_MIN=0.1.51
 
 FM_NO_MISTAKES_RELEASE_REPO=kunchenguid/no-mistakes
 FM_TREEHOUSE_CI_VERSION=2.0.1

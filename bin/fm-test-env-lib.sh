@@ -29,36 +29,69 @@ fm_test_env_canonical_dir() {
   (CDPATH='' cd -P -- "$1" && pwd)
 }
 
-# Exact enumeration of the documented opt-in live-lane switches. Each defaults
-# to off and is consulted only by its own test; nothing here is read by
-# production code. Enabling one keeps the inherited HOME, so a switch belongs
-# here only when its lane launches a real harness binary that needs its login.
+# Exact enumeration of the documented opt-in live-lane switches: every control
+# variable a guard passes to tests/lib.sh's fm_live_gate, plus the family-wide
+# FM_LIVE. Each defaults to off and is consulted only by its own test; nothing
+# here is read by production code. Enabling one keeps the inherited HOME, so a
+# switch belongs here only when its lane launches a real harness binary that
+# needs its login. A new fm_live_gate variable must be added here, or the
+# isolation boundary removes it and the guard can never be turned on.
 FM_TEST_ENV_LIVE_SWITCHES='
   FM_AFK_PI_HERDR_E2E
+  FM_AGY_SIGNALS_LIVE
+  FM_BEARINGS_LAVISH_LIVE
+  FM_CALM_PI_QUEUE_RETENTION_LIVE
+  FM_CLAUDE_CALM_LIVE_E2E
+  FM_CLAUDE_CALM_PLUGIN_TEST
   FM_CLAUDE_LIVE_E2E
   FM_CMUX_CLAUDE_COMPOSER_LIVE
+  FM_CODEX_HOOK_LAYER_LIVE
   FM_CODEX_LIVE_E2E
+  FM_COMPOSER_CODEX_IDLE_LIVE
   FM_COMPOSER_MATRIX_LIVE
   FM_CURSOR_PRIMARY_LIVE_E2E
+  FM_DEVIN_SIGNALS_LIVE
   FM_GROK_LIVE_E2E
   FM_GROK_STOP_LIVE_E2E
+  FM_HARNESS_ADAPTER_INSTRUCTION_EVAL
   FM_HARNESS_LIVENESS_DRIFT
+  FM_HERDR_AGENT_EXIT_SHELL_E2E
+  FM_HERDR_ATTACHED_VIEWER_LIVE_E2E
+  FM_HERDR_PI_STALE_REGISTRATION_LIVE_E2E
   FM_HERDR_SMOKE_REAL_CLAUDE
+  FM_HERDR_SUBMIT_CONFIRM_LIVE
   FM_HERDR_VERSION_FLOOR_LIVE_E2E
+  FM_HOST_MIRROR_LIVE_E2E
+  FM_LAUNCH_PROMPT_SIGNALS_LIVE
+  FM_LIVE
   FM_MUSE_SIGNALS_LIVE
+  FM_OMP_LIVE_E2E
   FM_OPENCODE_LIVE_E2E
+  FM_PI_BRANCH_LIVE_E2E
+  FM_PI_BRANCH_RESPONSIVENESS_E2E
+  FM_PI_CODEX_NATIVE_LIVE
   FM_PI_LIVE_E2E
+  FM_PI_SESSIONSTART_RACE_LIVE_E2E
+  FM_PR_STATE_LIVE_E2E
   FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E
+  FM_ROVO_SIGNALS_LIVE
+  FM_SEND_INBOX_LIVE_E2E
   FM_SEND_MARKER_HERDR_E2E
   FM_SESSIONSTART_HOOK_LIVE_E2E
   FM_SESSIONSTART_INSTRUCTION_REFRESH_LIVE_E2E
+  FM_SUPERVISION_HOST_LIVE_E2E
+  FM_WORKER_ACCOUNT_LIVE_E2E
 '
 
 # Exact enumeration of documented opt-ins that only a test reads and that need
 # no login home. They survive the boundary but never grant the inherited HOME.
+# FM_FAKE_LIVE and FM_FAKE_ALT_LIVE are tests/fm-live-gate.test.sh's stand-in
+# gate variables.
 FM_TEST_ENV_RETAINED_SWITCHES='
   FM_BOARD_BROWSER_SIZE
   FM_BOARD_BROWSER_TEST
+  FM_FAKE_ALT_LIVE
+  FM_FAKE_LIVE
 '
 
 # Retained across the boundary: test controls, both enumerations above, and the
