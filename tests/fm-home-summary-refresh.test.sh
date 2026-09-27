@@ -131,11 +131,13 @@ jq -e --arg home "$HOME_DIR" --arg now "$NOW_ONE" --argjson epoch "$EPOCH_ONE" '
 ' "$HOME_DIR/state/home-summary.json" >/dev/null \
   || fail "initial ledger did not expose the extended producer schema"
 
-PATH="$FAKEBIN:$PATH" \
-  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
+# A secondmate home runs its own checkout's watcher; the primary checkout's
+# watcher refuses an inherited FM_HOME that names another checkout.
+cp -R "$ROOT/bin/." "$HOME_DIR/bin/"
+PATH="$FAKEBIN:$PATH" FM_HOME="$HOME_DIR" \
   FM_SNAPSHOT_NOW="$NOW_TWO" FM_SNAPSHOT_NOW_EPOCH="$EPOCH_TWO" \
   FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=9999999 FM_HEARTBEAT=9999999 \
-  "$WATCH" > "$TMP_ROOT/watch.out" 2> "$TMP_ROOT/watch.err" &
+  "$HOME_DIR/bin/fm-watch.sh" > "$TMP_ROOT/watch.out" 2> "$TMP_ROOT/watch.err" &
 WATCH_PID=$!
 i=0
 while [ ! -e "$HOME_DIR/state/.last-watcher-beat" ] && [ "$i" -lt 100 ]; do

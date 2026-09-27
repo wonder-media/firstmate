@@ -1266,7 +1266,7 @@ pass "real Herdr lab: Hi Bit and Wheelhouse-style same-identity restarts reclaim
 GUARD_OFF_ID=guard-off-r1
 mkdir -p "$HOME_DIR/data/$GUARD_OFF_ID"
 write_ship_brief "$HOME_DIR" "$GUARD_OFF_ID" 'Presentation-off recovery guard fixture.'
-spawn_task "$GUARD_OFF_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/guard-off-first.out" 2> "$TMP_ROOT/guard-off-first.err" \
+spawn_task "$GUARD_OFF_ID" "$HOME_DIR" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/guard-off-first.out" 2> "$TMP_ROOT/guard-off-first.err" \
   || fail "presentation-off guard fixture's projected spawn failed: $(cat "$TMP_ROOT/guard-off-first.err")"
 GUARD_OFF_META="$HOME_DIR/state/$GUARD_OFF_ID.meta"
 GUARD_OFF_OLD_WT=$(remember_meta_worktree "$GUARD_OFF_META")
@@ -1282,7 +1282,7 @@ printf 'off\n' > "$HOME_DIR/config/herdr-presentation-spaces"
 lab pane report-agent "$GUARD_OFF_OLD_PANE" --source fm-projection-e2e --agent test-agent --state working >/dev/null \
   || fail "could not register the live-agent fixture on the journal-bound pane"
 GUARD_OFF_START=$(log_line_count)
-if spawn_task "$GUARD_OFF_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/guard-off-live.out" 2> "$TMP_ROOT/guard-off-live.err"; then
+if spawn_task "$GUARD_OFF_ID" "$HOME_DIR" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/guard-off-live.out" 2> "$TMP_ROOT/guard-off-live.err"; then
   fail "a live journal-bound endpoint admitted a duplicate launch under presentation-off grouping"
 fi
 grep -F "refusing duplicate launch" "$TMP_ROOT/guard-off-live.err" >/dev/null 2>&1 \
@@ -1296,7 +1296,7 @@ PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" stop "$HERDR_LAB_SESSION" >/dev/
   || fail "could not stop the isolated session for the presentation-off guard"
 PATH="$HERDR_ORIGINAL_PATH" "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" \
   || fail "could not reprovision the isolated session for the presentation-off guard"
-spawn_task "$GUARD_OFF_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/guard-off-husk.out" 2> "$TMP_ROOT/guard-off-husk.err" \
+spawn_task "$GUARD_OFF_ID" "$HOME_DIR" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/guard-off-husk.out" 2> "$TMP_ROOT/guard-off-husk.err" \
   || fail "agent-free journal recovery failed under presentation-off grouping: $(cat "$TMP_ROOT/guard-off-husk.err")"
 GUARD_OFF_NEW_WT=$(remember_meta_worktree "$GUARD_OFF_META")
 GUARD_OFF_NEW_PANE=$(grep '^herdr_pane_id=' "$GUARD_OFF_META" | cut -d= -f2-)
@@ -1325,7 +1325,7 @@ GROUP_START=$(log_line_count)
 for GROUP_ID in group-fresh-a group-fresh-b; do
   mkdir -p "$HOME_DIR/data/$GROUP_ID"
   write_ship_brief "$HOME_DIR" "$GROUP_ID" 'Project grouping precedence fixture.'
-  spawn_task "$GROUP_ID" "$HOME_DIR" "$PROJECT_DIR" > "$TMP_ROOT/$GROUP_ID.out" 2> "$TMP_ROOT/$GROUP_ID.err" \
+  spawn_task "$GROUP_ID" "$HOME_DIR" "$RECOVERY_PROJECT_DIR" > "$TMP_ROOT/$GROUP_ID.out" 2> "$TMP_ROOT/$GROUP_ID.err" \
     || fail "project-grouped spawn $GROUP_ID failed: $(cat "$TMP_ROOT/$GROUP_ID.err")"
   [ ! -e "$HOME_DIR/state/$GROUP_ID.herdr-presentation" ] \
     || fail "project grouping still published a presentation journal for $GROUP_ID"
@@ -1337,7 +1337,7 @@ GROUP_WS_B=$(grep '^herdr_workspace_id=' "$HOME_DIR/state/group-fresh-b.meta" | 
 [ -n "$GROUP_WS_A" ] || fail "grouped spawn A recorded no workspace id"
 [ "$GROUP_WS_A" = "$GROUP_WS_B" ] \
   || fail "two grouped tasks did not share one exact project workspace: $GROUP_WS_A vs $GROUP_WS_B"
-GROUP_PROJECT_NAME=$(basename "$PROJECT_DIR")
+GROUP_PROJECT_NAME=$(basename "$RECOVERY_PROJECT_DIR")
 [ "$(lab workspace get "$GROUP_WS_A" | jq -r '.result.workspace.label')" = "$GROUP_PROJECT_NAME" ] \
   || fail "the project workspace label is not the registered project name"
 GROUP_TABS=$(lab tab list --workspace "$GROUP_WS_A" | jq -r '[.result.tabs[].label] | sort | join(",")')

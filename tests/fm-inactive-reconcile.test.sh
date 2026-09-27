@@ -892,11 +892,14 @@ test_watcher_poll_delivers_child_ledger_line_to_parent() {
   make_world watcher-ledger; bind_secondmate local
   write_child "$MATE" child 'done: PR https://example.test/owner/repo/pull/1 checks green'
   prime_seen "$MATE/state" "$MATE/state/child.status"
+  # A secondmate home runs its own checkout's watcher; the primary checkout's
+  # watcher refuses an inherited FM_HOME that names another checkout.
+  cp -R "$ROOT/bin/." "$MATE/bin/"
   PATH="$WORLD/fakebin:$PATH" FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" FM_DATA_OVERRIDE="$MATE/data" \
     FM_CONFIG_OVERRIDE="$MATE/config" FM_INACTIVE_RECONCILE_SECS=60 \
     FM_INACTIVE_CREW_STATE_BIN="$WORLD/fakebin/fm-crew-state.sh" FM_FORGE_LOG="$WORLD/forge.log" \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
-    FM_FAKE_CREW_STATE='unknown' "$WATCH" > "$WORLD/mate-watch.out" 2>&1 &
+    FM_FAKE_CREW_STATE='unknown' "$MATE/bin/fm-watch.sh" > "$WORLD/mate-watch.out" 2>&1 &
   pid=$!
   i=0
   while [ "$i" -lt 100 ]; do
