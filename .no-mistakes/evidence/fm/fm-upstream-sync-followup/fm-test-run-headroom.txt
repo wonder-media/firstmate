@@ -1,0 +1,8 @@
+## AFTER (uncommitted change)
+ok - the automatic --changed bound gives the slow watcher suite at least 1500s
+exit=0
+
+## BEFORE (HEAD, no env-lib copy)
+ok - exact suite coverage: --all lists every tests/*.test.sh once
+not ok - healthy changed watcher script must pass, got 1: bin/fm-test-run.sh: line 165: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/tmp.ZzXkerEx3x/repo/bin/fm-test-env-lib.sh: No such file or directory
+exit=1

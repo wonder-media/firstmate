@@ -1,0 +1,3 @@
+$ bin/fm-board.py ingest --once --home $LAB
+fm-board: [Errno 2] No such file or directory: '/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab.FR5nsO/config/board.json'
+exit=

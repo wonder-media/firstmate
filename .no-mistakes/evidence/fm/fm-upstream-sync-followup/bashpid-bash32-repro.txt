@@ -1,0 +1,6 @@
+$ /bin/bash -uc ". bin/fm-timeout-lib.sh; fm_exec_timed 5 1 echo hello"   # bash 3.2, merged tree
+bin/fm-timeout-lib.sh: line 209: BASHPID: unbound variable
+exit=127
+$ same, fork base 6bce521
+hello
+exit=0
