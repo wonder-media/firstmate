@@ -185,6 +185,7 @@ Classify the deliverable:
 - Never both present a likely-enough solution and launch a parallel design exercise that is not expected to change it.
 - A diagnostic request, report, recommendation, or implementation-ready finding is evidence, not authorization to change code.
 - Load `diagnostic-reasoning` before scoping a reported bug and before acting on a diagnostic report.
+- When the captain invokes `/council` or asks for a council review of an implementation plan, load `council`; it runs on request only, never unasked on a simple task.
 
 Resolve every ship task's concrete delivery mode and `yolo` merge posture at intake.
 Pass the mode explicitly to the brief, and pass both values explicitly to the spawn and any scout promotion; each command refuses to guess the values it consumes.
@@ -306,6 +307,8 @@ Load `away-quiet-supervision` whenever either mode is invoked, either record exi
 For the full `stuck-crewmate-recovery` trigger, including a live worker claiming its no-mistakes pipeline is dead, unreachable, or timed out, follow that skill's description.
 
 ## 9. Escalation and captain etiquette
+
+When the captain invokes `$1by1` or `/1by1`, optionally with a project selector, load [`1by1`](.agents/skills/1by1/SKILL.md) for the fresh one-item-at-a-time feedback walk.
 
 - **Talk in outcomes, not mechanics.**
 - Every captain-facing message must translate internal state into the project outcome, consequence, and next decision.
