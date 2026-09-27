@@ -547,7 +547,6 @@ That warning uses `bin/fm-supervision-instructions.sh --repair-line`, so it alwa
 - The predicate.
 - Main and secondmate primary scope.
 - Bidirectional home-mismatch refusal.
-- Child-worktree exclusion.
 - Child-worktree exclusion despite inherited primary state.
 - `FM_HOME` and `FM_STATE_OVERRIDE` precedence.
 - The live-lock and fresh-beacon guard predicate.
@@ -576,6 +575,7 @@ It proves that a live foreign owner still prevents arming while repeated non-own
 - The persistent model's fresh-leftover-beacon negative control.
 - The auto-arm model's healthy fresh-beacon-without-a-watcher case, session-and-recovery-bound long-turn rewake tolerance, independently broken tolerance signals, open-claim negative control, stale-beacon alarm, and isolation from other models.
 - The extension model's live-watcher path, ownership-qualified fresh hand-off, held-lock failures, independently broken ownership signals, stale-beacon alarm, queued-wake warning, and Pi and pi-signed harness routing.
+
 It also covers true-reason banner wording and reason-keyed episode dedup surviving a beacon mtime change.
 
 `tests/fm-cursor-primary.test.sh` covers the Cursor park end to end over real processes with no harness installed:
