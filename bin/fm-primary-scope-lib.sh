@@ -2,6 +2,8 @@
 # Shared marker-or-plain-checkout predicate for tracked hooks that must act only
 # in a genuine firstmate primary home.
 # This file is sourced by hook entrypoints and has no side effects on source.
+# fm_primary_root_matches is split out so a caller can confirm primary-home
+# identity before its gitignored state dir exists, such as to create it.
 
 # Return 0 when $1 carries a genuine secondmate-home marker.
 fm_root_is_secondmate_home() {
@@ -17,10 +19,11 @@ fm_root_is_secondmate_home() {
   return 0
 }
 
-# Return 0 when $1 is a genuine primary checkout.
-# A valid secondmate marker force-includes a linked secondmate home.
-# Otherwise only a plain checkout is primary, never a linked task worktree.
-fm_primary_checkout_matches() {
+# Return 0 when $1 is a genuine primary root, regardless of whether its state
+# dir exists yet. A valid secondmate marker force-includes a linked secondmate
+# home. Otherwise only a plain checkout is primary, never a linked task
+# worktree.
+fm_primary_root_matches() {
   local root=$1 git_dir git_common_dir
   # File checks run first so a plain state home never spawns git.
   [ -f "$root/AGENTS.md" ] || return 1
@@ -31,11 +34,15 @@ fm_primary_checkout_matches() {
   [ "$git_dir" = "$git_common_dir" ]
 }
 
+# Compatibility name used by checkout-binding safety guards.
+fm_primary_checkout_matches() {
+  fm_primary_root_matches "$1"
+}
+
 # Return 0 when $1 is a genuine primary root whose effective state dir is $2.
 fm_primary_scope_matches() {
   local root=$1 state=$2
-  fm_primary_checkout_matches "$root" || return 1
-  [ -d "$state" ] || return 1
+  fm_primary_root_matches "$root" && [ -d "$state" ]
 }
 
 # Refuse inherited home identity that names another firstmate checkout.
