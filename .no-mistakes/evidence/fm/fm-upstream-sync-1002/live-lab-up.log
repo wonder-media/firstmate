@@ -1,0 +1,25 @@
+lab: /private/tmp/fmlab.iyz1Gd (tear down with: bin/fm-live-lab.sh down /private/tmp/fmlab.iyz1Gd)
+tree: d1a5b71ce328565481e54b1fa7c9131ab48eff67 from /Users/patrick/.no-mistakes/worktrees/72da313f481c/01M3ZC15PXY2ET1QE7DGN48MFA
+scaffolded: /private/tmp/fmlab.iyz1Gd/home/data/lab031436457353-mate/brief.md (secondmate charter)
+home=/private/tmp/fmlab.iyz1Gd/mate
+spawned lab031436457353-mate harness=claude kind=secondmate mode=secondmate yolo=off window=firstmate:fm-lab031436457353-mate worktree=/private/tmp/fmlab.iyz1Gd/mate
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+spawned lab031436457353-worker harness=claude kind=ship mode=local-only yolo=on window=firstmate:fm-lab031436457353-worker worktree=/private/tmp/fmlab.iyz1Gd/treehouse/.treehouse/notes-6e5297/1/notes
+gate: /private/tmp/fmlab.iyz1Gd/home/data/lab031436457353-worker/gate (touch, then message the worker to resume)
+primary: claude --setting-sources project,local --model sonnet --effort medium --permission-mode auto
+ok primary: claude pid 96590 in /private/tmp/fmlab.iyz1Gd/home
+ok probe: the primary answered LABREADY-031436457353
+ok trust: /private/tmp/fmlab.iyz1Gd/home is trusted in the Claude store
+ok mirror: verified writer, check passed, captain=1 main=1
+ok host: supervision host pid 16478
+ok watcher: live watcher with a fresh beacon
+ok mate: lab031436457353-mate pid 63578 in /private/tmp/fmlab.iyz1Gd/mate
+ok worker: lab031436457353-worker parked on /private/tmp/fmlab.iyz1Gd/home/data/lab031436457353-worker/gate
+ok treehouse: ~/.treehouse unchanged
+ready: /private/tmp/fmlab.iyz1Gd
