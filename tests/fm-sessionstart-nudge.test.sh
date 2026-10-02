@@ -1075,6 +1075,8 @@ test_run_creates_missing_state_on_a_fresh_primary() {
   fm_git_worktree "$base" "$linked" fm/run-fresh-linked
   mkdir -p "$linked/bin"
   : > "$linked/AGENTS.md"
+  cp "$ROOT/bin/fm-sessionstart-run.sh" "$ROOT/bin/fm-primary-scope-lib.sh" "$linked/bin/"
+  chmod +x "$linked/bin/fm-sessionstart-run.sh"
   assert_absent "$linked/state" "the linked fixture already had a state dir before the assertion began"
   expect_silent_zero "linked worktree fresh state run" run_hook "$linked" --source startup
   assert_absent "$linked/state" "an unmarked linked task worktree got a state dir created for it"
