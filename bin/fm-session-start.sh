@@ -587,6 +587,7 @@ fm_session_start_endpoint_read() {  # <backend> <target> [expected-label]
   local backend=$1 target=$2 label=${3:-}
   # shellcheck disable=SC2016  # Positional parameters expand inside the child bash, not here.
   fm_run_timed "$ENDPOINT_TIMEOUT" bash -c '
+    FM_BACKEND_HERDR_READ_OUTER_BOUND=1
     . "$1"
     fm_backend_target_exists "$2" "$3" "$4"
   ' _ "$SCRIPT_DIR/fm-backend.sh" "$backend" "$target" "$label"

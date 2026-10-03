@@ -99,7 +99,9 @@ FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 # shellcheck source=bin/fm-tool-versions-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-tool-versions-lib.sh"
 # Passive endpoint reads share one hard bound; timeout is unreadable, never
-# evidence that an endpoint is dead or idle.
+# evidence that an endpoint is dead or idle. A caller that already bounds the
+# read in its own process group sets FM_BACKEND_HERDR_READ_OUTER_BOUND to own
+# the deadline instead.
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$FM_BACKEND_HERDR_ROOT/bin/fm-timeout-lib.sh"
 FM_BACKEND_HERDR_READ_TIMEOUT=${FM_BACKEND_HERDR_READ_TIMEOUT:-3}
@@ -465,6 +467,13 @@ fm_backend_herdr_cli() {  # <session> <herdr-subcommand-and-args...>
 fm_backend_herdr_read_cli() {  # <session> <herdr-subcommand-and-args...>
   local session=$1
   shift
+  # A caller that already runs this read inside its own process-group bound
+  # owns the deadline: a nested bound would start a second process group that
+  # the outer kill cannot reach, leaving the hung CLI behind it.
+  if [ -n "${FM_BACKEND_HERDR_READ_OUTER_BOUND:-}" ]; then
+    fm_backend_herdr_cli "$session" "$@"
+    return
+  fi
   # Keep compatible-client selection and protocol retry in the ordinary owner;
   # only its concrete CLI calls receive this passive-read bound.
   FM_BACKEND_HERDR_CALL_TIMEOUT=$FM_BACKEND_HERDR_READ_TIMEOUT \
