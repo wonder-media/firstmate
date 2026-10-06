@@ -56,6 +56,7 @@ Native-harness adapters can discover the same guarded FirstMate tools and operat
 The tool result and clean-exit fallback are owned by `../../../docs/supervision-protocols/pi.md`.
 `../../../bin/fm-session-start.sh` reports when the live Pi-family session has not loaded both extensions and points at the selected executable after project trust as the fix, with `-e` as a trust-free fallback.
 
-When a secondmate is launched on Pi or Pi-signed, `../../../bin/fm-spawn.sh --secondmate` also passes the state-resident semantic lifecycle extension before the two primary extensions. That first `-e` is omitted when lifecycle wiring is not armed; the primary extensions remain.
+When a secondmate is launched on Pi or Pi-signed, `../../../bin/fm-spawn.sh --secondmate` also passes the state-resident semantic lifecycle extension before the two primary extensions.
+That first `-e` is omitted when lifecycle wiring is not armed; the primary extensions remain.
 Both files already exist in the secondmate home's git worktree.
 The PreToolUse-equivalent watcher-arm seatbelt returns `{block: true}` from the `tool_call` event.
