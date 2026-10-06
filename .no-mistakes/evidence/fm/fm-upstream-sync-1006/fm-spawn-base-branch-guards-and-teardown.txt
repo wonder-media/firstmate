@@ -1,0 +1,39 @@
+$ fm-spawn.sh negmissing <demo> --scout --base-branch nosuchbranch   (origin lacks branch)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warn: no registry at /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data/projects.md; defaulting demo to no-mistakes off
+fatal: couldn't find remote ref refs/heads/nosuchbranch
+error: could not fetch 'origin/nosuchbranch' for pooled worktree '/Users/patrick/.treehouse/demo-a72232/2/demo'; refusing to launch from a potentially stale base
+rc=1
+
+$ fm-spawn.sh negmismatch <demo> --scout   (brief says release, no flag)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data/negmismatch/brief.md records a Base branch line but the spawn has no --base-branch; pass the brief's base with --base-branch or re-scaffold the brief without one
+rc=1
+
+$ fm-spawn.sh negmismatch <demo> --scout --base-branch main   (brief says release)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warn: no registry at /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data/projects.md; defaulting demo to no-mistakes off
+error: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data/negmismatch/brief.md must record Base branch: main and no other Base branch line to spawn with --base-branch main; scaffold it with bin/fm-brief.sh --base-branch main
+rc=1
+
+$ fm-teardown.sh basescout1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+teardown: reaping leaked worktree process(es) for basescout1: 4745 11208 12318
+teardown: force-killing leaked worktree process(es) for basescout1: 4745
+A new version of treehouse is available: v2.3.0 → v3.1.2
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+teardown basescout1 complete (window driver:fm-basescout1, worktree /Users/patrick/.treehouse/demo-a72232/1/demo)
+Backlog: basescout1 just finished (this home keeps no markdown backlog at /private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab.8stOZM/data/backlog.md). Update /private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab.8stOZM/data/backlog.md - move basescout1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+rc=0

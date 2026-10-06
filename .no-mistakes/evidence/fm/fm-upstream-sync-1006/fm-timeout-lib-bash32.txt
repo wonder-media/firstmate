@@ -1,0 +1,7 @@
+shell: 3.2.57(1)-release
+mechanism: bash
+fm_run_timed 2 sleep 30 -> rc=124 after 2s (expect 124, ~2s)
+hi
+fm_run_timed 5 (exit 7) -> rc=7 (expect 7)
+captured output: 'captured' rc=0
+capturing caller with background child -> rc=124 after 3s (expect 124, does not hang)

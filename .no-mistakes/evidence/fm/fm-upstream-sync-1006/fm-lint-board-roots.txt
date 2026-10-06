@@ -1,0 +1,8 @@
+$ CI=true bin/fm-lint.sh --list-files | grep -E "bin/board/|^bin/backends/"
+bin/backends/cmux.sh
+bin/backends/herdr.sh
+bin/backends/orca.sh
+bin/backends/tmux.sh
+bin/backends/zellij.sh
+bin/board/board-answers-handle.sh
+total roots:      469

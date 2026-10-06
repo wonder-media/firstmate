@@ -1,0 +1,29 @@
+$ bin/fm-brief.sh --help | grep base-branch
+18:Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--branch-prefix <prefix>] [--base-branch <branch>] [--forge <none|gerrit> [--shape squash]] [--herdr-lab]
+19:       fm-brief.sh <task-id> <repo-name> --scout [--base-branch <branch>] [--herdr-lab]
+63:--base-branch <branch> starts the task from origin's <branch> instead of the
+66:bin/fm-spawn.sh requires to agree with the same --base-branch it is passed to
+
+$ FM_HOME=<lab> bin/fm-brief.sh basetask1 demo --mode local-only --base-branch release
+error: fm-brief.sh --base-branch: a base branch cannot ship mode=local-only, whose landing fast-forwards local main; ship no-mistakes or direct-PR, which open a pull request against the base
+rc=1
+--- brief: base branch, contract, fork shared strings ---
+grep: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data/basetask1/brief.md: No such file or directory
+
+$ adversarial: --base-branch on --secondmate
+error: --base-branch takes a branch name and applies only to ship and scout briefs
+rc=1
+
+$ FM_HOME=<lab> bin/fm-brief.sh basescout1 demo --scout --base-branch release
+scaffolded: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data/basescout1/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+rc=0
+--- brief lines ---
+10:# Herdr lifecycle declaration - NOT ENABLED
+12:If the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.
+13:Do not add Herdr lifecycle commands to this unguarded brief by hand.
+17:Base branch: release
+84:     backend, and `git worktree add|remove|move|prune`. A slot that looks unused is not evidence
+91:9. Reference any firstmate-home artifact handed to you - a scout report, evidence directory, or directive file - by ABSOLUTE path, because a relative `data/` path resolves inside this worktree, not the firstmate home.
+92:   The resolved absolute firstmate-home data directory is `/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data`; this task's artifacts live in `/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.8stOZM/data/basescout1`.
+101:The report must stand alone: what you did, what you found, the evidence (commands run, output, file:line references), and what you recommend.
+102:If your deliverable is a visual artifact the captain will review and iterate on, use the lavish-axi rule: arm your board with bin/fm-procevent-lavish.sh arm <artifact.html> --for <task-id>; never run lavish-axi poll yourself. Re-arm with the reply after each nonterminal round to acknowledge it, route the board feedback through your steering inbox, write needs-decision [key=board-review] with the live board URL when the captain owes a decision, and stop at session_ended or an empty End without re-arming - acknowledge that final round with bin/fm-procevent.sh handled <source-id> <sequence> to conclude and retire your board.

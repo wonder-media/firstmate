@@ -1,0 +1,23 @@
+$ cat state/basescout1.meta
+window=driver:fm-basescout1
+endpoint_task_id=basescout1
+worktree=/Users/patrick/.treehouse/demo-a72232/1/demo
+project=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab.8stOZM/projects/demo
+harness=claude
+kind=scout
+tasktmp=/tmp/fm-basescout1
+base_branch=release
+model=default
+effort=default
+busy_gen=g1791324493.7259.25038
+spawn_gen=s1791324493.3058.5351
+
+$ git -C <worktree> log --oneline -3
+a6621f4 release-commit
+d006e9f main-commit
+76873bd init
+$ ls <worktree>
+base.txt
+release-only.txt
+$ git -C <worktree> merge-base --is-ancestor origin/release HEAD && echo starts-from-origin/release
+starts-from-origin/release
