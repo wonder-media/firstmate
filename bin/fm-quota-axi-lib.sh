@@ -7,8 +7,8 @@
 # support-floor and maintenance-inventory owner.
 #
 # bin/fm-bootstrap.sh turns a failing check into the operator-facing MISSING
-# diagnostic, which is
-# what keeps an older build from reaching a dispatch intake at all.
+# diagnostic, which is what keeps an older build from reaching a dispatch
+# intake at all.
 #
 # Snapshot schemas: fm_quota_json_valid accepts quota-axi schema 5 (one row per
 # provider, no accountKey) and schema 6 (every row carries accountKey, unique on
