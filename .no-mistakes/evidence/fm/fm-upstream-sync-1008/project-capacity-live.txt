@@ -1,0 +1,28 @@
+$ cat config/project-capacity
+capproj 1
+$ fm-spawn.sh newtask capproj --mode local-only --yolo off   # 1 occupant (occ1), capacity 1
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+deferred: project capproj admits 1 worker(s) at once on this machine (/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu/config/project-capacity) and 1 already hold a place (occ1); task newtask was not launched and its backlog item stays queued - dispatch it again once one of them records its ready PR or is cleaned up
+exit=75
+newtask.meta present? no
+
+# adversarial: malformed declaration
+capproj one
+capproj 2
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: spawn refused: the project capacity declaration is unreadable (/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu/config/project-capacity line 1 gives capproj a capacity that is not a positive integer); fix it so the captain's worker limits are known (docs/configuration.md "Project capacity")
+exit=1
+
+# occupant records its PR -> place frees (capacity 1)
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+error: task newtask has no brief at inaccessible data path /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu/data/newtask/brief.md
+exit=1

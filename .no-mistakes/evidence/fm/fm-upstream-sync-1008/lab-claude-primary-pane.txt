@@ -1,0 +1,37 @@
+❯ This is a disposable lab test. Do not edit any files in the repo. Run exactly these shell commands one by one and show me each output verbatim: (1) echo "FM_HOME=$FM_HOME" (2)
+  bin/fm-startup-growth-check.sh arm (3) bin/fm-startup-growth-check.sh check; echo rc=$? (4) bin/fm-startup-growth-check.sh check; echo rc=$? (5) ls -la "$FM_HOME/state" "$FM_HOME/config". Then say
+  LABDONE.
+  Listed 1 directory, ran 5 shell commands
+⏺ Captain, I ran all 5 commands. I did not change any repo files.
+  (1)
+  FM_HOME=/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu
+  (2)
+  armed: state/startup-growth.check.sh
+  (3)
+  startup-growth: startup memory budget unavailable owner=bin/fm-startup-memory-budget.sh reason=invalid config/startup-memory-budget - file is absent
+  rc=0
+  (4)
+  rc=0
+  (5)
+  /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu/config:
+  total 0
+  drwxr-xr-x  2 patrick  staff   64 Oct  8 09:58 .
+  drwx------  8 patrick  staff  256 Oct  8 09:58 ..
+  /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T//fm-lab.bCmVtu/state:
+  total 24
+  drwxr-xr-x  5 patrick  staff  160 Oct  8 09:59 .
+  drwx------  8 patrick  staff  256 Oct  8 09:58 ..
+  -rw-------  1 patrick  staff  630 Oct  8 09:59 .startup-growth-check
+  -rw-------  1 patrick  staff   84 Oct  8 09:59 startup-growth.check-trust
+  -rwx------  1 patrick  staff  219 Oct  8 09:59 startup-growth.check.sh
+  What happened:
+  - The first check gave a warning: the file config/startup-memory-budget does not exist. It still exited with code 0.
+  - The second check printed nothing and also exited with code 0. So the same warning did not show a second time.
+  - All new files went only into the lab folder ($FM_HOME/state).
+  LABDONE
+✻ Cogitated for 16s · done 9:59 AM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ cat "$FM_HOME/state/.startup-growth-check"
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 · 01M4E6ZD5E5W0HQK63N562Q89M · ⎇ firstmate  ┃  ctx 6% · think:on · effort:medium  ┃  5h↻12:20pm · 7d 29%↻Oct 11
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 2 agents
