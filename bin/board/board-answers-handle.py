@@ -160,9 +160,11 @@ def route_lifecycle(b):
                               (*columns.values(),request['home_id'],task))
                     changed[0] = True
             backlog = b.backlog_rows(target_home)
+            holds = [tid for tid, row in backlog.items() if row['state'] != 'done' and row['hold_kind'] == 'captain'
+                     and tid.rpartition('-decision-')[1] and (tid == task or tid.rpartition('-decision-')[0] == task)]
             listed = task in backlog or m.run(
                 ['tasks-axi','show',task,'--full'],target_home,allow_not_found=True) is not None
-            if not listed and not worker_record(b, target_home, task):
+            if not listed and not holds and not worker_record(b, target_home, task):
                 # A queued card can outlive its owning backlog and worker record.
                 actual_state = 'discarded'
             elif action == 'hold':
@@ -179,8 +181,6 @@ def route_lifecycle(b):
             elif action == 'discard':
                 actual_state = 'discarded'
                 record('discarded')
-                holds = [tid for tid, row in backlog.items() if row['state'] != 'done' and row['hold_kind'] == 'captain'
-                         and tid.rpartition('-decision-')[1] and (tid == task or tid.rpartition('-decision-')[0] == task)]
                 if holds:
                     decision_file = b.state / 'board-inbox/lifecycle' / f'{rid}.decision'
                     m.atomic(decision_file, discard_decision(request).encode())
@@ -218,14 +218,7 @@ def route_lifecycle(b):
                     revision=revision+1,updated_at=? WHERE home_id=? AND task_id=? AND pending_request_id=?''',
                     (actual_state,now,request['home_id'],task,rid))
                 if action == 'discard':
-                    related = "home_id=? AND (task_id=? OR origin_id=?)"
-                    c.execute(f"UPDATE decisions SET state='closed',closed_at=? WHERE {related} AND state NOT IN ('closed','consumed')",
-                              (now,request['home_id'],task,task))
-                    c.execute('''UPDATE answers SET cancelled_at=? WHERE cancelled_at IS NULL AND routing_at IS NULL
-                        AND EXISTS (SELECT 1 FROM decisions d WHERE d.home_id=answers.home_id
-                        AND d.task_id=answers.task_id AND d.decision_key=answers.decision_key
-                        AND d.revision=answers.revision AND d.home_id=? AND (d.task_id=? OR d.origin_id=?))''',
-                        (now,request['home_id'],task,task))
+                    b.close_task_decisions(c, request['home_id'], task, now)
                 changed[0] = True
             completed += 1
         except (OSError,ValueError,KeyError) as e:

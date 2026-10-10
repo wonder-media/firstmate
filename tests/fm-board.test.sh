@@ -87,7 +87,7 @@ if(window.__bridgeTest){
     legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),legacyNotice:review.querySelector('.options-needed')?.textContent,
     factualPreselected:[...factual.querySelectorAll('input[type=radio]')].some(r=>r.checked),factualGuidance:factual.querySelector('.recommend')?.textContent,
     reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent,
-    removedLifecycleHidden:buildDecision({...node.data,lifecycle_available:false}).querySelector('.lifecycle-actions').hidden,
+    removedLifecycle:[...buildDecision({...node.data,lifecycle_available:false}).querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     decisionLifecycle:[...node.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     taskLifecycle:[...failed.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     archiveLifecycle:[...archived.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),archiveTitle:document.querySelector('#archive-title').textContent});
@@ -659,7 +659,7 @@ try:
         if state:r[1]=state
         if hold:r[5],r[6]=hold
         set_backlog(full,note)
-    # Historical worker decisions survive removal, but lifecycle controls do not.
+    # Historical worker decisions survive removal until an explicit Discard.
     removed='removed-worker'
     meta(home,removed,'needs-decision [key=remove]: Choose whether to continue')
     original=json.loads((home/'rows.json').read_text())
@@ -677,11 +677,19 @@ try:
     card=next(d for d in request()[1]['decisions'] if d['task_id']==removed)
     assert card['lifecycle_available'] is False,card
     before=calls(home,'fm-control.sh')
-    for action in ('hold','discard','resume'):
+    for action in ('hold','resume'):
         rid=str(uuid.uuid4())
         response=request('/lifecycle',lifecycle('Main',removed,0,action,rid))
         assert response[0]==200 and response[1]['message']=='Task already removed.',response
         assert not sql('select 1 from lifecycle_requests where request_id=?',(rid,))
+    assert any(d['task_id']==removed for d in request()[1]['decisions'])
+    rid=str(uuid.uuid4())
+    response=request('/lifecycle',lifecycle('Main',removed,0,'discard',rid))
+    assert response[0]==200 and response[1]['message']=='Task already removed; card closed.',response
+    assert not sql('select 1 from lifecycle_requests where request_id=?',(rid,))
+    assert not any(d['task_id']==removed for d in request()[1]['decisions'])
+    assert {r['state'] for r in sql('select state from decisions where task_id=?',(removed,))}=={'closed'}
+    assert sql('select deleted_at is not null as kept from tasks where task_id=?',(removed,))==[{'kept':1}]
     assert calls(home,'fm-control.sh')==before
     # Removal during the undo window also completes without tasks-axi done.
     queued_task='removed-while-queued'
@@ -703,7 +711,7 @@ try:
     assert backlog_row(unlisted)[1]=='done'
     assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['done',unlisted]])==1
     set_backlog(original,'fixture unlisted worker cleanup')
-    passed('removed workers repair historical presence, hide lifecycle controls, and accept stale actions without errors')
+    passed('removed workers repair historical presence, keep only Discard, and close their card on Discard')
     gates=[['gate-decision-scope','queued','captain','wonderok','Scope approval','captain','Pick the scope','no','none'],
            ['known','in_flight','ship','wonderok','Known worker','-','-','no','none'],
            ['known-decision-go','queued','captain','wonderok','Go decision','captain','Go or wait','no','none'],
@@ -740,6 +748,24 @@ try:
     assert backlog_row('gate-decision-scope')[1]=='done' and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['done','gate-decision-scope']]
     assert {r['state'] for r in sql("select state from decisions where task_id='gate-decision-scope'")}=={'closed'}
     assert not any(d['task_id']=='gate-decision-scope' for d in request()[1]['decisions']) and not any(t['task_id']=='gate-decision-scope' for t in request()[1]['archive'])
+    # A live captain hold keeps its removed origin's lifecycle actionable.
+    meta(home,'ghost','working: fixture')
+    ghost_base=json.loads((home/'rows.json').read_text())
+    set_backlog(ghost_base+[['ghost','in_flight','ship','wonderok','Ghost worker','-','-','no','none']],'fixture ghost worker')
+    (home/'state/ghost.meta').unlink()
+    set_backlog(ghost_base,'fixture ghost removed')
+    wait(lambda:sql("select deleted_at is not null as gone from tasks where task_id='ghost'")==[{'gone':1}])
+    set_backlog(ghost_base+[['ghost-decision-k','queued','captain','wonderok','Ghost decision','captain','Pick for ghost','no','none']],'fixture ghost hold')
+    ghost=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']=='ghost-decision-k'),None))
+    assert ghost['lifecycle_task_id']=='ghost' and ghost['lifecycle_available'] is True,ghost
+    ghost_discard=str(uuid.uuid4())
+    queued=request('/lifecycle',lifecycle('Main','ghost-decision-k',ghost['lifecycle']['revision'],'discard',ghost_discard))
+    assert queued[0]==200 and queued[1]['request']['task_id']=='ghost',queued
+    lifecycle_done(ghost_discard)
+    declines=[json.loads(l)[:2] for l in (home/'declines.jsonl').read_text().splitlines()]
+    assert declines[-1]==['ghost','k'] and backlog_row('ghost-decision-k')[1]=='done',declines
+    assert not [c for c in calls(home,'tasks-axi') if c[1][:2]==['done','ghost']]
+    assert not any(d['task_id']=='ghost-decision-k' for d in request()[1]['decisions'])
     # A hold card whose origin is a listed worker shares the origin's lifecycle:
     # one request archives both rows, and the hold task never resurfaces alone.
     known_decision=next(d for d in request()[1]['decisions'] if d['task_id']=='known-decision-go')
@@ -1159,7 +1185,7 @@ for bad in (0,86401,'120',12.5):
             assert match,rendered.stdout[-2000:]
             observed=json.loads(html.unescape(match.group(1).decode()))
             assert observed.get('error') is None,observed
-            assert observed['removedLifecycleHidden'] is True,observed
+            assert observed['removedLifecycle']==['Discard'],observed
             assert observed['horizontalOverflow'] is False,observed
             assert observed['preselected'] is False,observed
             assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed

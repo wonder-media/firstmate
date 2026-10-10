@@ -45,8 +45,10 @@
 # is hold, discard, or resume. A <origin>-decision-<key> task whose origin is a
 # known task or lifecycle row shares the origin's lifecycle (the same rule
 # decisions use), so requests, filtering, and Archive apply once per origin. A
-# card's lifecycle_available is false when neither backlog nor worker meta remains.
-# Requests for known removed tasks succeed with 'Task already removed.'; a
+# card's lifecycle_available is false when neither backlog, an open captain
+# decision hold, nor worker meta remains. Requests for known removed tasks
+# succeed with 'Task already removed.'; Discard also closes their open decisions
+# with 'Task already removed; card closed.'. A
 # hold on a task the stored backlog no longer lists as active is refused with
 # 409 rather than recorded and silently dropped. A duplicate request id or
 # same-task/action is idempotent. A queued request may be undone for 15 s with
@@ -204,6 +206,11 @@ class Conflict(Invalid):
     def __init__(self, message, current=None):
         super().__init__(message)
         self.current = current
+
+
+def backlog_targets(tid, row):
+    origin, sep, _ = tid.rpartition('-decision-')
+    return {tid, origin} if sep and row['hold_kind'] == 'captain' and row['state'] != 'done' else {tid}
 
 
 def stamp():
@@ -564,9 +571,17 @@ class Board:
             if not task and not current:
                 raise Invalid('unknown task')
             listed = c.execute('SELECT payload FROM backlog WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
-            if not listed and not current and not (self.homes[hid] / f'state/{tid}.meta').is_file():
+            present = (self.homes[hid] / f'state/{tid}.meta').is_file() or any(
+                tid in backlog_targets(r['task_id'], json.loads(r['payload']))
+                for r in c.execute('SELECT task_id,payload FROM backlog WHERE home_id=?', (hid,)))
+            if not present and not current:
+                message = 'Task already removed.'
+                if action == 'discard':
+                    self.close_task_decisions(c, hid, tid, stamp())
+                    changed[0] = True
+                    message = 'Task already removed; card closed.'
                 return {'request':None, 'lifecycle':self.lifecycle_dict(current),
-                        'already_complete':True, 'message':'Task already removed.'}
+                        'already_complete':True, 'message':message}
             state = current['state'] if current else 'active'
             revision = current['revision'] if current else 0
             desired = {'hold':'held','discard':'discarded','resume':'active'}[action]
@@ -600,6 +615,16 @@ class Board:
             changed[0] = True
             return {'request':dict(c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?',(request_id,)).fetchone()),
                     'lifecycle':self.lifecycle_dict(self.lifecycle_for(c,hid,tid))}
+
+    def close_task_decisions(self, c, hid, task, now):
+        related = "home_id=? AND (task_id=? OR origin_id=?)"
+        c.execute(f"UPDATE decisions SET state='closed',closed_at=? WHERE {related} AND state NOT IN ('closed','consumed')",
+                  (now,hid,task,task))
+        c.execute('''UPDATE answers SET cancelled_at=? WHERE cancelled_at IS NULL AND routing_at IS NULL
+            AND EXISTS (SELECT 1 FROM decisions d WHERE d.home_id=answers.home_id
+            AND d.task_id=answers.task_id AND d.decision_key=answers.decision_key
+            AND d.revision=answers.revision AND d.home_id=? AND (d.task_id=? OR d.origin_id=?))''',
+            (now,hid,task,task))
 
     def lifecycle_undo(self, record):
         request_id = str(uuid.UUID(record.get('request_id', '')))
@@ -1083,8 +1108,9 @@ class Board:
                 d['lifecycle_task_id'] = self.decision_lifecycle_task(c, d)
             for task in tasks:
                 task['lifecycle_task_id'] = self.task_lifecycle_target(c, task['home_id'], task['task_id'])
-            available = {(r['home_id'],r['task_id']) for r in c.execute(
-                'SELECT home_id,task_id FROM backlog UNION SELECT home_id,task_id FROM tasks WHERE meta_present=1')}
+            available = {(r['home_id'],r['task_id']) for r in c.execute('SELECT home_id,task_id FROM tasks WHERE meta_present=1')}
+            available |= {(r['home_id'],t) for r in c.execute('SELECT home_id,task_id,payload FROM backlog')
+                          for t in backlog_targets(r['task_id'], json.loads(r['payload']))}
             events = [dict(r) for r in c.execute('SELECT * FROM events ORDER BY created_at DESC LIMIT 500')]
             runs = {r['home_id']: dict(r) for r in c.execute('SELECT * FROM ingest_runs')}
             lifecycle_rows = c.execute('''SELECT l.*,
