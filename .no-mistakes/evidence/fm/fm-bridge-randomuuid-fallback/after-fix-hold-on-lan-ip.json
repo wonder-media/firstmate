@@ -1,0 +1,29 @@
+{
+ "env": {
+  "origin": "http://192.168.0.34:64200",
+  "isSecureContext": false,
+  "randomUUID": "undefined",
+  "getRandomValues": "function"
+ },
+ "before": [
+  "Demo task for Hold | buttons: Hold,Discard"
+ ],
+ "after": {
+  "notices": [],
+  "noticeNow": "",
+  "cardStatus": "Hold queued - undo available for 15 s",
+  "visibleButtons": [
+   "Undo (13 s)"
+  ]
+ },
+ "uuidsFromPage": [
+  "1446c5b6-8bd1-436a-825c-8394c5bdf3bd",
+  "dddb245b-bf7f-4372-84f8-662f4166bab6",
+  "d60d868c-9ca6-44f4-8f3e-96393bc4a057",
+  "12690b1c-c3b5-49bf-b4da-d8fcfbcd49a2",
+  "350da1e3-1d7d-45ee-9b52-798b2256768e"
+ ],
+ "log": [
+  "POST /lifecycle {\"home\":\"Main\",\"task\":\"demo-task\",\"revision\":0,\"action\":\"hold\",\"request_id\":\"72c16912-e91b-4786-add0-dccfeb2df584\",\"device\":\"browser\"}"
+ ]
+}

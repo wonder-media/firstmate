@@ -1,0 +1,25 @@
+{
+ "env": {
+  "origin": "http://192.168.0.34:64469",
+  "isSecureContext": false,
+  "randomUUID": "undefined",
+  "getRandomValues": "function"
+ },
+ "before": [
+  "Demo task for Hold | buttons: Hold,Discard"
+ ],
+ "after": {
+  "notices": [
+   "crypto.randomUUID is not a function",
+   ""
+  ],
+  "noticeNow": "",
+  "cardStatus": "",
+  "visibleButtons": [
+   "Hold",
+   "Discard"
+  ]
+ },
+ "uuidsFromPage": "undefined",
+ "log": []
+}
