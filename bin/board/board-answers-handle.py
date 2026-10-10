@@ -159,7 +159,13 @@ def route_lifecycle(b):
                     c.execute(f'UPDATE task_lifecycle SET {",".join(k+"=?" for k in columns)} WHERE home_id=? AND task_id=?',
                               (*columns.values(),request['home_id'],task))
                     changed[0] = True
-            if action == 'hold':
+            backlog = b.backlog_rows(target_home)
+            listed = task in backlog or m.run(
+                ['tasks-axi','show',task,'--full'],target_home,allow_not_found=True) is not None
+            if not listed and not worker_record(b, target_home, task):
+                # A queued card can outlive its owning backlog and worker record.
+                actual_state = 'discarded'
+            elif action == 'hold':
                 hold = task_hold(target_home, task)
                 own = bridge_hold_active(hold)
                 if hold['hold_kind'] in ('', '-'):
@@ -173,7 +179,6 @@ def route_lifecycle(b):
             elif action == 'discard':
                 actual_state = 'discarded'
                 record('discarded')
-                backlog = b.backlog_rows(target_home)
                 holds = [tid for tid, row in backlog.items() if row['state'] != 'done' and row['hold_kind'] == 'captain'
                          and tid.rpartition('-decision-')[1] and (tid == task or tid.rpartition('-decision-')[0] == task)]
                 if holds:
@@ -182,7 +187,7 @@ def route_lifecycle(b):
                     for hold_id in holds:
                         origin, _, key = hold_id.rpartition('-decision-')
                         m.run([m.ROOT/'bin/fm-decision-hold.sh','decline',origin,key,'--decision-file',decision_file],target_home,60)
-                if task not in holds:
+                if listed and task not in holds:
                     m.run(['tasks-axi','done',task,'--note','Discarded from Bridge; source, history, and evidence preserved.','--no-prune','--json'],target_home)
                 if worker_record(b, target_home, task):
                     m.run([m.ROOT/'bin/fm-control.sh',task,'exit'],target_home,60)

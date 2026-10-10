@@ -11,7 +11,7 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 export FM_BOARD_TEST_ROOT="$TMP_ROOT" FM_BOARD_TEST_CODE="$ROOT"
 PYTHON="${FM_BOARD_PYTHON:-python3}"
 "$PYTHON" - <<'PY'
-import contextlib,csv,io,json,os,pathlib,re,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error
+import contextlib,csv,io,json,os,pathlib,re,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error,uuid
 root=pathlib.Path(os.environ['FM_BOARD_TEST_ROOT']).resolve()
 assert (root/'.fm-test-fixture').is_file(), 'fixture root is not newly created by fm_test_tmproot'
 code=pathlib.Path(os.environ['FM_BOARD_TEST_CODE']).resolve()
@@ -87,6 +87,7 @@ if(window.__bridgeTest){
     legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),legacyNotice:review.querySelector('.options-needed')?.textContent,
     factualPreselected:[...factual.querySelectorAll('input[type=radio]')].some(r=>r.checked),factualGuidance:factual.querySelector('.recommend')?.textContent,
     reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent,
+    removedLifecycleHidden:buildDecision({...node.data,lifecycle_available:false}).querySelector('.lifecycle-actions').hidden,
     decisionLifecycle:[...node.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     taskLifecycle:[...failed.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     archiveLifecycle:[...archived.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),archiveTitle:document.querySelector('#archive-title').textContent});
@@ -145,7 +146,9 @@ if name=='fm-control.sh' and (h/'fail-control').exists():sys.exit(1)
 if name=='tasks-axi':
  rows=json.loads((h/'rows.json').read_text())
  if sys.argv[1]=='show':
-  tid=sys.argv[2];r=next(row for row in rows if row[0]==tid);full=json.loads((h/'full-rows.json').read_text()).get(tid,{})
+  tid=sys.argv[2]
+  if not any(row[0]==tid for row in rows):print('code: NOT_FOUND');sys.exit(1)
+  r=next(row for row in rows if row[0]==tid);full=json.loads((h/'full-rows.json').read_text()).get(tid,{})
   print('task:')
   for field,index in (('title',4),('hold_reason',6),('body',9)):
    print(f'  {field}: {json.dumps(full.get(field,(r+[""]*10)[index]))}')
@@ -656,6 +659,51 @@ try:
         if state:r[1]=state
         if hold:r[5],r[6]=hold
         set_backlog(full,note)
+    # Historical worker decisions survive removal, but lifecycle controls do not.
+    removed='removed-worker'
+    meta(home,removed,'needs-decision [key=remove]: Choose whether to continue')
+    original=json.loads((home/'rows.json').read_text())
+    set_backlog(original+[[removed,'in_flight','ship','wonderok','Removed worker','-','-','no','none']], 'fixture removed worker')
+    card=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']==removed),None))
+    assert card['lifecycle_available']
+    (home/f'state/{removed}.meta').unlink()
+    set_backlog(original,'fixture worker removed')
+    historical=sql('select deleted_at,meta_present from tasks where task_id=?',(removed,))[0]
+    assert historical['deleted_at'] and historical['meta_present']==0,historical
+    # Repair preexisting deleted rows as well as the newly removed row.
+    mutate('update tasks set meta_present=1 where task_id=?',(removed,))
+    command('ingest','--once','--home','Main')
+    assert sql('select meta_present from tasks where task_id=?',(removed,))==[{'meta_present':0}]
+    card=next(d for d in request()[1]['decisions'] if d['task_id']==removed)
+    assert card['lifecycle_available'] is False,card
+    before=calls(home,'fm-control.sh')
+    for action in ('hold','discard','resume'):
+        rid=str(uuid.uuid4())
+        response=request('/lifecycle',lifecycle('Main',removed,0,action,rid))
+        assert response[0]==200 and response[1]['message']=='Task already removed.',response
+        assert not sql('select 1 from lifecycle_requests where request_id=?',(rid,))
+    assert calls(home,'fm-control.sh')==before
+    # Removal during the undo window also completes without tasks-axi done.
+    queued_task='removed-while-queued'
+    set_backlog(original+[[queued_task,'in_flight','ship','wonderok','Queued removal','-','-','no','none']], 'fixture queue removal')
+    rid=str(uuid.uuid4())
+    assert request('/lifecycle',lifecycle('Main',queued_task,0,'discard',rid))[0]==200
+    set_backlog(original,'fixture removed during undo window')
+    lifecycle_done(rid)
+    assert sql('select error from lifecycle_requests where request_id=?',(rid,))==[{'error':None}]
+    assert not [c for c in calls(home,'tasks-axi') if c[1][:2]==['done',queued_task]]
+    assert calls(home,'fm-control.sh')==before
+    # The board's active listing is narrower than backlog existence.
+    unlisted='unlisted-while-queued'
+    set_backlog(original+[[unlisted,'in_flight','ship','wonderok','Unlisted worker','-','-','no','none']], 'fixture unlisted worker')
+    rid=str(uuid.uuid4())
+    assert request('/lifecycle',lifecycle('Main',unlisted,0,'discard',rid))[0]==200
+    set_backlog(original+[[unlisted,'queued','ship','wonderok','Unlisted worker','-','-','no','none']], 'fixture worker returned to queue')
+    lifecycle_done(rid)
+    assert backlog_row(unlisted)[1]=='done'
+    assert len([c for c in calls(home,'tasks-axi') if c[1][:2]==['done',unlisted]])==1
+    set_backlog(original,'fixture unlisted worker cleanup')
+    passed('removed workers repair historical presence, hide lifecycle controls, and accept stale actions without errors')
     gates=[['gate-decision-scope','queued','captain','wonderok','Scope approval','captain','Pick the scope','no','none'],
            ['known','in_flight','ship','wonderok','Known worker','-','-','no','none'],
            ['known-decision-go','queued','captain','wonderok','Go decision','captain','Go or wait','no','none'],
@@ -1111,6 +1159,7 @@ for bad in (0,86401,'120',12.5):
             assert match,rendered.stdout[-2000:]
             observed=json.loads(html.unescape(match.group(1).decode()))
             assert observed.get('error') is None,observed
+            assert observed['removedLifecycleHidden'] is True,observed
             assert observed['horizontalOverflow'] is False,observed
             assert observed['preselected'] is False,observed
             assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed
