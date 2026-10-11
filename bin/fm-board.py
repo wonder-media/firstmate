@@ -45,6 +45,11 @@
 # is hold, discard, or resume. A <origin>-decision-<key> task whose origin is a
 # known task or lifecycle row shares the origin's lifecycle (the same rule
 # decisions use), so requests, filtering, and Archive apply once per origin. A
+# card's lifecycle_available is false when neither backlog nor worker meta
+# remains; lifecycle_hidden is true when only an open captain decision hold
+# keeps that removed task alive, so the card offers only its answer. Requests
+# for known removed tasks succeed with 'Task already removed.'; Discard also
+# closes their open decisions with 'Task already removed; card closed.'. A
 # hold on a task the stored backlog no longer lists as active is refused with
 # 409 rather than recorded and silently dropped. A duplicate request id or
 # same-task/action is idempotent. A queued request may be undone for 15 s with
@@ -204,6 +209,11 @@ class Conflict(Invalid):
         self.current = current
 
 
+def backlog_targets(tid, row):
+    origin, sep, _ = tid.rpartition('-decision-')
+    return {tid, origin} if sep and row['hold_kind'] == 'captain' and row['state'] != 'done' else {tid}
+
+
 def stamp():
     return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
@@ -293,7 +303,7 @@ def file_lock(path, blocking=True):
         yield
 
 
-def run(argv, home, timeout=10, input_data=None):
+def run(argv, home, timeout=10, input_data=None, allow_not_found=False):
     env = dict(os.environ, FM_HOME=str(home), FM_ROOT_OVERRIDE=str(ROOT), FM_BOARD_PYTHON=sys.executable)
     # Isolate homes from inherited per-session overrides.
     for key in ('FM_STATE_OVERRIDE', 'FM_DATA_OVERRIDE', 'FM_PROJECTS_OVERRIDE'):
@@ -309,6 +319,12 @@ def run(argv, home, timeout=10, input_data=None):
             p.wait()
             raise Invalid(f'{Path(argv[0]).name}: timeout after {timeout}s') from None
         if p.returncode:
+            if allow_not_found:
+                out.seek(0)
+                err.seek(0)
+                diagnostic = (out.read(4096) + b'\n' + err.read(4096)).decode('utf-8', 'replace')
+                if re.search(r'^code: NOT_FOUND$', diagnostic, re.M):
+                    return None
             err.seek(0)
             reason = err.read(500).decode('utf-8', 'replace').strip().replace('\n', ' ')
             raise Invalid(f'{Path(argv[0]).name}: exit {p.returncode}: {reason}')
@@ -555,6 +571,18 @@ class Board:
             current = self.lifecycle_for(c, hid, tid)
             if not task and not current:
                 raise Invalid('unknown task')
+            listed = c.execute('SELECT payload FROM backlog WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
+            present = (self.homes[hid] / f'state/{tid}.meta').is_file() or any(
+                tid in backlog_targets(r['task_id'], json.loads(r['payload']))
+                for r in c.execute('SELECT task_id,payload FROM backlog WHERE home_id=?', (hid,)))
+            if not present and not current:
+                message = 'Task already removed.'
+                if action == 'discard':
+                    self.close_task_decisions(c, hid, tid, stamp())
+                    changed[0] = True
+                    message = 'Task already removed; card closed.'
+                return {'request':None, 'lifecycle':self.lifecycle_dict(current),
+                        'already_complete':True, 'message':message}
             state = current['state'] if current else 'active'
             revision = current['revision'] if current else 0
             desired = {'hold':'held','discard':'discarded','resume':'active'}[action]
@@ -572,7 +600,6 @@ class Board:
             if action == 'hold' and state == 'discarded':
                 raise Conflict('discarded work cannot be held', self.lifecycle_dict(current))
             if action == 'hold':
-                listed = c.execute('SELECT payload FROM backlog WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
                 if not listed or json.loads(listed['payload'])['state'] == 'done':
                     raise Conflict('task is already complete or no longer in the active backlog', self.lifecycle_dict(current))
             title = task['title'] if task else current['title']
@@ -589,6 +616,16 @@ class Board:
             changed[0] = True
             return {'request':dict(c.execute('SELECT * FROM lifecycle_requests WHERE request_id=?',(request_id,)).fetchone()),
                     'lifecycle':self.lifecycle_dict(self.lifecycle_for(c,hid,tid))}
+
+    def close_task_decisions(self, c, hid, task, now):
+        related = "home_id=? AND (task_id=? OR origin_id=?)"
+        c.execute(f"UPDATE decisions SET state='closed',closed_at=? WHERE {related} AND state NOT IN ('closed','consumed')",
+                  (now,hid,task,task))
+        c.execute('''UPDATE answers SET cancelled_at=? WHERE cancelled_at IS NULL AND routing_at IS NULL
+            AND EXISTS (SELECT 1 FROM decisions d WHERE d.home_id=answers.home_id
+            AND d.task_id=answers.task_id AND d.decision_key=answers.decision_key
+            AND d.revision=answers.revision AND d.home_id=? AND (d.task_id=? OR d.origin_id=?))''',
+            (now,hid,task,task))
 
     def lifecycle_undo(self, record):
         request_id = str(uuid.UUID(record.get('request_id', '')))
@@ -938,16 +975,27 @@ class Board:
                         c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
                                   (stamp(), hid, tid, prior['decision_key'], prior['revision']))
                         changed[0] = True
+            # Presence is a current filesystem fact, including for historical rows.
+            for worker in c.execute('SELECT task_id FROM tasks WHERE home_id=? AND meta_present=1', (hid,)).fetchall():
+                if worker['task_id'] not in present:
+                    ids.add(worker['task_id'])
+                    c.execute('UPDATE tasks SET meta_present=0 WHERE home_id=? AND task_id=?', (hid,worker['task_id']))
+                    changed[0] = True
             for tid, b in backlog.items():
                 origin, sep, key = tid.rpartition('-decision-')
                 if not sep:
                     origin, key = tid, 'default'
                 hold_project = self.resolve_project(c, hid, tid, origin, backlog, home, present)
-                was_worker = c.execute('SELECT meta_present FROM tasks WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
-                if tid not in present and b['state'] != 'done' and not (was_worker and was_worker['meta_present']):
-                    self.update_task(c, changed, dict(home_id=hid, task_id=tid, title=b['title'], kind=b['kind'],
+                if tid not in present and b['state'] != 'done':
+                    row = dict(home_id=hid, task_id=tid, title=b['title'], kind=b['kind'],
                         current_state='paused' if b['hold_kind'] not in ('', '-') else b['state'], worker='',
-                        pr_url='', project=hold_project, last_status=b['reason'] if b['reason'] != '-' else '', meta_present=0))
+                        pr_url='', project=hold_project, last_status=b['reason'] if b['reason'] != '-' else '', meta_present=0)
+                    prior = c.execute('SELECT * FROM tasks WHERE home_id=? AND task_id=?', (hid,tid)).fetchone()
+                    if prior and old and tid not in ids:
+                        # Project ownership may change without new task state inputs.
+                        row['current_state'] = prior['current_state']
+                        row['last_status'] = prior['last_status']
+                    self.update_task(c, changed, row)
                 self.reproject_latest(c, changed, hid, tid, hold_project)
                 if b['captain_actionable']:
                     prior = self.latest(c, hid, tid, key)
@@ -1061,6 +1109,10 @@ class Board:
                 d['lifecycle_task_id'] = self.decision_lifecycle_task(c, d)
             for task in tasks:
                 task['lifecycle_task_id'] = self.task_lifecycle_target(c, task['home_id'], task['task_id'])
+            available = {(r['home_id'],r['task_id']) for r in c.execute(
+                'SELECT home_id,task_id FROM backlog UNION SELECT home_id,task_id FROM tasks WHERE meta_present=1')}
+            hold_kept = {(r['home_id'],t) for r in c.execute('SELECT home_id,task_id,payload FROM backlog')
+                         for t in backlog_targets(r['task_id'], json.loads(r['payload']))} - available
             events = [dict(r) for r in c.execute('SELECT * FROM events ORDER BY created_at DESC LIMIT 500')]
             runs = {r['home_id']: dict(r) for r in c.execute('SELECT * FROM ingest_runs')}
             lifecycle_rows = c.execute('''SELECT l.*,
@@ -1076,6 +1128,10 @@ class Board:
         archives = [dict(home_id=r['home_id'],task_id=r['task_id'],title=r['title'],project=r['project'],
                          lifecycle=self.lifecycle_dict(r)) for r in lifecycle_rows
                     if r['state'] == 'held' or (r['state'] == 'discarded' and r['error'])]
+        for card in tasks + decisions + archives:
+            target = (card['home_id'],card.get('lifecycle_task_id',card['task_id']))
+            card['lifecycle_available'] = target in available
+            card['lifecycle_hidden'] = target in hold_kept
         homes = []
         for hid in self.homes:
             r = runs.get(hid, {})
