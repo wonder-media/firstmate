@@ -1,0 +1,22 @@
+== remove task from MF backlog and delete its meta file
+ok: removed wok241-remove-six-test-orders
+== tasks-axi show (what made the old Discard fail):
+error: "Task \"wok241-remove-six-test-orders\" not found in this backlog"
+code: NOT_FOUND
+== after ingest:
+task_id|deleted_at|meta_present
+wok241-remove-six-test-orders|2026-10-11T00:34:02.198620+00:00|0
+  TASK ghost available= True hidden= False
+  TASK live-task available= True hidden= False
+  DECISION wok241-remove-six-test-orders open available= False hidden= False
+== force reported legacy bad row: deleted_at=2026-09-10, meta_present=1 (no meta file)
+task_id|deleted_at|meta_present
+wok241-remove-six-test-orders|2026-09-10T00:00:00+00:00|1
+== after next ingest (repair):
+task_id|deleted_at|meta_present
+wok241-remove-six-test-orders|2026-09-10T00:00:00+00:00|0
+  TASK ghost available= True hidden= False
+  TASK live-task available= True hidden= False
+  DECISION wok241-remove-six-test-orders open available= False hidden= False
+== count of rows with deleted_at set and meta_present=1:
+0

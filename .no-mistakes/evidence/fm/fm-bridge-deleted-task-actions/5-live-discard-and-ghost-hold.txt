@@ -1,0 +1,15 @@
+== Regression: Discard on a live task still queues a real request
+{"request": {"request_id": "b00e5cb3-4790-4bdf-a1bd-b44d9e67331a", "home_id": "MF", "task_id": "live-task", "action": "discard", "base_revision": 0, "state": "queued", "received_at": "2026-10-11T00:34:39.956705+00:00", "ready_at": 1791678894.956712, "routing_at": null, "completed_at": null, "cancelled_at": null, "error": null, "device": "browser", "exported_at": null}, "lifecycle": {"home_id": "MF", "task_id": "live-task", "state": "active", "revision": 1, "pending_request_id": "b00e5cb3-4790-4bdf-a1bd-b44d9e67331a", "error": null, "updated_at": "2026-10-11T00:34:39.956705+00:00", "title": "live-task work", "project": "MF", "pending_action": "discard", "request_state": "queued", "ready_at": 1791678894.956712}}  [HTTP 200]
+== undo it (keep lab clean)
+{"ok": true, "lifecycle": {"home_id": "MF", "task_id": "live-task", "state": "active", "revision": 2, "pending_request_id": null, "error": null, "updated_at": "2026-10-11T00:34:39.963892+00:00", "title": "live-task work", "project": "MF", "pending_action": null, "request_state": null, "ready_at": null}}  [HTTP 200]
+
+== Ghost: remove origin 'ghost' from backlog and meta, then add live captain hold ghost-decision-k
+ok: removed ghost
+task_id|deleted_at|meta_present
+ghost|2026-10-11T00:34:40.299653+00:00|0
+ok: hold ghost-decision-k -> held (captain)
+  DECISION ghost-decision-k open lifecycle_task_id= ghost available= False hidden= True rev= 0
+== Direct POST discard ghost-decision-k (live hold must stay actionable)
+{"request": {"request_id": "2ee13ba6-ae11-4460-83b7-3d00095f77d0", "home_id": "MF", "task_id": "ghost", "action": "discard", "base_revision": 0, "state": "queued", "received_at": "2026-10-11T00:35:08.709857+00:00", "ready_at": 1791678923.7098649, "routing_at": null, "completed_at": null, "cancelled_at": null, "error": null, "device": "browser", "exported_at": null}, "lifecycle": {"home_id": "MF", "task_id": "ghost", "state": "active", "revision": 1, "pending_request_id": "2ee13ba6-ae11-4460-83b7-3d00095f77d0", "error": null, "updated_at": "2026-10-11T00:35:08.709857+00:00", "title": "ghost work", "project": "MF", "pending_action": "discard", "request_state": "queued", "ready_at": 1791678923.7098649}}  [HTTP 200]
+== undo
+{"ok": true, "lifecycle": {"home_id": "MF", "task_id": "ghost", "state": "active", "revision": 2, "pending_request_id": null, "error": null, "updated_at": "2026-10-11T00:35:08.716510+00:00", "title": "ghost work", "project": "MF", "pending_action": null, "request_state": null, "ready_at": null}}  [HTTP 200]

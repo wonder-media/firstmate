@@ -1,0 +1,19 @@
+== POST /lifecycle hold wok241-remove-six-test-orders
+{"request": null, "lifecycle": {"state": "active", "revision": 0, "pending_request_id": null, "pending_action": null, "request_state": null, "ready_at": null, "error": null, "updated_at": null}, "already_complete": true, "message": "Task already removed."}  [HTTP 200]
+== POST /lifecycle resume wok241-remove-six-test-orders
+{"request": null, "lifecycle": {"state": "active", "revision": 0, "pending_request_id": null, "pending_action": null, "request_state": null, "ready_at": null, "error": null, "updated_at": null}, "already_complete": true, "message": "Task already removed."}  [HTTP 200]
+== card still listed after hold/resume?
+True
+== POST /lifecycle discard wok241-remove-six-test-orders
+{"request": null, "lifecycle": {"state": "active", "revision": 0, "pending_request_id": null, "pending_action": null, "request_state": null, "ready_at": null, "error": null, "updated_at": null}, "already_complete": true, "message": "Task already removed; card closed."}  [HTTP 200]
+== card listed after discard?
+False
+== decisions rows / tasks row / lifecycle_requests rows:
+task_id|decision_key|state|closed
+wok241-remove-six-test-orders|remove|closed|1
+task_id|deleted_at
+wok241-remove-six-test-orders|2026-09-10T00:00:00+00:00
+lifecycle_requests
+0
+== daemon log errors:
+ConnectionResetError: [Errno 54] Connection reset by peer
