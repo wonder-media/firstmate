@@ -2618,6 +2618,7 @@ The shared staleness proof lives in `bin/fm-lock-lib.sh`, which both `fm-teardow
 
 Bridge, the local captain dashboard, is served by `bin/fm-board.sh serve`; the [`bin/fm-board.py`](../bin/fm-board.py) header owns configuration, HTTP routes, authentication, and runtime storage.
 Every task and decision card exposes task-level Hold and Discard actions with the same 15-second undo window as answers: Hold preserves the task in Bridge's Archive until Resume, while Discard closes its backlog task and open decisions without deleting its worktree, source, history, or evidence.
+When a card's task is gone from both the backlog and worker records, the card offers only Discard, which closes that task's open decisions so the card leaves Bridge; a card kept alive only by an open captain decision hold offers only its answer.
 Lifecycle actions route through the configured owning home, use `tasks-axi` for persistent backlog state, and use `fm-control.sh exit` to stop a recorded worker without bypassing teardown guards.
 A Hold on work the stored backlog already reports done or no longer lists is refused with a Conflict and the card refreshes, so completed work is never reopened or relaunched.
 Hold adds a parked `tasks-axi` hold only when the task records none; an existing captain, external, or dated hold keeps its kind, reason, and date even when expired, and Resume releases only Bridge's own hold and relaunches only the exact worker Bridge stopped, meaning `fm-control.sh exit` reported `stopped` rather than `already-stopped`.
