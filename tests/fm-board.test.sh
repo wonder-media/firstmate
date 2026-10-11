@@ -88,6 +88,7 @@ if(window.__bridgeTest){
     factualPreselected:[...factual.querySelectorAll('input[type=radio]')].some(r=>r.checked),factualGuidance:factual.querySelector('.recommend')?.textContent,
     reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent,
     removedLifecycle:[...buildDecision({...node.data,lifecycle_available:false}).querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
+    holdKeptLifecycleHidden:buildDecision({...node.data,lifecycle_available:false,lifecycle_hidden:true}).querySelector('.lifecycle-actions').hidden,
     decisionLifecycle:[...node.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     taskLifecycle:[...failed.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     archiveLifecycle:[...archived.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),archiveTitle:document.querySelector('#archive-title').textContent});
@@ -675,7 +676,7 @@ try:
     command('ingest','--once','--home','Main')
     assert sql('select meta_present from tasks where task_id=?',(removed,))==[{'meta_present':0}]
     card=next(d for d in request()[1]['decisions'] if d['task_id']==removed)
-    assert card['lifecycle_available'] is False,card
+    assert card['lifecycle_available'] is False and card['lifecycle_hidden'] is False,card
     before=calls(home,'fm-control.sh')
     for action in ('hold','resume'):
         rid=str(uuid.uuid4())
@@ -748,7 +749,8 @@ try:
     assert backlog_row('gate-decision-scope')[1]=='done' and not [c for c in calls(home,'tasks-axi') if c[1][:2]==['done','gate-decision-scope']]
     assert {r['state'] for r in sql("select state from decisions where task_id='gate-decision-scope'")}=={'closed'}
     assert not any(d['task_id']=='gate-decision-scope' for d in request()[1]['decisions']) and not any(t['task_id']=='gate-decision-scope' for t in request()[1]['archive'])
-    # A live captain hold keeps its removed origin's lifecycle actionable.
+    # A live captain hold on a removed origin offers only its answer; a direct
+    # Discard still declines the hold instead of failing on the removed origin.
     meta(home,'ghost','working: fixture')
     ghost_base=json.loads((home/'rows.json').read_text())
     set_backlog(ghost_base+[['ghost','in_flight','ship','wonderok','Ghost worker','-','-','no','none']],'fixture ghost worker')
@@ -757,7 +759,8 @@ try:
     wait(lambda:sql("select deleted_at is not null as gone from tasks where task_id='ghost'")==[{'gone':1}])
     set_backlog(ghost_base+[['ghost-decision-k','queued','captain','wonderok','Ghost decision','captain','Pick for ghost','no','none']],'fixture ghost hold')
     ghost=wait(lambda:next((d for d in request()[1]['decisions'] if d['task_id']=='ghost-decision-k'),None))
-    assert ghost['lifecycle_task_id']=='ghost' and ghost['lifecycle_available'] is True,ghost
+    assert ghost['lifecycle_task_id']=='ghost' and ghost['lifecycle_available'] is False and ghost['lifecycle_hidden'] is True,ghost
+    assert ghost['state']=='open',ghost
     ghost_discard=str(uuid.uuid4())
     queued=request('/lifecycle',lifecycle('Main','ghost-decision-k',ghost['lifecycle']['revision'],'discard',ghost_discard))
     assert queued[0]==200 and queued[1]['request']['task_id']=='ghost',queued
@@ -1186,6 +1189,7 @@ for bad in (0,86401,'120',12.5):
             observed=json.loads(html.unescape(match.group(1).decode()))
             assert observed.get('error') is None,observed
             assert observed['removedLifecycle']==['Discard'],observed
+            assert observed['holdKeptLifecycleHidden'] is True,observed
             assert observed['horizontalOverflow'] is False,observed
             assert observed['preselected'] is False,observed
             assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed

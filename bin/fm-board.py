@@ -45,10 +45,11 @@
 # is hold, discard, or resume. A <origin>-decision-<key> task whose origin is a
 # known task or lifecycle row shares the origin's lifecycle (the same rule
 # decisions use), so requests, filtering, and Archive apply once per origin. A
-# card's lifecycle_available is false when neither backlog, an open captain
-# decision hold, nor worker meta remains. Requests for known removed tasks
-# succeed with 'Task already removed.'; Discard also closes their open decisions
-# with 'Task already removed; card closed.'. A
+# card's lifecycle_available is false when neither backlog nor worker meta
+# remains; lifecycle_hidden is true when only an open captain decision hold
+# keeps that removed task alive, so the card offers only its answer. Requests
+# for known removed tasks succeed with 'Task already removed.'; Discard also
+# closes their open decisions with 'Task already removed; card closed.'. A
 # hold on a task the stored backlog no longer lists as active is refused with
 # 409 rather than recorded and silently dropped. A duplicate request id or
 # same-task/action is idempotent. A queued request may be undone for 15 s with
@@ -1108,9 +1109,10 @@ class Board:
                 d['lifecycle_task_id'] = self.decision_lifecycle_task(c, d)
             for task in tasks:
                 task['lifecycle_task_id'] = self.task_lifecycle_target(c, task['home_id'], task['task_id'])
-            available = {(r['home_id'],r['task_id']) for r in c.execute('SELECT home_id,task_id FROM tasks WHERE meta_present=1')}
-            available |= {(r['home_id'],t) for r in c.execute('SELECT home_id,task_id,payload FROM backlog')
-                          for t in backlog_targets(r['task_id'], json.loads(r['payload']))}
+            available = {(r['home_id'],r['task_id']) for r in c.execute(
+                'SELECT home_id,task_id FROM backlog UNION SELECT home_id,task_id FROM tasks WHERE meta_present=1')}
+            hold_kept = {(r['home_id'],t) for r in c.execute('SELECT home_id,task_id,payload FROM backlog')
+                         for t in backlog_targets(r['task_id'], json.loads(r['payload']))} - available
             events = [dict(r) for r in c.execute('SELECT * FROM events ORDER BY created_at DESC LIMIT 500')]
             runs = {r['home_id']: dict(r) for r in c.execute('SELECT * FROM ingest_runs')}
             lifecycle_rows = c.execute('''SELECT l.*,
@@ -1127,7 +1129,9 @@ class Board:
                          lifecycle=self.lifecycle_dict(r)) for r in lifecycle_rows
                     if r['state'] == 'held' or (r['state'] == 'discarded' and r['error'])]
         for card in tasks + decisions + archives:
-            card['lifecycle_available'] = (card['home_id'],card.get('lifecycle_task_id',card['task_id'])) in available
+            target = (card['home_id'],card.get('lifecycle_task_id',card['task_id']))
+            card['lifecycle_available'] = target in available
+            card['lifecycle_hidden'] = target in hold_kept
         homes = []
         for hid in self.homes:
             r = runs.get(hid, {})
