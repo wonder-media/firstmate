@@ -194,7 +194,8 @@ for name in ('tasks-axi','fm-crew-state.sh','fm-fleet-snapshot.sh','fm-send.sh',
     dest.write_text(script);dest.chmod(0o755)
 with socket.socket() as sock:sock.bind(('127.0.0.1',0));port=sock.getsockname()[1]
 secret='fixture-secret-24-characters-minimum'
-config=home/'config/board.json';config.write_text(json.dumps({'homes':[{'id':'Main','path':str(home)},{'id':'Second','path':str(second)}],'lan_host':'localhost','port':port,'secret':secret,'repo_tags':{'wonderok':'WOK','ces':'CES','vendor/qualified-only':'MF','org-a/shared':'WOK','org-b/shared':'MF'}}))
+with socket.socket() as sock:sock.bind(('127.0.0.1',0));dead_port=sock.getsockname()[1]
+config=home/'config/board.json';config.write_text(json.dumps({'homes':[{'id':'Main','path':str(home)},{'id':'Second','path':str(second)}],'lan_host':'localhost','port':port,'secret':secret,'repo_tags':{'wonderok':'WOK','ces':'CES','vendor/qualified-only':'MF','org-a/shared':'WOK','org-b/shared':'MF'},'links':[{'title':'Self','url':f'http://localhost:{port}/','description':'The bridge itself','group':'Local'},{'title':'Closed','url':f'http://127.0.0.1:{dead_port}/','group':'Local'},{'title':'External','url':'https://dashboards.example.invalid/board','description':'Never contacted'}]}))
 env=dict(os.environ)
 for key in ('FM_HOME','FM_BOARD_CONFIG','FM_STATE_OVERRIDE','FM_DATA_OVERRIDE','FM_PROJECTS_OVERRIDE'):
     env.pop(key,None)
@@ -493,10 +494,101 @@ try:
     assert request(auth=False)[0]==403
     assert request('/api/state',extra={'Origin':'http://evil.test'})[0]==403
     assert request('/../config/board.json')[0]==404
+    for route in ('/api/fleet','/api/dashboards'):
+        assert request(route,auth=False)[0]==403,route
+        assert request(route,extra={'Host':'evil.test'})[0]==403,route
+        assert request(route,extra={'Origin':'http://evil.test'})[0]==403,route
+        assert request(route,extra={'Authorization':'Bearer wrong-secret-24-characters-xx'})[0]==403,route
     assert request('/')[0]==200
     assert request('/answer',answer('alpha',revision=row['revision']),auth=False)[0]==403
     assert request('/answer',answer('alpha',revision=99))[0]==409
     passed('health, Bearer authentication, Host/Origin boundary, explicit routes, ETag, stale revision')
+    # Hub tabs: fleet records, quota cache, and dashboard links.
+    (home/'config/crew-dispatch.json').write_text(json.dumps({'rules':[{'when':'council architect seat','why':'Reach me at ops@example.com or /Users/someone/secret/path','use':[{'harness':'codex','model':'m-one','effort':'high','account':'hidden-account'},{'harness':'claude','model':'m-two'}]}],'default':[{'harness':'claude','model':'m-three','effort':'low'}]}))
+    (home/'config/council.json').write_text(json.dumps({'seats':{'architect':'x','ux':'y'},'default_roster':['architect'],'advisory':{'command_template':'agy --model adv-model-1 --print={prompt}'},'caps':{'max_rounds':3,'note':'ignored'}}))
+    (home/'data/secondmates.md').write_text('- hubmate - Owns the hub fixture domain. More detail. (home: /Users/someone/secret/home; scope: x)\n- idlemate - Never launched mate. (home: /nowhere)\n')
+    (home/'state/hubmate.meta').write_text('kind=secondmate\nharness=claude\nmodel=opus\neffort=high\nbackend=herdr\nworktree=/Users/someone/secret/worktree\nherdr_pane_id=w1:p9\nprojects=/Users/someone/clones/alpha,beta\n')
+    (home/'state/hubdorm.meta').write_text('kind=secondmate\nharness=codex\nmodel=m\n');(home/'state/hubdorm.dormant').write_text('')
+    (home/'state/hubship.meta').write_text(f'kind=ship\nmode=direct-PR\nyolo=off\nproject=/Users/someone/clones/alpha\nharness=claude\nmodel=sonnet\neffort=high\nspawn_gen=s{int(time.time())-120}.1.2\nworktree=/Users/someone/secret/wt\n')
+    (home/'state/hubship.status').write_text('working: secret status text\n')
+    (fakebin/'quota-axi').write_text(f"""#!{sys.executable}
+import json,pathlib,sys,time
+root=pathlib.Path({str(root)!r})
+with (root/'quota-calls.log').open('a') as f:f.write('run\\n')
+if (root/'quota-mode').exists():
+    print('not json');sys.exit(1)
+print(json.dumps({{'schemaVersion':1,'providers':[
+ {{'provider':'alpha','plan':'max','accountKeys':['someone@example.com'],'state':{{'status':'fresh','stale':False}},
+  'windows':[{{'id':'five_hour','label':'session','kind':'session','percentRemaining':96,'resetsAt':'2099-01-01T00:00:00+00:00','pace':{{'status':'behind'}}}},{{'id':'seven_day','label':'week','kind':'weekly','percentRemaining':12,'resetsAt':'2099-01-02T00:00:00+00:00'}}],
+  'quotaSemantics':{{'effectiveAvailability':[{{'scope':'all_models','status':'known','effectivePercentRemaining':12,'limitingWindowIds':['seven_day'],'runway':{{'status':'projected_exhaustion','projectedExhaustedAt':'2099-01-01T12:00:00+00:00'}},'selection':{{'status':'known','spendPriority':3.5}}}}]}}}},
+ {{'provider':'beta','state':{{'status':'auth_required','stale':False,'error':'beta_credential_unavailable'}},'windows':[]}},
+ {{'provider':'gamma','state':{{'status':'error','stale':False,'error':'failed: /Users/someone/.secret/cli someone@example.com'}},'windows':[]}}]}}))
+""")
+    (fakebin/'quota-axi').chmod(0o755)
+    stop();(root/'quota-calls.log').write_text('');start()
+    fleet=wait(lambda:(lambda r:r if r[1]['quota']['fetched_at'] else None)(request('/api/fleet')))[1]
+    rec=fleet['records']
+    mates={m['id']:m for m in rec['second_mates']}
+    assert mates['hubmate']['state']=='live' and mates['hubmate']['scope']=='Owns the hub fixture domain',mates
+    assert mates['hubmate']['projects']==['alpha','beta'] and mates['hubmate']['model']=='opus'
+    assert mates['hubdorm']['state']=='dormant' and mates['idlemate']['state']=='dormant'
+    ship=next(w for w in rec['workers'] if w['id']=='hubship')
+    assert ship['project']=='alpha' and ship['harness']=='claude' and ship['model']=='sonnet' and ship['effort']=='high' and 100<=ship['age_s']<400 and ship['last_report']=='work under way',ship
+    assert 'hubmate' not in {w['id'] for w in rec['workers']}
+    rule=rec['routing']['rules'][0]
+    assert rule['use']==[{'harness':'codex','model':'m-one','effort':'high'},{'harness':'claude','model':'m-two'}],rule
+    assert '[email]' in rule['why'] and '[path]' in rule['why'] and rec['routing']['default']==[{'harness':'claude','model':'m-three','effort':'low'}]
+    seats={s['seat']:s for s in rec['council']['seats']}
+    assert seats['architect']['standing'] and not seats['ux']['standing'] and seats['architect']['use'][0]['model']=='m-one'
+    assert rec['council']['advisory_model']=='adv-model-1' and rec['council']['caps']=={'max_rounds':3}
+    quota=fleet['quota']
+    providers={p['provider']:p for p in quota['providers']}
+    assert providers['alpha']['plan']=='max' and providers['alpha']['scopes'][0]['spend_priority']==3.5 and providers['alpha']['windows'][1]['percent_remaining']==12
+    assert providers['beta']['error']=='beta_credential_unavailable' and providers['gamma']['error'] is None
+    levels={(a['provider'],a['level']) for a in quota['attention']}
+    assert ('alpha','critical') in levels and ('gamma','warning') in levels and not any(a['provider']=='beta' for a in quota['attention']),quota['attention']
+    leaked=json.dumps(fleet)
+    for forbidden in ('example.com','/Users/','herdr_pane','w1:p9','accountKeys','hidden-account','secret status text','worktree','.secret'):
+        assert forbidden not in leaked,forbidden
+    # The quota cache: page views never run quota-axi again within the interval.
+    for _ in range(5):request('/api/fleet')
+    assert (root/'quota-calls.log').read_text().count('run')==1,(root/'quota-calls.log').read_text()
+    sys.path.insert(0,str(code/'bin/board'))
+    import hub as hubmod
+    clock=[1000.0]
+    unit=hubmod.Hub(home,{'Main':home},[],now=lambda:clock[0])
+    old_path=os.environ['PATH'];os.environ['PATH']=str(fakebin)+os.pathsep+old_path
+    try:
+        def settle():
+            deadline=time.monotonic()+10
+            while unit.quota_running and time.monotonic()<deadline:time.sleep(.02)
+            assert not unit.quota_running
+        (root/'quota-calls.log').write_text('')
+        assert unit.maybe_refresh_quota();settle();assert unit.quota_error is None and unit.quota['providers']
+        clock[0]+=hubmod.QUOTA_TTL-1;assert not unit.maybe_refresh_quota()
+        clock[0]+=2;assert unit.maybe_refresh_quota();settle()
+        assert (root/'quota-calls.log').read_text().count('run')==2
+        good=unit.quota;(root/'quota-mode').write_text('fail')
+        clock[0]+=hubmod.QUOTA_TTL+1;assert unit.maybe_refresh_quota();settle()
+        assert unit.quota is good and unit.quota_error=='quota_axi_unreadable',unit.quota_error
+        assert not unit.maybe_refresh_quota() and unit.fleet()['quota']['error']=='quota_axi_unreadable'
+        (root/'quota-mode').unlink()
+    finally:
+        os.environ['PATH']=old_path
+    for name in ('hubmate','hubdorm','hubship'):
+        for suffix in ('meta','dormant','status'):(home/f'state/{name}.{suffix}').unlink(missing_ok=True)
+    # Dashboards: local links are probed server-side, external ones are never contacted.
+    dash=wait(lambda:(lambda r:r[1] if all(l['status']!='checking' for l in r[1]['links']) and r[1]['checked_at'] else None)(request('/api/dashboards')))
+    by_title={l['title']:l for l in dash['links']}
+    assert by_title['Self']['status']=='up' and by_title['Closed']['status']=='down' and by_title['External']['status']=='unchecked',by_title
+    assert by_title['Self']['group']=='Local' and by_title['External']['group']=='' and by_title['Self']['description']=='The bridge itself'
+    page=request('/')[1].decode()
+    assert 'href="#fleet"' in page and 'href="#dashboards"' in page and 'id="tab-decisions"' in page
+    bad=json.loads(config.read_text())
+    for links in ([{'title':'x','url':'http://user:pw@localhost/'}],[{'title':'x','url':'ftp://localhost/'}],[{'title':'','url':'http://localhost/'}],[{'title':'x','url':'http://localhost/','extra':1}],{'title':'x'}):
+        bad['links']=links;(root/'bad-board.json').write_text(json.dumps(bad))
+        assert b'link' in command('refresh','--config',root/'bad-board.json',ok=False).stderr,links
+    passed('hub: fleet records and redaction, quota cache, dashboard liveness, link validation, tab shell')
     # SSE uses a real streaming socket; new status appears without reload.
     req=urllib.request.Request(f'http://localhost:{port}/events',headers={'Authorization':'Bearer '+secret})
     stream=urllib.request.urlopen(req,timeout=15)

@@ -3889,4 +3889,22 @@ The optional `stale_after_s` value sets how old a home's last successful ingest 
 The [`launchd example`](../bin/board/com.wondermedia.firstmate-board.plist.example) requires absolute paths to Python 3.14 and the home, with `state/logs/` created before loading it.
 The bookmark carries `?k=<secret>` once; the page stores it locally and immediately removes it from the URL.
 Plain HTTP is supported only on the trusted private LAN.
+
+Bridge is a tabbed hub with a persistent top-level navigation whose tabs are deep-linkable hash routes: `#decisions` (the default decision board, unchanged), `#fleet`, and `#dashboards`.
+The Fleet & models tab shows second mates with scope and live or dormant state, live workers with harness, model, effort, and age, the routing rules from `config/crew-dispatch.json`, council seats from `config/council.json`, and quota windows, spend priority, runway, and attention items from `quota-axi`.
+It replaces the static Fleet Roster page with live data served from caches: records are read from each configured home by the ingest loop, `quota-axi` runs in one background thread at most every five minutes and a failed run keeps the last good reading, and no page view starts a process or changes a record.
+The [`hub.py`](../bin/board/hub.py) header owns collection and redaction: only whitelisted fields leave the daemon, and paths, pane identifiers, account keys, error text from other tools, and e-mail addresses are never served.
+The Dashboards tab is a links directory read from the optional `links` list in `config/board.json`.
+Each entry takes `title` and `url` (required), `description`, and `group`; `url` must be absolute `http` or `https` without credentials, at most 100 links are accepted, and any other key is refused at startup.
+Bridge checks each link whose host is local (loopback, private or link-local address, `localhost`, a single-label name, or `.local`, `.lan`, `.internal`, `.home.arpa`) server-side every 30 seconds and shows an up or down badge; any HTTP response counts as up, and other hosts are listed as not checked and never contacted.
+Keep private URLs in the home's untracked `config/board.json`, never in tracked files.
+
+```json
+"links": [
+  {"title": "Review sessions", "url": "http://192.168.0.10:4387/", "description": "Lavish review pages", "group": "Local tools"},
+  {"title": "Project board", "url": "https://github.com/orgs/EXAMPLE/projects/1", "group": "Hosted"}
+]
+```
+
+Both tabs read `GET /api/fleet` and `GET /api/dashboards`, which need the same Bearer secret and Host and Origin checks as the rest of the API.
 Answers the daemon cannot route itself wake firstmate through a self-announcing `board-answers` process-event source; the [`process-event-sources`](../.agents/skills/process-event-sources/SKILL.md) skill owns handling that wake.

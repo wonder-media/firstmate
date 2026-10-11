@@ -14,6 +14,8 @@
 # /healthz ok false; github_boards={} (reserved, never queried in phase 1). FM_HOME is the absolute owning home; source homes
 # are read-only. Paths are canonicalized; ids are unique path-safe slugs.
 # Tags: WOK,CES,MF,CSLS-OG,JVP,WM,FM,Charlier.
+# Optional links=[{"title","url","description"?,"group"?},...] (at most 100,
+# http or https, no credentials) feeds the Dashboards tab; see docs/configuration.md.
 # Config is private: chmod 600. HTTP is plaintext on the trusted private LAN.
 # Bind only lan_host; Host must equal lan_host:port (port optional only at 80).
 # Origin, when supplied, must equal http://lan_host:port. No CORS is granted.
@@ -27,6 +29,14 @@
 # outbox_backlog, answers_armed, answers_error, ingest_error (by home).
 # answers_armed is false with answers_error set while the exception source's last
 # run failed (board-inbox/answers.error); such failures never wake firstmate.
+# GET /api/fleet -> generated_at, records {second_mates, workers, routing,
+# council}, quota {providers, attention, fetched_at, age_s, error, refreshing}:
+# read-only fleet and model data served from caches (records refreshed by the ingest
+# loop, quota-axi at most every 5 minutes in one background thread); GET
+# /api/dashboards -> links with a server-side up/down/unchecked status. Both need
+# Bearer auth, the same Host/Origin checks, and never expose paths, account keys,
+# or e-mail addresses. bin/board/hub.py owns collection and redaction. The page's
+# top-level tabs are client-side hash routes: #decisions (default), #fleet, #dashboards.
 # GET /events -> SSE event: changed, id: rev, data: {rev,generated_at}; also
 # event: heartbeat every 15 s also carries homes (last_ok/error/age/stale) and
 # answers_armed/error; source-health transitions push an immediate heartbeat, so
@@ -176,8 +186,12 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import uuid
+import importlib.util
 
 ROOT = Path(__file__).resolve().parent.parent
+_hub_spec = importlib.util.spec_from_file_location('fm_board_hub', Path(__file__).resolve().parent / 'board/hub.py')
+hub_module = importlib.util.module_from_spec(_hub_spec)
+_hub_spec.loader.exec_module(hub_module)
 TAGS = ('WOK', 'CES', 'MF', 'CSLS-OG', 'JVP', 'WM', 'FM', 'Charlier')
 SLUG = re.compile(r'[A-Za-z0-9][A-Za-z0-9_-]{0,119}\Z')
 TASKS_TRUNCATION = re.compile(
@@ -391,6 +405,7 @@ class Board:
             elif leaf_tags[leaf] != tag:
                 leaf_tags[leaf] = None
         self.repo_leaf_tags = leaf_tags
+        self.links = hub_module.parse_links(c.get('links'), Invalid)
         self.state = self.home / 'state'
         self.state.mkdir(mode=0o700, exist_ok=True)
         for directory in ('board-inbox', 'backups', 'logs'):
@@ -407,6 +422,7 @@ class Board:
         self.arm_delay = 0
         self.arm_next = 0.0
         self.arm_error = None
+        self.hub = hub_module.Hub(self.home, self.homes, self.links, log=self.log)
         self.source_id = 'board-answers-' + hashlib.sha256(str(self.home).encode()).hexdigest()[:16]
         self.migrate()
 
@@ -1428,6 +1444,10 @@ class Board:
                 self.ingest(reconcile=reconcile)
             except Exception as e:
                 self.log(f'ingest_error: {e}')
+            try:
+                self.hub.tick()
+            except Exception as e:
+                self.log(f'hub_error: {e}')
             if reconcile:
                 last_reconcile = now
                 refresh_seen = current
@@ -1594,6 +1614,10 @@ def handler(board, internal=False):
                     else:
                         self.etag = etag
                         self.respond(200,state)
+                elif parsed.path == '/api/fleet':
+                    self.respond(200,board.hub.fleet())
+                elif parsed.path == '/api/dashboards':
+                    self.respond(200,board.hub.dashboards())
                 elif parsed.path == '/healthz':
                     self.respond(200,board.health())
                 elif parsed.path == '/events':

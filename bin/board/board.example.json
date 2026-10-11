@@ -13,5 +13,8 @@
     "ces": "CES",
     "csls-og": "CSLS-OG"
   },
-  "github_boards": {}
+  "github_boards": {},
+  "links": [
+    {"title": "Example dashboard", "url": "http://192.168.0.10:4387/", "description": "Optional; shown on the Dashboards tab", "group": "Local tools"}
+  ]
 }
