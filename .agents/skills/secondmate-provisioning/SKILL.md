@@ -2,7 +2,7 @@
 name: secondmate-provisioning
 description: >-
   Agent-only reference for persistent secondmate setup and retirement.
-  Use when creating, seeding, validating, launching, making dormant, waking, routing to, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, or when editing data/secondmates.md.
+  Use when creating, seeding, validating, launching, making dormant, waking, routing to, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, reconciling a secondmate auto-relaunched check wake, or when editing data/secondmates.md.
   Covers local leases, whole-home remote routes, transactional seeding, record intake for an existing or inherited domain, project clone restrictions, secondmate harness pins, inherited local-material push, dormant lifecycle, idle charter, handoff helper, and teardown safety.
 user-invocable: false
 metadata:
@@ -240,6 +240,8 @@ Any older pending config-reread generations and tracked-file reread markers are 
 Teardown removes the dormant marker together with the task's other runtime records.
 
 ## Recovery
+
+A `check: secondmate <id> auto-relaunched` wake records a recovery that already completed - reconcile the mate's current state rather than relaunching again, and treat a repeat or a paused-bound wake as the signal to investigate why the mate keeps exiting.
 
 For local `kind=secondmate` meta with no window, treat the secondmate as a dead persistent direct report and respawn it with:
 

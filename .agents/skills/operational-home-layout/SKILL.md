@@ -8,6 +8,26 @@ metadata:
 
 # Operational home layout
 
+Route durable knowledge to its most specific owner:
+
+- Home-domain captain preferences and working style belong in `data/captain.md` after inspect-then-update.
+- Captain preferences shared across secondmate domains belong in the primary home's `data/captain-shared.md` under the `secondmate-provisioning` contract.
+- Fleet-local operational facts belong in curated, home-local `data/learnings.md`.
+- Task-scoped notes belong with the backlog item, and investigation findings belong in the scout report.
+- Knowledge useful to almost every contributor to one project belongs in that project's committed `AGENTS.md`, which only deliberate human edits extend.
+- Knowledge general to every firstmate user belongs in this repo's shared tracked surface.
+
+Treat `data/captain.md`, `data/captain-shared.md`, and `data/learnings.md` as authoritative regardless of harness memory.
+
+## Backlog note hygiene
+
+Keep free-form notes free of temporary paths, moving versions, ephemeral identifiers, and copied state that will rot.
+Inspect the current task note before replacing its considered body, and archive the superseded body when recoverability matters rather than appending by default.
+Verify volatile details against their authoritative config, live system, or API before acting, and correct or delete stale prose immediately.
+Preserve durable structured identifiers, dependencies, and completion artifact links, and route reusable knowledge through the knowledge routing above rather than scattering it through task notes.
+
+## Path inventory
+
 ```
 AGENTS.md            this file (CLAUDE.md is a real @AGENTS.md pointer to it)
 CONTRIBUTING.md      contributor workflow and repo conventions
@@ -55,9 +75,9 @@ config/watched-tools.json  optional list of the tools this home depends on, read
 config/x-mode.env    generated Relay watcher cadence; LOCAL, gitignored; source before arming watcher when present
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
-  captain.md         this home's domain-local captain preferences and working style; LOCAL, gitignored, canonical even if harness memory mirrors it, and updated with inspect-then-update
-  captain-shared.md  main-authoritative shared captain preferences propagated read-only to secondmate homes; LOCAL, gitignored, owned by secondmate-provisioning
-  learnings.md       fleet-local operational facts and gotchas; LOCAL, gitignored; dated, evidence-backed, curated, and updated with inspect-then-update - rewrite and prune rather than append forever, the same contract as captain.md; created lazily, absent until this home has a learning to store
+  captain.md         domain-local preference record (see knowledge routing above); LOCAL, gitignored
+  captain-shared.md  shared preference record (see knowledge routing above), propagated read-only to secondmate homes; LOCAL, gitignored
+  learnings.md       operational knowledge record (see knowledge routing above); LOCAL, gitignored; dated, evidence-backed, and updated with inspect-then-update - rewrite and prune rather than append forever; created lazily, absent until this home has a learning to store
   projects.md        thin fleet navigation registry recording each project's standing delivery posture and optional ship-branch prefix; firstmate-private, parsed by fm-project-mode.sh (section 6)
   secondmates.md      local and remote secondmate routing table; firstmate-private, maintained by the secondmate seed helpers (section 6)
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
