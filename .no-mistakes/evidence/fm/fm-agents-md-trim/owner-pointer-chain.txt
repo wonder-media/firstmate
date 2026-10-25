@@ -1,0 +1,17 @@
+== 1. Live digest line (lab session-start output)
+85:  - this digest flagged it ABSENT (then rebuild or create it per AGENTS.md),
+== 2. AGENTS.md hand-off
+74:For a source the digest flags `ABSENT`, that skill's digest interpretation owns whether to rebuild it or use built-in defaults.
+== 3. session-start-recovery owner rule
+13:An `ABSENT` captain, shared-captain, secondmate, or learnings file means the firstmate repo's built-in defaults, no shared captain preferences, no registered secondmates, or no captured learnings; rebuild an absent or stale project registry from the clones before dispatch.
+== 4. Former stale refs now
+216:   That skill is the source of truth for destinations.
+219:   - Captain preferences and fleet-local operational facts belong in the destination selected by `operational-home-layout` after the required whole-file curation pass.
+The destination for each kind of knowledge, including project-intrinsic knowledge, is owned by the internal [`operational-home-layout` skill](../.agents/skills/operational-home-layout/SKILL.md).
+- `TANGLE: <remediation>` - the primary checkout is stranded on a feature branch instead of its default branch; it protects the `AGENTS.md` section 7 and section 11 rule that project work runs in an isolated task worktree, never the primary checkout.
+The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; the internal `harness-adapters` skill owns what firstmate does with each outcome.
+== 5. operational-home-layout triggers
+description: Load when locating, interpreting, or changing Firstmate home, config, data, state, project, or generated runtime paths, routing durable knowledge, or writing or replacing backlog notes.
+13:- `operational-home-layout` - load when locating, interpreting, or changing Firstmate home, config, data, state, project, or generated runtime paths, routing durable knowledge, or writing or replacing backlog notes.
+== 6. Sizes
+base AGENTS.md:    48965 bytes; target:    38722 bytes

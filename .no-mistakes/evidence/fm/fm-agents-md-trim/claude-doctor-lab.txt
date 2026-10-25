@@ -1,0 +1,60 @@
+  - Agents and skills: no broken or duplicate definitions.
+  - Auto mode is already your default.
+  - Denied commands: all were cd …; … chains. None of them is safe to pre-approve.
+
+  Unused skills (all in ~/.claude/skills)
+
+  ┌────────────────────────┬────────────────────────────┬──────────────┬─────────────┬────────────────────────────────────────────────────────────────────────┐
+  │         Skill          │ Uses (total since install) │   Last use   │ Est. tokens │                                Verdict                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ kun                    │ 0                          │ never        │ 27          │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ media-use              │ 0                          │ never        │ 160         │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ n8n                    │ 0                          │ never        │ 43          │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ use-spark              │ 0                          │ never        │ 69          │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ vision                 │ 0                          │ never        │ 50          │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ wordpress-elementor    │ 0                          │ never        │ 88          │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ youtube-transcript-ops │ 0                          │ never        │ 127         │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ google-tasks-advanced  │ 2                          │ 270 days ago │ 53          │ remove                                                                 │
+  ├────────────────────────┼────────────────────────────┼──────────────┼─────────────┼────────────────────────────────────────────────────────────────────────┤
+  │ skill-creator          │ 4                          │ 121 days ago │ 83          │ remove (the built-in anthropic-skills:skill-creator does the same job) │
+  └────────────────────────┴────────────────────────────┴──────────────┴─────────────┴────────────────────────────────────────────────────────────────────────┘
+
+  - Too new to judge (keep): graphify, hyperframes-cli, hyperframes-registry, install-inventory, reverse-engineer-anything.
+  - Keep: all other skills and plugins. You use them.
+
+  What I scanned: the counters in ~/.claude.json, plus 677 transcripts from 2026-09-24 to today.
+
+  Change I will make: add "skillOverrides": {"<name>": "off"} for each of the 9 skills to ~/.claude/settings.json.
+
+  Things only you can do
+  - Unused MCP servers (links to outside tools): rea, plus the claude.ai connectors Canva, Google Calendar, Mobbin and Notion. They had 0 uses in 677 sessions. They cost no context, so the gain is
+    only less clutter.
+    - For rea: run /mcp disable rea in your main firstmate session. This only turns it off for that one project.
+    - For the claude.ai connectors: disconnect them at claude.ai → Settings → Connectors.
+  - ~/firstmate/AGENTS.md (flagged by /usage, est. 12k tokens): this branch already trims it from 49k to 38.7k chars. That is about 9.7k tokens (est.), below the 40k-char warning limit. I made no
+    edit, because the change is already going through your no-mistakes review.
+
+  Warnings (no action)
+  - One start-of-session hook (a script that runs at session start) took up to 33 s one time. It usually takes 0.6 s. The likely cause is the gh-axi hook, because it calls GitHub.
+  - ~/CLAUDE.md says to use chrome-automation-expert for browser work. The firstmate AGENTS.md says to use chrome-devtools-axi. Pick one when you have time.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Cleanup
+
+│ Turn off the 9 unused skills? This saves about 700 est. tokens every session. I can undo it later.
+
+❯ 1. Clean up everything (recommended)
+     Turn off all 9 skills in ~/.claude/settings.json.
+  2. No, keep everything
+     Change nothing.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
