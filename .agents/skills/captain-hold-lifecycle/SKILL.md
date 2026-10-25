@@ -2,7 +2,7 @@
 name: captain-hold-lifecycle
 description: >-
   Agent-only policy for completing investigations and visual reviews without losing unresolved captain calls, and for closing what the captain owns with his actual words.
-  Load before treating an investigation, scout report, structured review, or Lavish review as complete, before ending a visual review that exposed a captain decision, when recording or routing the captain's answer, and on any RECORD DIVERGENCE line the wake drain prints.
+  Load before creating or recording a task held for the captain, before treating an investigation, scout report, structured review, or Lavish review as complete, before ending a visual review that exposed a captain decision, when recording or routing the captain's answer, and on any RECORD DIVERGENCE line the wake drain prints.
 user-invocable: false
 metadata:
   internal: true
@@ -10,8 +10,9 @@ metadata:
 
 # Captain-hold lifecycle
 
-A decision is not a separate thing: it is simply a task waiting on the captain.
-The one primitive is an ordinary backlog task held for the captain through `bin/fm-captain-hold.sh hold`; its identity is the task id, and that wrapper owns the deterministic mechanics this policy relies on.
+A decision is simply a task held for the captain: create the task with `bin/fm-tasks-axi.sh add` when needed, then always hold it through `bin/fm-captain-hold.sh hold <id> --reason "<reason>"`, with `--until <date>` when the captain defers it.
+When a main-side thread such as a pending captain decision or relay reminder is worth durable tracking, file it as its own work item and hold it through that wrapper.
+The task id identifies the held work, and `bin/fm-captain-hold.sh` owns its deterministic mechanics.
 The agent performs the semantic inventory because scripts must not infer captain calls from report prose, visual-review artifacts, terminal output, or chat.
 
 ## Policy

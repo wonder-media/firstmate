@@ -2,7 +2,7 @@
 name: secondmate-provisioning
 description: >-
   Agent-only reference for persistent secondmate setup and retirement.
-  Use when creating, seeding, validating, launching, making dormant, waking, routing to, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, or when editing data/secondmates.md.
+  Use when creating, seeding, validating, launching, making dormant, waking, routing to, recovering, handing backlog to, pushing inherited local material into, or retiring a secondmate home, reconciling a secondmate auto-relaunched check wake, or when editing data/secondmates.md.
   Covers local leases, whole-home remote routes, transactional seeding, record intake for an existing or inherited domain, project clone restrictions, secondmate harness pins, inherited local-material push, dormant lifecycle, idle charter, handoff helper, and teardown safety.
 user-invocable: false
 metadata:
@@ -97,7 +97,7 @@ When the file's tokens do apply, an explicit per-spawn `--model` or `--effort` f
 Because this resolves from the file on every spawn, the pin is durable across every respawn (recovery, `/updatefirstmate`, restart) exactly like the harness axis itself - e.g. `config/secondmate-harness` containing `claude opus` keeps a secondmate pinned to Opus even if the primary's own default model later changes.
 This is secondmate-only: crewmate/scout model resolution is untouched by this file.
 
-This section is the single owner of the secondmate sync and inherited-local-material propagation contract; `AGENTS.md` sections 3 and 4 point here.
+This section is the single owner of the secondmate sync and inherited-local-material propagation contract.
 Before a local launch, `fm-spawn.sh --secondmate` locally fast-forwards the home to the primary firstmate checkout's current default-branch commit when it is safe, or reconciles a clean divergence whose complete local result is already present there (e.g. after a squash merge) with `reset --keep`; dirty, uniquely diverged, or in-flight homes launch unchanged with a warning, and a genuine divergence gets the same durable reconciliation record `bin/fm-ff-lib.sh` writes for `/updatefirstmate`.
 The locked session-start deferred network stage runs the same bootstrap sweep for every live local secondmate home, discovered from `state/<id>.meta` records with `kind=secondmate` (`data/secondmates.md` only backfills `home=` for older records).
 That no-fetch path is a purely local fast-forward or redundant-divergence reconcile of tracked files, never an origin fetch, and it never touches the gitignored operational dirs, so a secondmate's backlog, projects, and in-flight work are never disturbed; a linked worktree advances immediately, while a standalone clone that lacks the target receives firstmate updates through `/updatefirstmate`'s origin refresh.
@@ -240,6 +240,8 @@ Any older pending config-reread generations and tracked-file reread markers are 
 Teardown removes the dormant marker together with the task's other runtime records.
 
 ## Recovery
+
+A `check: secondmate <id> auto-relaunched` wake records a recovery that already completed - reconcile the mate's current state rather than relaunching again, and treat a repeat or a paused-bound wake as the signal to investigate why the mate keeps exiting.
 
 For local `kind=secondmate` meta with no window, treat the secondmate as a dead persistent direct report and respawn it with:
 

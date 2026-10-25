@@ -4,10 +4,12 @@ Load this with the selected tool reference for dispatch, start, or adapter verif
 
 ## Resolution
 
+`docs/configuration.md` owns dispatch-profile and runtime-backend schemas, `bin/fm-harness.sh` owns static resolution, and `bin/fm-spawn.sh` owns launch flags and fail-closed validation.
+When dispatch profiles exist, consult them at every crewmate or scout intake and pass the resolved concrete profile required by `fm-spawn`.
+Routing precedence is an explicit per-task captain override, then the best-fit configured rule, then the configured default, then the static crewmate harness.
 Use the router's detection and safety sections for static crew and secondmate harness resolution and all explicit overrides.
-`config/crew-dispatch.json` can override that static default for one crewmate or scout with concrete harness, model, and effort axes.
 For a profile array, load `quota-array-dispatch` after establishing harness and provider facts here.
-When the opt-in `bin/fm-dispatch-resolve.sh` is on, its `clear` answer already names the concrete axes; `docs/configuration.md` "Typed dispatch resolution" owns that contract.
+On `clear`, pass the `profile:` line from `bin/fm-dispatch-resolve.sh` to `fm-spawn` unless you state a reason to override; `ambiguous`, `escalate`, `error`, and off all mean the intake above, unchanged (contract: `docs/configuration.md` "Typed dispatch resolution").
 
 `../secondmate-provisioning/SKILL.md` owns inherited local material.
 Its harness consequence is that a secondmate's workers receive literal `config/crew-harness` and `config/crew-dispatch.json`, while the primary-only `config/secondmate-harness` is never inherited because secondmates do not spawn secondmates.

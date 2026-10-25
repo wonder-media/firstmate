@@ -1199,7 +1199,7 @@ Set it high when a wrong pick is costly and low when the rule is a safe runner-u
 A profile `provider` optionally names the quota-axi provider family whose rows apply to that profile; when present, profile and rule-floor provider IDs must match the strict whole-string pattern `^[a-z0-9]+(-[a-z0-9]+)*\z`.
 Bootstrap validates resolver-only `approval`, `min_confidence`, `floor`, and present `provider` values only while typed resolution is active; without the key those inert fields and the pre-existing verified-harness baseline preserve bootstrap behavior.
 
-Typed resolution additively recognizes `gemini` because AGENTS.md section 4 verifies it for crewmate and scout dispatch.
+Typed resolution additively recognizes `gemini` because the internal `harness-adapters` skill verifies it for crewmate and scout dispatch.
 
 | Harness | Provider declaration on the opted-in resolver path |
 | --- | --- |
@@ -1339,7 +1339,7 @@ Every result above exits 0.
 
 **Firstmate retains the dispatch decision**
 
-The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; `AGENTS.md` section 4 owns what firstmate does with each outcome.
+The tool never replaces firstmate's judgment, `quota-array-dispatch`, the captain-approval gate, or `fm-spawn.sh` validation; the internal `harness-adapters` skill owns what firstmate does with each outcome.
 By accepted design, a `clear` result does not enforce catalog/authentication, reasoning-class, or completion-runway gates.
 
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
