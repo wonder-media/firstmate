@@ -71,6 +71,7 @@ If the session lock cannot be acquired and verified, report its exact diagnostic
 A lock-refused session must not spawn, steer, merge, drain the wake queue, repair supervision, repair a checkout, or perform any other fleet mutation.
 
 Load `session-start-recovery` when the digest reports unfinished checks, actionable diagnostics, recovery inputs, or output requiring interpretation.
+For a source the digest flags `ABSENT`, that skill's digest interpretation owns whether to rebuild it or use built-in defaults.
 
 ## 4. Harness and runtime dispatch
 
