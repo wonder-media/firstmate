@@ -1971,8 +1971,7 @@ spawn_herdr_presentation_order_lock_acquire() {
 
 clear_relaunch_harness_wiring() {
   local harness=$1 wt=$2 state=$3 id=$4 kind=${5:-ship}
-  local token_path token auth_path path claude_ownership=owned
-  [ "$kind" != secondmate ] || claude_ownership=shared
+  local token_path token auth_path path
   # The wiring arms above match on harness PREFIXES, because a task launched
   # from a raw command records that command's basename rather than the exact
   # adapter name. The retirement tables are keyed by the exact adapter, so the
@@ -1992,10 +1991,6 @@ clear_relaunch_harness_wiring() {
   fi
   while IFS= read -r path; do
     [ -n "$path" ] || continue
-    if [ "$harness" = claude ] && [ "$path" = "$wt/.claude/settings.local.json" ]; then
-      fm_control_claude_hooks_clear "$path" "$claude_ownership" || return 1
-      continue
-    fi
     if [ "$harness" = polytoken ]; then
       case "$path" in
         "$wt"/*) git -C "$wt" ls-files --error-unmatch -- "$path" >/dev/null 2>&1 && continue ;;
@@ -6305,6 +6300,13 @@ if [ "$KIND" = secondmate ] && ! fm_control_backend_state_verified "$BACKEND"; t
   fm_control_secondmate_lifecycle_retire "$WT" "$STATE_REAL" "$ID" || retire_rc=$?
   [ "$retire_rc" -eq 0 ] || echo "warning: could not fully retire previous secondmate lifecycle wiring for $ID (code $retire_rc); captain-owned settings were preserved" >&2
 fi
+claude_session_keys='"feedbackDrafts":"off"'
+[ "$KEEP_AI_TRAILERS" = 1 ] || claude_session_keys='"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}'
+if [ "$KIND" = secondmate ] && [ -z "$WIRING_HARNESS" ]; then
+  case "$HARNESS" in
+  claude*) printf '{%s}\n' "$claude_session_keys" >"$STATE_REAL/$ID.claude-settings.json" ;;
+  esac
+fi
 BUSY_GEN=
   case "$WIRING_HARNESS" in
   codex*)
@@ -6396,11 +6398,7 @@ BUSY_GEN=
     fi
     hooks_json="\"hooks\":{\"UserPromptSubmit\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_submit\"}]}],${stop_entry}\"StopFailure\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_stopfail\"}]}],\"SessionEnd\":[{\"hooks\":[{\"type\":\"command\",\"command\":\"$j_sessionend\"}]}]}"
     if [ "$KIND" = secondmate ]; then
-      session_keys='"feedbackDrafts":"off",'
-      if [ "$KEEP_AI_TRAILERS" != 1 ]; then
-        session_keys='"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false},'
-      fi
-      printf '{%s%s}\n' "$session_keys" "$hooks_json" >"$STATE_REAL/$ID.claude-settings.json"
+      printf '{%s,%s}\n' "$claude_session_keys" "$hooks_json" >"$STATE_REAL/$ID.claude-settings.json"
     else
       mkdir -p "$WT/.claude"
       printf '{%s}\n' "$hooks_json" >"$WT/.claude/settings.local.json"

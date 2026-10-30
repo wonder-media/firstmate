@@ -831,7 +831,7 @@ test_spawn_secondmate_semantic_lifecycle_wiring() {
 # endpoint classifier also works. On any other backend the wiring would emit a
 # turn-end notification no state could ever absorb, so it is not armed at all.
 test_spawn_secondmate_skips_wiring_on_an_unprovable_backend() {
-  local w sm meta fakebin
+  local w sm meta fakebin launch settings
   w="$TMP_ROOT/spawn-unprovable-backend"
   sm="$w/sm"
   make_seeded_home "$sm" sm
@@ -850,9 +850,16 @@ esac
 sub=
 for a in "$@"; do
   case "$a" in
-    list-tabs|new-tab|list-panes) sub=$a; break ;;
+    list-tabs|new-tab|list-panes|paste) sub=$a; break ;;
   esac
 done
+if [ "$sub" = paste ]; then
+  text=${@: -1}
+  case "$text" in
+    ". '"*"'") script=${text#". '"}; cat "${script%"'"}" ;;
+    *) printf '%s\n' "$text" ;;
+  esac >> "$(dirname "$0")/../zellij-paste.log" 2>/dev/null
+fi
 case "$sub" in
   list-tabs)
     if [ -f "$state" ]; then
@@ -902,6 +909,14 @@ SH
     || fail "unprovable-backend: the captain's own hook was discarded"
   [ -e "$w/home/state/sm.pi-ext.ts" ] \
     && fail "unprovable-backend: a prior incarnation's pi extension survived a disarmed spawn"
+  launch=$(grep -m1 -- ' claude ' "$w/tmux-sm/zellij-paste.log" 2>/dev/null) \
+    || fail "unprovable-backend: no Claude launch was pasted into the pane"
+  settings=$(printf '%s\n' "$launch" | sed -n "s/.*--settings '\([^']*\)'.*/\1/p")
+  [ "$settings" = "$(sm_claude_settings "$w" sm)" ] \
+    || fail "unprovable-backend: the launch passed --settings '$settings', not the per-task settings file"
+  jq -e '.feedbackDrafts == "off" and .attribution.commit == "" and .attribution.pr == "" and .attribution.sessionUrl == false and (has("hooks") | not)' \
+    "$settings" >/dev/null \
+    || fail "unprovable-backend: the --settings file is missing, lacks the session keys, or carries lifecycle hooks"
   pass "B5e spawn: a secondmate on a backend without recovery-grade state arms no lifecycle wiring and retires what a prior incarnation armed"
 }
 

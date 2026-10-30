@@ -123,7 +123,7 @@ allow_exit() {
 
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
-fm_primary_home_bind "$SCRIPT_ROOT" || exit 0
+fm_primary_home_bind "$SCRIPT_ROOT" || allow_exit
 
 # A Claude secondmate's home carries .fm-busy-stop (bin/fm-spawn.sh), and this
 # guard is then the only Stop writer of the parent home's busy record for that

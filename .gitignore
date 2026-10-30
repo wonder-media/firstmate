@@ -9,7 +9,6 @@ scratchpad*
 
 # Firstmate's own secondmate lifecycle wiring: written by bin/fm-spawn.sh into a
 # captain-owned home (clone or linked worktree), never the captain's work.
-.claude/settings.local.json
 .opencode/plugins/fm-busy-state.js
 .opencode/plugins/fm-turn-end.js
 .fm-grok-turnend
@@ -20,6 +19,7 @@ __pycache__/
 *.pyc
 .env
 config/
+.claude/settings.local.json
 
 .tools/
 

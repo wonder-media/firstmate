@@ -677,11 +677,10 @@ test_harness_switch_moves_the_record_and_clears_prior_wiring() {
   pass "fm-control relaunch: switching harness is one ordinary relaunch, and the old wiring goes with the old agent"
 }
 
-# Retiring claude wiring is ownership-aware. In a crew worktree firstmate owns
-# the whole settings file and removes it (jq is optional there, so a tmux-only
-# install must still relaunch). In a secondmate home firstmate is a guest, so
-# only its own entries go, and a missing jq skips the prune rather than failing a
-# previously working path or discarding captain-owned settings.
+# Retiring legacy claude hooks from a secondmate home's captain-owned
+# settings.local.json removes only firstmate's own entries, and a missing jq
+# skips the prune rather than failing a previously working path or discarding
+# captain-owned settings.
 settings_mode() {
   if [ "$(uname)" = Darwin ]; then stat -f %Lp "$1"; else stat -c %a "$1"; fi
 }
@@ -698,17 +697,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
   foreign='{"permissions":{"allow":["Bash(git status:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]},{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}'
 
   printf '%s\n' "$foreign" > "$settings"
-  fm_control_claude_hooks_clear "$settings" owned \
-    || fail "an owned crew settings file should retire without error"
-  [ ! -e "$settings" ] || fail "an owned crew settings file should be removed outright"
-
-  printf '%s\n' "$foreign" > "$settings"
-  ( PATH="$nojq" fm_control_claude_hooks_clear "$settings" owned ) \
-    || fail "retiring owned crew wiring must not require jq"
-  [ ! -e "$settings" ] || fail "retiring owned crew wiring without jq should still remove the file"
-
-  printf '%s\n' "$foreign" > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "a shared secondmate settings file should retire without error"
   [ -e "$settings" ] || fail "retiring shared wiring must not delete a file with foreign content"
   [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
@@ -719,84 +708,38 @@ test_claude_wiring_retirement_is_ownership_aware() {
     || fail "retiring shared wiring removed the captain's own hook"
 
   printf '%s\n' "$foreign" > "$settings"
-  ( PATH="$nojq" fm_control_claude_hooks_clear "$settings" shared ) \
+  ( PATH="$nojq" fm_control_claude_hooks_clear "$settings" ) \
     || fail "retiring shared wiring without jq must not fail a previously working path"
   [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
     || fail "a skipped retirement must leave the captain's settings untouched"
   [ "$(jq -r '.permissions.allow[0]' "$settings")" = 'Bash(git status:*)' ] \
     || fail "a skipped retirement must not touch the captain's permissions"
 
-  printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}\n' > "$settings"
-  rc=0
-  ( PATH="$nojq" \
-    fm_control_claude_hooks_write "$settings" '{"hooks":{"Stop":[]}}' shared ) || rc=$?
-  [ "$rc" -ne 0 ] || fail "arming shared wiring without jq must fail closed"
-  [ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$settings")" = captain-own-stop ] \
-    || fail "a failed-closed arming must not overwrite captain-owned settings"
-
-  # jq accepts a whitespace-only file and yields no value, and a file holding two
-  # concatenated documents merges into two; neither may be written back.
-  printf '   \n' > "$settings"
-  rc=0
-  fm_control_claude_hooks_write "$settings" '{"hooks":{"Stop":[]}}' shared || rc=$?
-  [ "$rc" -ne 0 ] || fail "a merge yielding no JSON object must not report success"
-  [ "$(cat "$settings")" = '   ' ] \
-    || fail "a merge yielding no JSON object must leave the file untouched"
-
-  printf '{"a":1}\n{"b":2}\n' > "$settings"
-  rc=0
-  fm_control_claude_hooks_write "$settings" '{"hooks":{"Stop":[]}}' shared || rc=$?
-  [ "$rc" -ne 0 ] || fail "a merge yielding two JSON documents must not report success"
-  [ "$(wc -l < "$settings")" -eq 2 ] \
-    || fail "a merge yielding two JSON documents must leave the file untouched"
-
   # A file that IS one JSON object but whose `hooks` value has an inner shape the
-  # prune program cannot walk must be reported unmergeable UP FRONT, so a caller
-  # disarms instead of discovering the failure mid-write and refusing to launch.
+  # prune program cannot walk is left untouched.
   for body in '{"hooks":{"Stop":["x"]}}' \
               '{"hooks":{"Stop":{}}}' '{"hooks":{"Stop":""}}' '{"hooks":{"Stop":0}}'; do
     printf '%s\n' "$body" > "$settings"
-    ! fm_control_claude_shared_settings_mergeable "$settings" \
-      || fail "an unwalkable hooks value was reported mergeable: $body"
-    fm_control_claude_hooks_clear "$settings" shared \
+    fm_control_claude_hooks_clear "$settings" \
       || fail "retiring wiring over an unwalkable hooks value must not fail a working path: $body"
     [ "$(cat "$settings")" = "$body" ] \
       || fail "a skipped retirement must leave the captain's file untouched: $body"
   done
-  # The gate is the single owner of "can this merge run at all", so every file it
-  # accepts the merge must actually complete on: a gate proving less than the
-  # write needs turns a captain's odd settings file into a refused launch.
-  for body in '{}' '{"permissions":{"allow":["x"]}}' '{"hooks":{}}' '{"hooks":{"Stop":[]}}' \
-              '{"hooks":{"Stop":{}}}' '{"hooks":{"Stop":""}}' '{"hooks":{"Stop":0}}' \
-              '{"hooks":{"PreToolUse":{}}}'; do
-    printf '%s\n' "$body" > "$settings"
-    fm_control_claude_shared_settings_mergeable "$settings" || continue
-    fm_control_claude_hooks_write "$settings" \
-      '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t idle"}]}]}}' \
-      shared \
-      || fail "the gate accepted a file the merge then failed on, refusing the launch: $body"
-  done
-
-  printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}' \
-    > "$settings"
-  fm_control_claude_shared_settings_mergeable "$settings" \
-    || fail "a well-formed captain settings file must stay mergeable"
-
   # A guest never deletes or reformats a captain file it wrote nothing into, and
   # never removes one whose firstmate entries were its whole content.
   printf '%s' '{"permissions":{"allow":["x"]}}' > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring shared wiring over a file with no firstmate entry must succeed"
   [ "$(cat "$settings")" = '{"permissions":{"allow":["x"]}}' ] \
     || fail "a captain file holding no firstmate entry must not be rewritten"
 
   printf '%s' '{}' > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring shared wiring over an empty captain object must succeed"
   [ -e "$settings" ] || fail "a guest retirement deleted a captain-owned settings file"
 
   : > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring shared wiring over a zero-byte captain file must succeed"
   [ -e "$settings" ] || fail "a guest retirement deleted a zero-byte captain-owned file"
 
@@ -806,7 +749,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
   printf '%s' '{"permissions":{"allow":["Bash(bin/fm-busy-event.sh read:*)"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"}]}]}}' \
     > "$dir/home/.claude/settings.local.json"
   before=$(cat "$dir/home/.claude/settings.local.json")
-  fm_control_claude_hooks_clear "$dir/home/.claude/settings.local.json" shared \
+  fm_control_claude_hooks_clear "$dir/home/.claude/settings.local.json" \
     || fail "retiring shared wiring over a captain permission naming the script must succeed"
   [ "$(cat "$dir/home/.claude/settings.local.json")" = "$before" ] \
     || fail "a captain permission naming the busy-event script triggered a rewrite"
@@ -816,7 +759,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
   # The captain's chosen mode must survive the temp-and-rename replacement.
   printf '%s\n' "$foreign" > "$settings"
   chmod 600 "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring shared wiring over a hardened captain file must succeed"
   [ "$(settings_mode "$settings")" = 600 ] \
     || fail "the captain's file mode was widened to $(settings_mode "$settings") by the atomic replacement"
@@ -825,7 +768,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
   # in the same matcher entry: retirement must take only firstmate's command.
   printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"Bash"}],"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"},{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G1"}]}]}}' \
     > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring wiring that shares a matcher entry must succeed"
   [ "$(jq -r '[.hooks.Stop[].hooks[].command] | join(",")' "$settings")" = captain-own-stop ] \
     || fail "retirement removed the captain's command from the entry it shared with firstmate"
@@ -834,7 +777,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
 
   printf '%s\n' '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[]}],"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
     > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring wiring beside a captain entry declaring an empty hook list must succeed"
   [ "$(jq -r '.hooks.PreToolUse[0].matcher' "$settings")" = Bash ] \
     || fail "retirement discarded a captain entry that declares an empty hook list"
@@ -843,7 +786,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
 
   printf '%s\n' '{"hooks":{"Stop":[],"PreToolUse":[{"matcher":"B","hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh x"}]}]}}' \
     > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring wiring beside a captain event declaring no entries must succeed"
   [ "$(jq -r '.hooks | has("Stop")' "$settings")" = true ] \
     && [ "$(jq -r '.hooks.Stop | length' "$settings")" = 0 ] \
@@ -852,8 +795,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
     || fail "the event firstmate emptied outlived its retirement"
 
   # An event whose value firstmate never merges into is not something the prune
-  # walks, so it must not block the retirement of firstmate's own hooks - while
-  # still keeping the wiring disarmed, because the merge could not append onto it.
+  # walks, so it must not block the retirement of firstmate's own hooks.
   printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"PreToolUse":{},"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
     > "$dir/home/.claude/settings.local.json"
   rc=0
@@ -864,8 +806,6 @@ test_claude_wiring_retirement_is_ownership_aware() {
     || fail "retirement rewrote a captain event firstmate does not walk into"
   [ "$(jq -r '.hooks | has("Stop")' "$dir/home/.claude/settings.local.json")" = false ] \
     || fail "firstmate's own hook outlived a retirement it could run"
-  ! fm_control_claude_shared_settings_mergeable "$dir/home/.claude/settings.local.json" \
-    || fail "a hook event the merge cannot append onto was reported mergeable"
 
   # An event firstmate does not walk keeps its own type and its own keys, and an
   # event the captain explicitly set to null is content too, not the absence of
@@ -896,7 +836,7 @@ test_claude_wiring_retirement_is_ownership_aware() {
 
   # A matcher ENTRY whose hook list is not an array is content firstmate does not
   # own, at the level below the event: it keeps its own type and its own keys,
-  # blocks neither arming nor retirement, and hides no firstmate hook beside it.
+  # does not block retirement, and hides no firstmate hook beside it.
   printf '%s\n' '{"permissions":{"allow":["x"]},"hooks":{"PreToolUse":[{"matcher":"B","hooks":{"a":{"type":"command","command":"captain-own"}}}],"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
     > "$dir/home/.claude/settings.local.json"
   rc=0
@@ -920,19 +860,6 @@ test_claude_wiring_retirement_is_ownership_aware() {
     || fail "retirement rewrote a captain entry holding a non-hook value"
   [ "$(jq -r '.hooks | has("SessionEnd")' "$dir/home/.claude/settings.local.json")" = false ] \
     || fail "a captain entry firstmate does not walk hid firstmate's own hook from its retirement"
-
-  # An entry firstmate does not walk does not make the file unmergeable either:
-  # the merge only appends onto the event array beside it.
-  printf '%s\n' '{"hooks":{"Stop":[{"hooks":"str"}]}}' > "$settings"
-  fm_control_claude_shared_settings_mergeable "$settings" \
-    || fail "an entry firstmate does not walk was reported unmergeable"
-  fm_control_claude_hooks_write "$settings" \
-    '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' shared \
-    || fail "arming beside an entry firstmate does not walk must succeed"
-  [ "$(jq -r '.hooks.Stop[0].hooks' "$settings")" = str ] \
-    || fail "arming rewrote a captain entry firstmate does not walk"
-  [ "$(jq '.hooks.Stop | length' "$settings")" = 2 ] \
-    || fail "arming did not append firstmate's own entry beside the captain's"
 
   # A captain event that is not an array is content firstmate steps over, in the
   # ownership walk exactly as in the prune: it must not hide firstmate's own hook
@@ -964,16 +891,6 @@ test_claude_wiring_retirement_is_ownership_aware() {
   [ "$FM_CONTROL_RETIRE_FAILED_PATH" = "$dir/home/.opencode/plugins/fm-busy-state.js" ] \
     || fail "the removal failure named '$FM_CONTROL_RETIRE_FAILED_PATH' instead of the artifact it could not remove"
 
-  printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"captain-own-stop"},{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G1"}]}]}}' \
-    > "$settings"
-  fm_control_claude_hooks_write "$settings" \
-    '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle --gen G2"}]}]}}' shared \
-    || fail "re-arming over a shared matcher entry must succeed"
-  jq -e '[.hooks.Stop[].hooks[].command] | index("captain-own-stop")' "$settings" >/dev/null \
-    || fail "a re-arm removed the captain's command from the entry it shared with firstmate"
-  [ "$(jq '[.hooks.Stop[].hooks[].command | select(contains("fm-busy-event.sh"))] | length' "$settings")" = 1 ] \
-    || fail "a re-arm did not retire exactly the previous generation's own command"
-
   # A file firstmate cannot inspect at all is reported apart from one whose
   # prune ran and left an owned hook behind: only the second is the captain's
   # to repair by hand.
@@ -992,12 +909,12 @@ test_claude_wiring_retirement_is_ownership_aware() {
 
   printf '%s\n' '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"/x/bin/fm-busy-event.sh apply s t1 idle"}]}]}}' \
     > "$settings"
-  fm_control_claude_hooks_clear "$settings" shared \
+  fm_control_claude_hooks_clear "$settings" \
     || fail "retiring a firstmate-only shared file must succeed"
   [ -e "$settings" ] || fail "a guest retirement deleted the captain-owned file it emptied"
   [ "$(jq -r 'has("hooks")' "$settings")" = false ] \
     || fail "the firstmate hook entry outlived its retirement"
-  pass "fm-control relaunch: claude settings retirement is ownership-aware, jq stays optional, and only one merged object is ever written"
+  pass "fm-control relaunch: legacy claude settings retirement prunes only firstmate hooks, jq stays optional, and only one object is ever written"
 }
 
 test_refused_relaunch_onto_polytoken_keeps_the_project_hook_layer() {
