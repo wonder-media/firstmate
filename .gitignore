@@ -14,6 +14,7 @@ scratchpad*
 .opencode/plugins/fm-turn-end.js
 .fm-grok-turnend
 .fm-kimi-turnend
+.fm-busy-stop
 .DS_Store
 __pycache__/
 *.pyc

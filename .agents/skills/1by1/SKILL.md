@@ -36,7 +36,7 @@ This skill owns the conversational walk only; it does not change Bearings, Ahoy,
 4. Keep actual open decisions and approvals, requests for captain review, and prerequisites that require the captain personally.
    A recorded PR alone is not a review request, and ordinary running work, automatic waits, and action-free integrity warnings are not feedback items.
    Exclude resolved/completed feedback, already accepted answers awaiting delivery, and archived or explicitly do-not-resurface work unless the captain explicitly asks to revisit it.
-   An origin's completion does not close its independently open captain decision; use [`decision-hold-lifecycle`](../decision-hold-lifecycle/SKILL.md) for that distinction.
+   An origin's completion does not close its independently open captain decision; use [`captain-hold-lifecycle`](../captain-hold-lifecycle/SKILL.md) for that distinction.
    Bridge lifecycle filtering applies to the origin and its decisions; do not resurrect an archived item from the snapshot's still-open underlying hold.
    Revisiting permits inspection, not automatic reopening or resuming.
 5. Deduplicate by canonical owning home, originating task, and decision key, following owner-provided origin/hold mappings rather than constructing new identities.
@@ -107,7 +107,7 @@ For an empty inventory say no verified pending items remain in the selected scop
    Re-read the stored options before recording an answer.
    When firstmate deliberately offers a better option the card does not carry, the recorded answer note must explicitly name which stored option the captain's letter resolves to and explain the mapping.
    If anything material changed or closed, do not apply the old answer to the new revision or another item; explain the change and obtain a fresh answer if still needed.
-2. Load [`decision-hold-lifecycle`](../decision-hold-lifecycle/SKILL.md) before recording or routing a decision answer, and [`ask-user-authority`](../ask-user-authority/SKILL.md) for an ask-user finding.
+2. Load [`captain-hold-lifecycle`](../captain-hold-lifecycle/SKILL.md) before recording or routing a decision answer, and [`ask-user-authority`](../ask-user-authority/SKILL.md) for an ask-user finding.
    Use the owner's current header/help for the supported route: Bridge's revision-checked answer interface for its cards, the decision-hold owner's keyed intake and routed-work procedures, or [`bin/fm-send.sh`](../../../bin/fm-send.sh)'s keyed answer path for live task decisions.
    Use one delivery route per answer; do not submit through Bridge and separately send the same decision.
    Set the exact owning `FM_HOME` for home-local operations, and route secondmate-owned work through its registered second mate or Bridge's existing owner transport rather than steering its child from the root.

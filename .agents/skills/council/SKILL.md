@@ -18,7 +18,7 @@ Firstmate may suggest it once at plan intake when a plan has more than two phase
 The council refines; the captain approves.
 An invocation authorizes review, not implementation, a merge, or an expansion of scope.
 A finding that expands scope, is destructive, irreversible, or security-sensitive, or contradicts a captain rule becomes a captain question registered through the decision-hold path, never a council decision.
-Load [ask-user-authority](../ask-user-authority/SKILL.md) when classifying such a finding and [decision-hold-lifecycle](../decision-hold-lifecycle/SKILL.md) for registration and completion.
+Load [ask-user-authority](../ask-user-authority/SKILL.md) when classifying such a finding and [captain-hold-lifecycle](../captain-hold-lifecycle/SKILL.md) for registration and completion.
 Reviewer labels are evidence, never authority.
 No reviewer ever edits the plan.
 
