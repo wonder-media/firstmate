@@ -1,0 +1,11 @@
+$ FM_HOME=<foreign-home> bin/fm-turnend-guard.sh --agy </dev/null
+stdout: [{}]
+exit: 0
+stderr: 
+
+$ FM_HOME=<foreign-home> bin/fm-turnend-guard-agy.sh (Stop hook wrapper)
+stdout: [{}] exit: 0
+stderr: 
+
+--- base commit 50a31564 behavior (before fix) ---
+old stdout: [] exit: 0

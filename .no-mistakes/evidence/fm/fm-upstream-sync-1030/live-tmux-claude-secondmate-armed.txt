@@ -1,0 +1,37 @@
+## live tmux lab: fm-spawn.sh sm1 <sm-home> --harness claude --backend tmux --secondmate
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab.Aeu8eP
+warning: secondmate sm1 sync skipped before launch: primary default-branch commit cannot be resolved
+spawned sm1 harness=claude kind=secondmate mode=secondmate yolo=off window=primary:fm-sm1 worktree=/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab-sm.iOLUqc/sm1
+rc=0
+
+## state/sm1.claude-settings.json (armed path, jq keys)
+{"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false},"hooks":["SessionEnd","Stop","StopFailure","UserPromptSubmit"]}
+
+## launch command in the secondmate pane
+bash bash
+fm-sm1 2.1.314
+ ▐▛███▛█   Claude Code v2.1.314
+▝▜██████▀  Opus 5.5 · Claude Ultra
+ ▝▝   ▝▝   /private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab-sm.iOLUqc/sm1
+❯ : Firstmate operational input waiting: read '/private/var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/fm-lab-sm.iOLUqc/sm1/state/operational-inbox/1793399387-7dd257d85e1150cc.msg' and handle its
+  contents as Firstmate operational input.
+  Read 1 file, ran 2 shell commands
+⏺ I read the message. It has no task for me to do.
+  What I found:
+  - The message says: FIRSTMATE_OP: v1 launch-brief: charter.
+  - This points to the charter file: data/charter.md.
+  - That file has only one word: charter. It is a placeholder (an empty stand-in file).
+  - AGENTS.md has only the title # Firstmate.
+  What I did:
+  - I read the files only.
+  - I did not change any files.
+  - I did not move the message to a "handled" folder. I do not know the correct steps for that yet.
+  What you do now:
+  - If this is a test of the launch step, it worked: I got the message and found the charter.
+  - If you want real work done, put the real charter text in data/charter.md. Then send the brief again.
+✻ Cogitated for 17s · done 3:30 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 · sm1  ┃  ctx 6% · think:on · effort:medium  ┃  5h↻3:50pm · 7d 31%↻Nov 1
+  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← 1 agent

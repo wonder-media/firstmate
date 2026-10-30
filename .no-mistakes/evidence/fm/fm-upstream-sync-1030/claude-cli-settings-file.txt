@@ -1,0 +1,8 @@
+settings file: {"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}
+$ claude -p --settings ./sm.claude-settings.json "Reply with exactly: SETTINGS_OK"
+SETTINGS_OK
+exit: 0
+
+$ claude -p --settings ./missing.claude-settings.json (the pre-fix state: file never written)
+Error: Settings file not found: /var/folders/qb/mzs68z4x5k72692d0yfx2knc0000gn/T/tmp.aUNLAUvZJe/missing.claude-settings.json
+exit: 

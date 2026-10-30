@@ -1,0 +1,42 @@
+ok - fm-control relaunch: a secondmate's child work is accounted for and its charter is left alone
+ok - fm-control relaunch: a secondmate home that is not this secondmate's is refused
+ok - fm-control relaunch: unreadable child records fail checkpoint
+ok - fm-control relaunch: unlistable state fails checkpoint
+ok - fm-control relaunch: a vanished watcher scratch file does not fail the child-record checkpoint
+ok - fm-control relaunch: two control actions on one task serialize instead of interleaving
+ok - fm-spawn relaunch: direct entry participates in lifecycle serialization
+ok - fm-promote: promotion participates in lifecycle serialization
+ok - fm-spawn --relaunch: refuses to launch a second agent into a live endpoint
+ok - fm-spawn --relaunch: symlinked records refuse before inspection
+ok - fm-spawn --relaunch: keeps its early meta lock continuous
+ok - fm-spawn --relaunch: pending closes refuse before replacement begins
+ok - fm-spawn --relaunch: every identity axis comes from the record, and a contradicting flag refuses
+ok - fm-spawn --relaunch: an unrecorded task is refused
+ok - fm-spawn --relaunch: refuses to start a replacement outside the copy holding its work
+ok - tmux: a window absent from its session refuses both verbs rather than being assumed gone
+ok - tmux: an unfindable session refuses both verbs, so a live agent is never duplicated
+ok - tmux: a dead server on this socket refuses both verbs rather than proving absence
+ok - reclaim: an unclassifiable endpoint is still refused, so two agents cannot share one
+sed: 1: "/private/var/folders/qb ...": invalid command code v
+sed: 1: "/private/var/folders/qb ...": invalid command code v
+ok - fm-spawn --relaunch: resumes the bound Pi session only for a Pi registration
+ok - reclaim: a herdr pane that outlived its stopped server is adopted, never orphaned beside a new tab
+ok - fm-control exit: a herdr pane that outlived its stopped server is already-stopped, not gone
+ok - reclaim: a herdr rebind is created in the session the record names, never the ambient one
+ok - reclaim: a herdr agent that came back with its server refuses, so one worktree keeps one agent
+ok - reclaim: a herdr reclaim rebinds the endpoint and leaves the whole rest of the task alone
+ok - reclaim: a herdr secondmate whose endpoint is gone is sent to its own respawn owner
+ok - reclaim: a rebind refused from a plain shell reports the real cause, not a fabricated session mismatch
+ok - relaunch re-reads the backlog item instead of blindly re-running the transition
+ok - relaunch heals an item that drifted out of In flight while the task stayed live
+ok - away supervision relaunches existing In-flight and queued items under the saturated fresh-spawn spend cap
+FM_TEST_END 2026-10-30T22:29:59Z tests/fm-control-relaunch.test.sh exit=0 duration_ms=257788 gate_skip=false
+FM_TEST_SUMMARY total=3 failed=0 skipped_gate=0 duration_ms=668394
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=257788 failed=0
+FM_TEST_SUMMARY_FAMILY family=secondmate count=1 duration_ms=337084 failed=0
+FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=1 duration_ms=73117 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-secondmate-harness.test.sh duration_ms=337084
+FM_TEST_SLOWEST rank=2 script=tests/fm-control-relaunch.test.sh duration_ms=257788
+FM_TEST_SLOWEST rank=3 script=tests/fm-turnend-guard.test.sh duration_ms=73117
+bin/fm-test-run.sh tests/fm-secondmate-harness.test.sh   2>&1  183.54s user 285.41s system 70% cpu 11:08.44 total
+tail -40  0.00s user 0.00s system 0% cpu 11:08.44 total
