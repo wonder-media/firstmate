@@ -6,9 +6,8 @@
 # FM_QUOTA_AXI_MIN is sourced from bin/fm-tool-versions-lib.sh, the shared
 # support-floor and maintenance-inventory owner.
 #
-# bin/fm-bootstrap.sh turns a failing check into the operator-facing MISSING
-# diagnostic, which is what keeps an older build from reaching a dispatch
-# intake at all.
+# bin/fm-bootstrap.sh turns an absent binary into MISSING and an installed
+# incompatible build into OUTDATED before dispatch intake.
 #
 # Snapshot schemas: fm_quota_json_valid accepts quota-axi schema 5 (one row per
 # provider, no accountKey) and schema 6 (every row carries accountKey, unique on
