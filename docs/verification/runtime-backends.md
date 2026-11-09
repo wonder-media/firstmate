@@ -2809,7 +2809,7 @@ That build is `FM_BACKEND_T3CODE_PR_TOOLS_VERIFIED_FROM` in `bin/backends/t3code
 The opt-in guard repeats the check and fails naming both versions:
 
 ```sh
-FM_T3CODE_PR_TOOLS_LIVE=1 FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
+FM_T3CODE_PR_TOOLS_LIVE=1 FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
 ```
 
 ```text
@@ -2821,7 +2821,7 @@ ok - t3code live: T3 0.0.46-nightly.20261010.2935 with 2.1.296 (Claude Code) (cl
 The token-free guard checks the gate, the project catalog, a typed missing-thread read, and the supervisor lookup against the server the configured credential names, and changes nothing there.
 
 ```sh
-FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
+FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
 ```
 
 ```text

@@ -280,8 +280,8 @@ If a task's thread no longer reads back, release the task by hand:
 ```sh
 bin/fm-test-run.sh tests/fm-t3-mcp.test.sh tests/fm-backend-t3code.test.sh
 bin/fm-test-run.sh tests/fm-backend.test.sh tests/fm-daemon.test.sh tests/fm-control.test.sh
-FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
-FM_T3CODE_PR_TOOLS_LIVE=1 FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
+FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
+FM_T3CODE_PR_TOOLS_LIVE=1 FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
 ```
 
 The portable entry points cover the T3 adapter against a [fake `/mcp` server](../tests/t3-fake-server.mjs) and fake Treehouse, plus the shared backend, daemon, and control behavior.

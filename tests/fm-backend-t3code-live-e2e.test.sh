@@ -8,7 +8,7 @@
 # FM_LIVE=1 makes a missing credential or unreachable server a failure.
 # The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's, else
 # this checkout's own config/t3code-token; none present is a clean skip.
-# Refresh: FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
+# Refresh: FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
 # docs/verification/runtime-backends.md "T3 Code" records its result.
 set -u
 

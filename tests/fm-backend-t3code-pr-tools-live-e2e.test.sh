@@ -12,7 +12,7 @@
 # The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's, else
 # this checkout's own config/t3code-token; FM_T3CODE_LIVE_CLAUDE_INSTANCE and
 # FM_T3CODE_LIVE_CLAUDE_MODEL choose the thread's Claude instance and model.
-# Refresh: FM_T3CODE_PR_TOOLS_LIVE=1 FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
+# Refresh: FM_T3CODE_PR_TOOLS_LIVE=1 FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
 # docs/verification/runtime-backends.md "Claude pull-request tools" records its result.
 set -u
 
