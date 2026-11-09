@@ -335,7 +335,7 @@ test_inherited_git_location_isolation() (
   mkdir -p "$dir/runner/bin" "$dir/runner/tests"
   fm_git_init_commit "$dir/ambient"
   git -C "$dir/ambient" worktree add -q --detach "$dir/linked" main
-  cp "$ROOT/bin/fm-test-run.sh" "$ROOT/bin/fm-timeout-lib.sh" "$dir/runner/bin/"
+  cp "$ROOT/bin/fm-test-run.sh" "$ROOT/bin/fm-test-env-lib.sh" "$ROOT/bin/fm-timeout-lib.sh" "$dir/runner/bin/"
   cp "$ROOT/tests/git-config-helpers.sh" "$dir/runner/tests/"
   cat > "$dir/setup.sh" <<'SH'
 case_dir=$(mktemp -d "${TMPDIR:-/tmp}/fm-git-location.XXXXXX")
@@ -393,15 +393,16 @@ SH
 
 # A suite started from a Herdr-hosted terminal inherits the launcher's identity,
 # its terminal marker, and a supervisor's home/state overrides. Sourcing the
-# library must leave none of them for a fixture to bind to, and a value a case
-# exports afterwards must still be honored.
+# library at the test-process boundary must leave none of them for a fixture to
+# bind to: the home becomes the synthetic one, and a value a case exports
+# afterwards must still be honored.
 test_inherited_launcher_env_is_cleared() (
   local dir="$TMP_ROOT/launcher-env" decoy out rc=0
   decoy="$dir/decoy-home"
   mkdir -p "$decoy/config" "$dir/own-home" "$dir/empty-config"
   printf 'paseo\n' > "$decoy/config/backend"
   # shellcheck disable=SC2016 # expanded by the child bash
-  out=$(env -u TMUX -u CMUX_WORKSPACE_ID -u __CFBundleIdentifier \
+  out=$(env -u TMUX -u CMUX_WORKSPACE_ID -u __CFBundleIdentifier -u FM_TEST_ENV_ISOLATED \
     HERDR_ENV=1 HERDR_PANE_ID=w1:p1 HERDR_TAB_ID=w1:t1 HERDR_WORKSPACE_ID=w1 \
     HERDR_SOCKET_PATH="$decoy/herdr.sock" HERDR_SESSION=host \
     HERDR_BIN_PATH="$decoy/herdr" TERM_PROGRAM=rex FM_BACKEND=paseo \
@@ -413,14 +414,16 @@ test_inherited_launcher_env_is_cleared() (
     . "$1/tests/lib.sh"
     for name in HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID \
       HERDR_SOCKET_PATH HERDR_SESSION HERDR_BIN_PATH TERM_PROGRAM FM_BACKEND \
-      FM_HOME FM_ROOT FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE \
+      FM_ROOT FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE \
       FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE; do
       [ -z "${!name+x}" ] || { echo "$name survived tests/lib.sh"; exit 1; }
     done
+    [ "$FM_HOME" = "$FM_TEST_ENV_ROOT/fm-home" ] \
+      || { echo "inherited FM_HOME survived tests/lib.sh as $FM_HOME"; exit 1; }
     (
       . "$ROOT/bin/fm-backend.sh"
-      [ "$FM_BACKEND_CONFIG_DIR" = "$ROOT/config" ] \
-        || { echo "cleared home still resolves config at $FM_BACKEND_CONFIG_DIR"; exit 1; }
+      [ "$FM_BACKEND_CONFIG_DIR" = "$FM_HOME/config" ] \
+        || { echo "synthetic home still resolves config at $FM_BACKEND_CONFIG_DIR"; exit 1; }
     ) || exit 1
     (
       export FM_CONFIG_OVERRIDE="$2/empty-config" REX_BLOCK=block

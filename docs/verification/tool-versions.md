@@ -15,7 +15,7 @@ tests/fm-version-inventory.test.sh
 # all fm-version-inventory tests passed
 ```
 
-The regression proves exact repository routing for `kunchenguid/no-mistakes`, `kunchenguid/treehouse`, and `ogulcancelik/herdr`; exact npm package routing for the five axi tools; separate compatibility and freshness verdicts; `unknown/offline`; intentional CI pins; and hard per-request bounds.
+The regression proves exact repository routing for `kunchenguid/no-mistakes`, `kunchenguid/treehouse`, and `herdrdev/herdr`; exact npm package routing for the five axi tools; separate compatibility and freshness verdicts; `unknown/offline`; intentional CI pins; and hard per-request bounds.
 
 The companion convergence regression uses two independent repositories so the standalone secondmate begins without the primary target object:
 

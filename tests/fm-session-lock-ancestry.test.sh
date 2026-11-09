@@ -637,7 +637,7 @@ test_windows_tagged_lock_acquisition_uses_the_shared_owner_verdict() {
   : > "$home/AGENTS.md"
   : > "$home/state/task.meta"
   install_autoarm_scripts "$home"
-  cp "$ROOT/bin/fm-turnend-guard-cursor.sh" "$home/bin/fm-turnend-guard-cursor.sh"
+  cp "$ROOT/bin/fm-turnend-guard-cursor.sh" "$ROOT/bin/fm-operational-input.sh" "$home/bin/"
   current_row='  4201600       0       0       7300  ?              0 22:30:00 C:\Users\u\.local\bin\claude.exe'
   live_table="$WIN_TABLE
 $current_row"
@@ -873,6 +873,7 @@ install_autoarm_scripts() {
   cp "$ROOT/bin/fm-timeout-lib.sh" "$dir/bin/fm-timeout-lib.sh"
   cp "$ROOT/bin/fm-hook-host-lib.sh" "$dir/bin/fm-hook-host-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
+  cp "$ROOT/bin/fm-lease-lib.sh" "$dir/bin/fm-lease-lib.sh"
   cp "$ROOT/bin/fm-supervision-engine-lib.sh" "$dir/bin/fm-supervision-engine-lib.sh"
   chmod +x "$dir/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-lock.sh"
   # The fixture arm written here stands in for the watcher arm, so the home opts out

@@ -82,15 +82,13 @@ C
   || fail "could not compile the fake codex binary"
 FAKE_CODEX="$FAKE_DIR/bin/codex"
 
-# A plain fixture checkout holding the hook, its libraries, and fixtures for
-# the scripts it delegates to.
+# The hook, its libraries, and fixtures for the scripts it delegates to. Every
+# home that runs the hooks receives a copy under its own bin: the tracked hook
+# binds to the plain checkout that carries it and refuses an inherited home
+# that resolves elsewhere.
 CODE="$TMP_ROOT/code"
 mkdir -p "$CODE/bin"
-git init -q "$CODE"
-git -C "$CODE" commit -q --allow-empty -m init
-: > "$CODE/AGENTS.md"
 cp "$ROOT/bin/fm-codex-stop-park.sh" "$ROOT/bin/fm-harness.sh" "$ROOT"/bin/*-lib.sh "$CODE/bin/"
-PARK="$CODE/bin/fm-codex-stop-park.sh"
 
 # The arm fixture reads its behavior from the home: `wake` reports a signal at
 # once, `fail` exits 1 with no wake, and `park` reports a signal only once
@@ -137,11 +135,18 @@ make_home() {  # <name> <opted-in|plain>
 }
 
 # Run driver text under one fake codex that holds the home's session lock.
-# PARK, PAYLOAD, and SESSION_ID are available to the driver.
+# The home becomes the plain checkout carrying the hook on first use. PARK,
+# PAYLOAD, and SESSION_ID are available to the driver.
 under_codex() {  # <home> <driver> [VAR=VAL ...]
   local home=$1 driver=$2
   shift 2
-  env FM_HOME="$home" PARK="$PARK" PAYLOAD="$PAYLOAD" SESSION_ID="$SESSION_ID" "$@" \
+  if [ ! -d "$home/bin" ]; then
+    cp -R "$CODE/bin" "$home/bin"
+    : > "$home/AGENTS.md"
+    git init -q "$home"
+    git -C "$home" commit -q --allow-empty -m init
+  fi
+  env FM_HOME="$home" PARK="$home/bin/fm-codex-stop-park.sh" PAYLOAD="$PAYLOAD" SESSION_ID="$SESSION_ID" "$@" \
     "$FAKE_CODEX" -c 'printf "%s\n" "$PPID" > "$FM_HOME/state/.lock"
 '"$driver"
 }

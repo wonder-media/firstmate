@@ -214,6 +214,12 @@ if [ -z "${FM_LAB_ISO_HOST_MARKER:-}" ]; then
       exit 0
       ;;
   esac
+  case ${FM_TEST_ENV_ROOT:-} in
+    "$(cd -P /tmp && pwd -P)"/*)
+      echo "skip: tmux isolation decoy: the synthetic test root is under /tmp ($FM_TEST_ENV_ROOT), which the private tmpfs on /tmp would hide"
+      exit 0
+      ;;
+  esac
   # A checkout under /tmp skips the decoy cases rather than failing on a script
   # the tmpfs mount has hidden. The copy holds the suite and what it sources;
   # its bin links back here.

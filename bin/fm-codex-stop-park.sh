@@ -41,12 +41,21 @@
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
-FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
-STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
-CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+SCRIPT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+MODE=${1:-stop}
+case "$MODE" in
+  --capable|--session-start|--guard|stop) ;;
+  -h|--help)
+    echo 'Usage: fm-codex-stop-park.sh [--session-start|--guard|--capable]'
+    exit 0 ;;
+  *) echo "error: unknown argument: $MODE" >&2; exit 2 ;;
+esac
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
+if ! fm_primary_home_bind "$SCRIPT_ROOT"; then
+  [ "$MODE" != --capable ] || exit 1
+  exit 0
+fi
 # shellcheck source=bin/fm-session-lock-lib.sh
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"
 # shellcheck source=bin/fm-supervision-lib.sh
@@ -58,7 +67,6 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-supervision-engine-lib.sh
 . "$SCRIPT_DIR/fm-supervision-engine-lib.sh"
 
-MODE=${1:-stop}
 SESSION_FILE="$STATE/.codex-park-session"
 CLAIM="$STATE/.codex-park.lock"
 RECORD="$STATE/.codex-park.json"
@@ -167,14 +175,7 @@ cleanup() {
   [ "$OWNED" -eq 0 ] || fm_lock_release "$CLAIM"
 }
 
-case "$MODE" in
-  --capable) capable; exit $? ;;
-  --session-start|--guard|stop) ;;
-  -h|--help)
-    echo 'Usage: fm-codex-stop-park.sh [--session-start|--guard|--capable]'
-    exit 0 ;;
-  *) echo "error: unknown argument: $MODE" >&2; exit 2 ;;
-esac
+if [ "$MODE" = --capable ]; then capable; exit $?; fi
 PAYLOAD=$(cat)
 SESSION=$(printf '%s' "$PAYLOAD" | jq -r '.session_id // empty' 2>/dev/null)
 case "$SESSION" in ''|*[!A-Za-z0-9-]*) SESSION= ;; esac
