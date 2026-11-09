@@ -69,11 +69,12 @@ test_run_timed_preserves_piped_stdin() {
     case "$mechanism" in
       timeout|gtimeout)
         runner=$(type -P "$mechanism" 2>/dev/null || true)
-        if [ -z "$runner" ]; then
-          pass "fm_run_timed piped stdin (skipped: no $mechanism on this host)"
-          continue
+        if [ -n "$runner" ]; then
+          ln -s "$runner" "$dir/bin/$mechanism"
+        else
+          printf '#!/bin/sh\nshift 3\nexec "$@"\n' > "$dir/bin/$mechanism"
+          chmod +x "$dir/bin/$mechanism"
         fi
-        ln -s "$runner" "$dir/bin/$mechanism"
         ;;
       perl)
         if ! command -v perl >/dev/null 2>&1; then

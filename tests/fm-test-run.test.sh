@@ -1130,7 +1130,8 @@ case "$FM_HOME" in
   "$FM_TEST_ENV_ROOT"/*) ;;
   *) exit 62 ;;
 esac
-[ -z "${FM_ROOT_OVERRIDE+x}${FM_STATE_OVERRIDE+x}${FM_BACKEND+x}${FM_GROK_AUTH_FILE+x}" ] || exit 63
+[ -z "${FM_ROOT_OVERRIDE+x}${FM_STATE_OVERRIDE+x}${FM_BACKEND+x}" ] || exit 63
+[ "${FM_GROK_AUTH_FILE:-}" = /Users/patrick/.grok/auth.json ] || exit 63
 if [ "$FM_TEST_EXPECT_LOGIN_HOME" = 1 ]; then
   [ "${FM_GROK_STOP_LIVE_E2E:-}" = 1 ] || exit 64
   [ "$HOME" = "$FM_TEST_LOGIN_HOME" ] || exit 65

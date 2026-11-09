@@ -9,7 +9,7 @@
 # answered. The thread is archived afterwards; the scratch T3 project stays,
 # because T3 refuses to delete a project that still holds an archived thread.
 # Opt-in (it spends model tokens): FM_T3CODE_PR_TOOLS_LIVE=1 or FM_LIVE=1.
-# The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's, else
+# The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's (direct invocation only), else
 # this checkout's own config/t3code-token; FM_T3CODE_LIVE_CLAUDE_INSTANCE and
 # FM_T3CODE_LIVE_CLAUDE_MODEL choose the thread's Claude instance and model.
 # Refresh: FM_T3CODE_PR_TOOLS_LIVE=1 FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh

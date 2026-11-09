@@ -403,7 +403,7 @@ test_policy_cli_direct() {
   link="$TMP_ROOT/cd-alias/y"
   mkdir -p "${link%/*}"
   ln -s "$PRIMARY/bin" "$link"
-  logical=$(cd "$link/.." && pwd)
+  logical=$(cd "$link/.." && pwd -P)
   [ "$logical" != "$(cd "$PRIMARY" && pwd -P)" ] \
     || fail "fixture: the logical cd did not leave the home"
   [ "$(node "$policy" --home "$PRIMARY" --command "cd $link/.." | cut -f1)" = deny ] \

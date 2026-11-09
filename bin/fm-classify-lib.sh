@@ -2624,11 +2624,14 @@ status_span_has_actionable() {  # <status-file> <start-offset>
 # run it only on no-verb signal and first-sighting stale paths, never every wake.
 # FM_CREW_STATE_BIN lets tests stub the verdict.
 crew_absorb_class() {  # <id>
-  local id=$1 line state src
+  local id=$1 kind=${2:-} line state src
   [ -n "$id" ] || { printf 'none'; return; }
   line=$("$FM_CREW_STATE_BIN" "$id" 2>/dev/null) || true
   case "$line" in state:*) ;; *) printf 'none'; return ;; esac
   state=${line#state: }; state=${state%% *}
+  if [ "$kind" = secondmate ]; then
+    case "$state" in parked|blocked|idle) printf '%s' "$state"; return ;; esac
+  fi
   if [ "$state" = paused ]; then printf 'paused'; return; fi
   if [ "$state" = working ]; then
     src=${line#*source: }; src=${src%% *}
@@ -2874,7 +2877,7 @@ EOF
   return 0
 }
 signal_crew_provably_working() {  # <file> ...
-  local f base dir task seen=""
+  local f base dir task kind class seen=""
   for f in "$@"; do
     base=${f##*/}
     dir=${f%/*}
@@ -2885,16 +2888,17 @@ signal_crew_provably_working() {  # <file> ...
       *)            continue ;;
     esac
     [ -n "$task" ] || continue
+    kind=$(grep '^kind=' "$dir/$task.meta" 2>/dev/null | tail -1 | cut -d= -f2-)
     case "$base" in
       *.status)
-        if [ "$(grep '^kind=' "$dir/$task.meta" 2>/dev/null | tail -1 | cut -d= -f2-)" = secondmate ]; then
+        if [ "$kind" = secondmate ]; then
           _fm_secondmate_status_new_lines_routine "$f" "$dir" || return 1
         fi
         ;;
     esac
-    case " $seen " in *" $task "*) continue ;; esac
     seen="$seen $task"
-    crew_is_provably_working "$task" || return 1
+    class=$(crew_absorb_class "$task" "$kind")
+    [ "$class" = working ] || { [ "$base" = "$task.turn-ended" ] && [ "$kind" = secondmate ] && [ "$class" != none ]; } || return 1
   done
   [ -n "$seen" ] || return 1
   return 0

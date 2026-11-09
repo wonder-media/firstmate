@@ -680,7 +680,11 @@ test_lane_capacity_gate_defers_without_leaving_anything_behind() {
   assert_contains "$out" "task task-c was not launched and its backlog item stays queued" "the deferral did not say the task stays queued"
   assert_nothing_created "$case_dir" "$home" task-c "$before" "$worktrees"
   assert_absent "$home/state/.lane-admission.lock" "a deferred spawn left the lane admission lock held"
-  pass "admit-spawns defers a spawn the lane verdict refuses and leaves nothing behind"
+  rc=0
+  out=$(FM_SPAWN_IGNORE_LANE_CAPACITY=1 spawn_ship "$case_dir" task-c "$case_dir/unused") || rc=$?
+  expect_code "$DEFER_EXIT" "$rc" "an environment variable bypassed the lane capacity verdict: $out"
+  assert_nothing_created "$case_dir" "$home" task-c "$before" "$worktrees"
+  pass "admit-spawns defers a spawn the lane verdict refuses, leaves nothing behind, and nothing in the environment bypasses it"
 }
 
 test_lane_capacity_gate_refuses_an_unreadable_opt_in() {

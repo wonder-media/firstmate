@@ -2259,7 +2259,7 @@ This section owns the roster schema; the example supplies the concrete default v
 
 | Field | Meaning |
 |---|---|
-| `seats` | Object mapping counted seat names (`architect`, `empiricist`, `economist`, `ux`) to the matching `when` rule names in `config/crew-dispatch.json` |
+| `seats` | Object mapping counted seat names (`architect`, `empiricist`, `economist`, `security`, `ux`) to the matching `when` rule names in `config/crew-dispatch.json` |
 | `default_roster` | Array of distinct counted seat names used when the invocation omits `--seats` |
 | `ux_on_captain_surface` | Whether the default roster adds UX when the plan changes a captain-facing surface |
 | `advisory.command_template` | Pinned direct CLI print command; `{prompt}` is one literal argument containing the self-contained prompt, never executable shell interpolation |

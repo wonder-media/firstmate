@@ -6,9 +6,7 @@ This record contains reusable version-scoped evidence for active runtime guarant
 The backend guides own current setup, safety boundaries, and limitations.
 Exact task chronology, branch names, temporary homes, local paths, process ids, thread ids, and delivery transcripts remain in private reports or PR evidence.
 
-Primary home binding is upstream of runtime backend selection.
-The session-open and primary-hook entrypoints refuse a mismatched inherited home before `fm-session-start.sh`, watcher inspection, or any backend adapter runs, so tmux, Herdr, Zellij, Orca, and cmux have no backend-specific identity branch.
-The direct session, lock, and watcher executables and the Pi watcher extension apply the same refusal when run outside the hook path.
+[Primary scope](../turnend-guard.md#primary-scope) owns the checkout-binding contract.
 The 2026-09-24 portable regression exercised the shared boundary with both main-to-secondmate and secondmate-to-main mismatches and with a linked worker inheriting primary state.
 The relevant commands were `tests/fm-sessionstart-nudge.test.sh`, `tests/fm-turnend-guard.test.sh`, `tests/fm-claude-stop-autoarm.test.sh`, `tests/fm-cursor-primary.test.sh`, and `tests/fm-pi-watch-extension.test.sh`.
 Each command exited 0, and the mismatch cases reported both resolved paths without creating a session lock or reading the inherited primary watcher.

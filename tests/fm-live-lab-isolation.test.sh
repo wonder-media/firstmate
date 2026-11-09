@@ -13,8 +13,8 @@
 # the checkout itself lives under /tmp, where that mount would hide it.
 set -u
 
-if [ -n "${FM_LAB_ISO_HOST_MARKER:-}" ]; then
-  if [ -e "$FM_LAB_ISO_HOST_MARKER" ] || [ -n "$(ls -A /tmp)" ]; then
+if [ -n "${FM_TEST_LAB_ISO_HOST_MARKER:-}" ]; then
+  if [ -e "$FM_TEST_LAB_ISO_HOST_MARKER" ] || [ -n "$(ls -A /tmp)" ]; then
     echo "not ok - /tmp is not a fresh private mount; refusing to start the decoy" >&2
     exit 1
   fi
@@ -115,9 +115,9 @@ gate_run() {
 
 # ---- the gate ---------------------------------------------------------------
 
-# FM_LAB_ISO_TMP_COPY marks the copy of this suite under /tmp (below), which
+# FM_TEST_LAB_ISO_TMP_COPY marks the copy of this suite under /tmp (below), which
 # needs only the decoy preflight.
-if [ -z "${FM_LAB_ISO_HOST_MARKER:-}" ] && [ -z "${FM_LAB_ISO_TMP_COPY:-}" ]; then
+if [ -z "${FM_TEST_LAB_ISO_HOST_MARKER:-}" ] && [ -z "${FM_TEST_LAB_ISO_TMP_COPY:-}" ]; then
   out=$(gate_run "$TMP_ROOT/base")
   expect_code 0 "$?" "the gate passes with no socket directory: $out"
   assert_equals RAN "$out" "the gate runs the suite where no tmux server can answer"
@@ -199,7 +199,7 @@ if [ -z "${FM_LAB_ISO_HOST_MARKER:-}" ] && [ -z "${FM_LAB_ISO_TMP_COPY:-}" ]; th
   pass "decoy cleanup is bounded, escalates to TERM and KILL, and reports a decoy it cannot stop"
 fi
 
-if [ -z "${FM_LAB_ISO_HOST_MARKER:-}" ]; then
+if [ -z "${FM_TEST_LAB_ISO_HOST_MARKER:-}" ]; then
   # The decoy cases run only in a private mount namespace with a fresh /tmp.
   if ! unshare -Urm sh -c 'mount -t tmpfs tmpfs /tmp' >/dev/null 2>&1; then
     echo "skip: tmux isolation decoy: needs a private /tmp (unshare -Urm with a tmpfs mount on /tmp)"
@@ -214,23 +214,17 @@ if [ -z "${FM_LAB_ISO_HOST_MARKER:-}" ]; then
       exit 0
       ;;
   esac
-  case ${FM_TEST_ENV_ROOT:-} in
-    "$(cd -P /tmp && pwd -P)"/*)
-      echo "skip: tmux isolation decoy: the synthetic test root is under /tmp ($FM_TEST_ENV_ROOT), which the private tmpfs on /tmp would hide"
-      exit 0
-      ;;
-  esac
   # A checkout under /tmp skips the decoy cases rather than failing on a script
   # the tmpfs mount has hidden. The copy holds the suite and what it sources;
   # its bin links back here.
-  if [ -z "${FM_LAB_ISO_TMP_COPY:-}" ]; then
+  if [ -z "${FM_TEST_LAB_ISO_TMP_COPY:-}" ]; then
     copy=$(mktemp -d /tmp/fm-lab-iso-copy.XXXXXX) || fail "cannot make a checkout copy under /tmp"
     FM_TEST_CLEANUP_DIRS+=("$copy")
     mkdir -p "$copy/tests"
     ln -s "$ROOT/bin" "$copy/bin" || fail "cannot link the copy's bin"
     cp "$ROOT/tests/lib.sh" "$ROOT/tests/fixtures.sh" "$ROOT/tests/git-config-helpers.sh" \
       "$ROOT/tests/fm-live-lab-isolation.test.sh" "$copy/tests/" || fail "cannot copy the suite"
-    out=$(FM_LAB_ISO_TMP_COPY=1 fm_run_timed 120 bash "$copy/tests/fm-live-lab-isolation.test.sh" 2>&1)
+    out=$(FM_TEST_LAB_ISO_TMP_COPY=1 fm_run_timed 120 bash "$copy/tests/fm-live-lab-isolation.test.sh" 2>&1)
     expect_code 0 "$?" "a checkout under /tmp ends cleanly: $out"
     assert_contains "$out" "skip: tmux isolation decoy: the checkout is under /tmp" "a checkout under /tmp says why it skips the decoy cases"
     pass "a checkout under /tmp skips the decoy cases instead of losing its script to the mount"
@@ -239,7 +233,7 @@ if [ -z "${FM_LAB_ISO_HOST_MARKER:-}" ]; then
   host_marker=$(mktemp /tmp/fm-lab-iso-host.XXXXXX) || fail "cannot mark the host /tmp"
   FM_TEST_CLEANUP_DIRS+=("$host_marker")
   # shellcheck disable=SC2016 # $0 expands in the namespaced shell.
-  FM_LAB_ISO_HOST_MARKER=$host_marker unshare -Urm bash -c 'mount -t tmpfs tmpfs /tmp && exec env -u TMPDIR -u TMP -u TMUX_TMPDIR bash "$0"' "$suite"
+  FM_TEST_LAB_ISO_HOST_MARKER=$host_marker unshare -Urm bash -c 'mount -t tmpfs tmpfs /tmp && exec env -u FM_TEST_ENV_ISOLATED -u FM_TEST_ENV_ROOT -u FM_TEST_ENV_TMP -u TMPDIR -u TMP -u TMUX_TMPDIR bash "$0"' "$suite"
   exit $?
 fi
 

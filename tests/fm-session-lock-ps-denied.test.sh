@@ -739,20 +739,17 @@ os.execv(sys.executable, [os.fsencode(sys.executable), b"-c", b"import sys,time;
   expected_normalized=$(normalize_control_bytes "$expected") || fail "ps identity normalization failed"
   [ -n "$got_normalized" ] && [ "$got_normalized" = "$expected_normalized" ] \
     || fail "control-byte routes disagree: provider '$got', ps '$expected'"
-  # The provider's own rendering is pinned to the BSD vis spelling ps uses
-  # (caret for controls, M- for high bytes), so a provider that emitted raw
-  # bytes or '?' placeholders could not pass by decoding to the same bytes.
   if [ "$(uname -s)" = Darwin ]; then
     case $got in
       *'tab^Inewline^JhighM-CM-)'*) ;;
-      *) fail "the provider did not render the control and high bytes in ps's vis spelling: '$got'" ;;
+      *) fail "the provider did not render the control and high bytes in its pinned vis notation: '$got'" ;;
     esac
   fi
   # Non-vacuity: every fixture word that sits around a control byte must
   # still arrive from both routes, so a route that swallowed that text
   # cannot pass by matching a loss on the other route. The words are
-  # asserted without their placeholder, because a BSD ps and the macOS
-  # provider spell it ^I / ^J while a Linux one spells it as one byte.
+  # asserted without their placeholder, because ps and provider renderings
+  # can use different notation for the same control bytes.
   local word
   for word in tab newline high; do
     case $got in
@@ -779,7 +776,7 @@ os.execv(sys.executable, [os.fsencode(sys.executable), b"-c", b"import sys,time;
     [ "$(normalize_control_bytes "$render_space")" = "$(normalize_control_bytes "$render_question")" ] \
       || fail "the argv comparison still depends on the byte a ps build writes for a newline"
   fi
-  pass "control bytes preserve identical identity fields across routes"
+  pass "provider notation is pinned and decoded control-byte routes agree"
 }
 
 test_helper_identity_matches_ps_route() {

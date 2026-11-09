@@ -226,7 +226,7 @@ A failed launch retains the marker for a safe retry, while `wake` on a dead non-
 
 Secondmate liveness, both the session-start sweep and the watcher's liveness tick through `bin/fm-secondmate-liveness-lib.sh`, treats a valid dormant marker as healthy expected stopped state and never relaunches it.
 `dormant` holds that mate's per-mate liveness lock across the stop and the marker write, so a tick never sees a stopped but unmarked mate; a liveness episode already in progress makes `dormant` refuse until it finishes.
-Parent supervision excludes only a dormant `kind=secondmate` meta; every live secondmate and every other meta still counts normally.
+[Parent supervision counting](../../../docs/turnend-guard.md) owns the dormant-meta exclusion.
 The session-start digest prints dormant instead of dead so intake can see the routing state without changing `data/secondmates.md` syntax.
 
 Startup tracked-file sync and reread nudges, pending reread retries, and mid-session inherited-config pushes skip dormant homes rather than sending them a turn.
