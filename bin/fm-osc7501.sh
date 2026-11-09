@@ -427,6 +427,10 @@ osc_watch() { # --task --kind --state --harness [--backend] [--target] [--owned 
   local dev=${FM_OSC7501_TTY:-/dev/tty} hb=0 hb_ticks last='' seq act busy_mark=0
   [ "$WATCH_OWNED" = 1 ] && last=$(osc_seq idle '' "$WATCH_TITLE" '')
   exec 3>>"$dev" 2>/dev/null || exit 0
+  if [ "${FM_OSC7501_READY:-}" = 1 ]; then
+    printf '%s\n' "$$" >&4
+    exec 4>&-
+  fi
   osc_load_libs || exit 0
   trap 'osc_final; exit 0' TERM INT HUP
   [ "${FM_OSC7501_INTERVAL:-1}" -ge 1 ] 2>/dev/null || FM_OSC7501_INTERVAL=1
@@ -522,6 +526,24 @@ osc_dead_final() { # <task> <kind> <harness> <state>
   printf '%s' "$(osc_seq "$W_STATE" "$W_KIND" "fm-$wtask" "$W_MSG")" >>"$dev" 2>/dev/null || true
 }
 
+osc_watcher_owned() {
+  local pid=$1 task=$2 kind=$3 state=$4 harness=$5 candidate_tty caller_tty args interpreter
+  case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+  task_ok "$task" || return 1
+  candidate_tty=$(ps -o tty= -p "$pid" 2>/dev/null) || return 1
+  caller_tty=$(ps -o tty= -p "$$" 2>/dev/null) || return 1
+  [ -n "$candidate_tty" ] && [ "$candidate_tty" = "$caller_tty" ] || return 1
+  args=$(ps -ww -o command= -p "$pid" 2>/dev/null) || return 1
+  args=${args#"${args%%[![:space:]]*}"}
+  interpreter=${args%% *}
+  [ "${interpreter##*/}" = bash ] || return 1
+  args=${args#* }
+  case "$args" in
+    */fm-osc7501.sh" watch --task $task --kind $kind --state $state --harness $harness "*) return 0 ;;
+  esac
+  return 1
+}
+
 # osc_retire <pidfile> <state>: stop the watcher it records - TERM a live
 # one, killing it when it is still busy past the grace so it can never write
 # after the next owner - and once it is confirmed gone, by whatever route,
@@ -530,17 +552,24 @@ osc_dead_final() { # <task> <kind> <harness> <state>
 # Returns 1, keeping the pidfile, when the watcher survives.
 osc_retire() {
   local opid='' wtask='' wharness='' wkind=''
+  OSC_RETIRED=
   [ -f "$1" ] || return 0
   read -r opid wtask _ wharness wkind <"$1" 2>/dev/null || true
   case "$opid" in '' | *[!0-9]*) opid='' ;; esac
-  if [ -n "$opid" ] && kill -0 "$opid" 2>/dev/null \
-    && ps -o command= -p "$opid" 2>/dev/null | grep -q 'fm-osc7501\.sh'; then
+  if [ -n "$opid" ] && kill -0 "$opid" 2>/dev/null; then
+    if ! osc_watcher_owned "$opid" "$wtask" "$wkind" "$2" "$wharness"; then
+      rm -f "$1"
+      return 0
+    fi
     kill "$opid" 2>/dev/null || true
     if ! osc_gone "$opid" 50; then
-      kill -KILL "$opid" 2>/dev/null || true
-      osc_gone "$opid" 10 || return 1
+      if osc_watcher_owned "$opid" "$wtask" "$wkind" "$2" "$wharness"; then
+        kill -KILL "$opid" 2>/dev/null || true
+        osc_gone "$opid" 10 || return 1
+      fi
     fi
   fi
+  OSC_RETIRED=1
   osc_dead_final "$wtask" "$wkind" "$wharness" "$2"
   rm -f "$1"
 }
@@ -588,8 +617,6 @@ osc_arm() { # --task --harness --backend --kind --state --config [--target] [--a
   pidfile="$state/.osc7501watch-$key"
   # a leftover pidfile marks a watcher that may have died without its final
   # write, leaving its record standing on this pane
-  local had_watcher=''
-  [ -f "$pidfile" ] && had_watcher=1
   osc_retire "$pidfile" "$state" || exit 0
   # a pane without a writable tty can never report
   local dev=${FM_OSC7501_TTY:-/dev/tty}
@@ -603,7 +630,7 @@ osc_arm() { # --task --harness --backend --kind --state --config [--target] [--a
   # reporting agent, or reporting switched off. Panes that never armed stay
   # untouched.
   local owned=''
-  if [ -n "$had_watcher" ]; then
+  if [ -n "$OSC_RETIRED" ]; then
     printf '%s' "$(osc_seq idle '' "fm-$task" '')" >>"$dev" 2>/dev/null && owned=1
   fi
   osc_gate "$config" "$state" || exit 0
@@ -615,11 +642,14 @@ osc_arm() { # --task --harness --backend --kind --state --config [--target] [--a
   if [ -z "$owned" ]; then
     printf '%s' "$(osc_seq idle '' "fm-$task" '')" >>"$dev" 2>/dev/null && owned=1
   fi
-  FM_OSC7501_WATCHER=1 nohup bash "$SCRIPT_DIR/fm-osc7501.sh" watch \
+  local watcher
+  read -r watcher < <(FM_OSC7501_WATCHER=1 FM_OSC7501_READY=1 nohup bash "$SCRIPT_DIR/fm-osc7501.sh" watch \
     --task "$task" --kind "$kind" --state "$state" --harness "$harness" \
     --backend "$backend" --target "$target" --owned "$owned" \
-    --parent "$PPID" </dev/null >/dev/null 2>&1 &
-  printf '%s %s %s %s %s\n' "$!" "$task" "$$" "$harness" "$kind" >"$pidfile" 2>/dev/null || true
+    --parent "$PPID" 4>&1 </dev/null >/dev/null 2>&1) || exit 0
+  if osc_watcher_owned "$watcher" "$task" "$kind" "$state" "$harness"; then
+    printf '%s %s %s %s %s\n' "$watcher" "$task" "$$" "$harness" "$kind" >"$pidfile" 2>/dev/null || true
+  fi
   exit 0
 }
 

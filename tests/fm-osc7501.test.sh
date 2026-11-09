@@ -1178,6 +1178,61 @@ t_hc_terminal_with_inherited_herdr_markers() {
   pass "known-aware: an hc terminal reports despite inherited HERDR markers"
 }
 
+t_retire_rejects_reused_pid() {
+  local d=$TMP_ROOT/reused scenario child record key output
+  mkhome "$d"
+  mkdir -p "$d/bin"
+  cat >"$d/bin/ps" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  "-o tty= -p $FM_TEST_CHILD")
+    if [ -f "${FM_TEST_CHANGED:-}" ]; then printf 'other-pane\n'; else printf '%s\n' "$FM_TEST_CANDIDATE_TTY"; fi ;;
+  '-o tty= -p '*) printf 'test-pane\n' ;;
+  "-ww -o command= -p $FM_TEST_CHILD") printf '%s\n' "$FM_TEST_CANDIDATE_ARGS" ;;
+  *) exit 1 ;;
+esac
+SH
+  chmod +x "$d/bin/ps"
+  output=$d/output
+  : >"$output"
+  key=${output#/dev/}; key=${key//\//_}
+  record="$d/state/.osc7501watch-$key"
+  for scenario in task state tty script; do
+    sleep 300 &
+    child=$!
+    local candidate_task=t47 candidate_state="$d/state" candidate_tty=test-pane candidate_script="$SCRIPT"
+    case "$scenario" in
+      task) candidate_task=t470 ;;
+      state) candidate_state="$d/state-other" ;;
+      tty) candidate_tty=other-pane ;;
+      script) candidate_script="$d/other.sh" ;;
+    esac
+    printf '%s t47 %s opencode ship\n' "$child" "$$" >"$record"
+    env PATH="$d/bin:$PATH" FM_OSC7501_TTY="$output" FM_TEST_CHILD="$child" \
+      FM_TEST_CANDIDATE_TTY="$candidate_tty" \
+      FM_TEST_CANDIDATE_ARGS="bash $candidate_script watch --task $candidate_task --kind ship --state $candidate_state --harness opencode --parent $$" \
+      bash "$SCRIPT" disarm --state "$d/state"
+    kill -0 "$child" 2>/dev/null || fail "reused PID: $scenario mismatch was signalled"
+    assert_absent "$record" "reused PID: stale $scenario record survived"
+    [ ! -s "$output" ] || fail "reused PID: $scenario mismatch wrote a retirement record"
+    kill "$child" 2>/dev/null || true
+    wait "$child" 2>/dev/null || true
+  done
+  bash -c 'trap "touch \"$1\"" TERM; echo ready >"$2"; while :; do sleep 0.1; done' _ "$d/changed" "$d/ready" &
+  child=$!
+  wait_cap ready "$d/ready" 50 || fail "ownership change child did not start"
+  printf '%s t47 %s opencode ship\n' "$child" "$$" >"$record"
+  env PATH="$d/bin:$PATH" FM_OSC7501_TTY="$output" FM_TEST_CHILD="$child" \
+    FM_TEST_CHANGED="$d/changed" FM_TEST_CANDIDATE_TTY=test-pane \
+    FM_TEST_CANDIDATE_ARGS="bash $SCRIPT watch --task t47 --kind ship --state $d/state --harness opencode --parent $$" \
+    bash "$SCRIPT" disarm --state "$d/state"
+  assert_present "$d/changed" "retirement never sent TERM to the verified owner"
+  kill -0 "$child" 2>/dev/null || fail "retirement killed a PID after ownership changed"
+  kill -KILL "$child" 2>/dev/null || true
+  wait "$child" 2>/dev/null || true
+  pass "retirement rejects foreign watchers and revalidates ownership before KILL"
+}
+
 fm_test_run \
   t_unknown_terminal_preserves_input \
   t_ghostty_arms_watcher \
@@ -1203,6 +1258,7 @@ fm_test_run \
   t_config_off_disables \
   t_hc_marker_arms_watcher \
   t_concurrent_panes_keep_their_reporters \
+  t_retire_rejects_reused_pid \
   t_disarm_after_agent_exit_parks_idle \
   t_rearm_retires_previous_reporter \
   t_cursor_transcript_drives_activity \
