@@ -246,12 +246,28 @@ SH
   cat > "$script" <<'SH'
 PATH="$2:$PATH"
 . "$1/bin/fm-classify-lib.sh"
+if [ "$(uname -s)" = Darwin ]; then
+  birth_epoch=$(LC_ALL=C /usr/bin/stat -f '%B' "$4") || exit 1
+  if [ "$birth_epoch" = 0 ]; then
+    want=$(LC_ALL=C /usr/bin/stat -f 'weak:%d:%i' "$4") || exit 1
+  else
+    want=$(LC_ALL=C /usr/bin/stat -f 'strong:%d:%i:%FB' "$4") || exit 1
+  fi
+else
+  birth_epoch=$(LC_ALL=C stat -c '%W' "$4") || exit 1
+  if [ "$birth_epoch" = 0 ]; then
+    want=$(LC_ALL=C stat -c 'weak:%d:%i' "$4") || exit 1
+  else
+    want=$(LC_ALL=C stat -c 'strong:%d:%i:%w' "$4") || exit 1
+  fi
+fi
 ident=$(_fm_open_decisions_file_ident "$4") || printf 'identity unreadable\n'
+[ "$ident" = "$want" ] || printf 'single identity %q, native stat %q\n' "$ident" "$want"
 size=$(_fm_status_file_size "$4")
 case "$ident" in strong:*:*:*|weak:*:*) ;; *) printf 'identity %q\n' "$ident" ;; esac
 : > "$3"
 _fm_status_read_ident_size "$4" || printf 'paired read failed\n'
-[ "$_FM_STAT_IDENTITY" = "$ident" ] || printf 'paired identity %q, single %q\n' "$_FM_STAT_IDENTITY" "$ident"
+[ "$_FM_STAT_IDENTITY" = "$want" ] || printf 'paired identity %q, native stat %q\n' "$_FM_STAT_IDENTITY" "$want"
 [ "$_FM_STAT_SIZE" = "$size" ] || printf 'paired size %q, single %q\n' "$_FM_STAT_SIZE" "$size"
 if [ "$(uname -s)" != Darwin ]; then
   calls=$(grep -c . "$3" || true)
@@ -272,7 +288,7 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 SH
   run_everywhere "status identity and size read" "$script" "$shim" "$log" "$file" "$weak_shim"
-  pass "status identity and size come from one stat read and match the single helpers"
+  pass "status identity matches native stat and paired size matches the single helper"
 }
 
 if [ -n "${FM_TEST_ONLY:-}" ]; then
