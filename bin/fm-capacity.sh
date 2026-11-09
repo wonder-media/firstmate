@@ -803,7 +803,7 @@ def dur: if . == null then "?" elif . >= 86400 then "\(. / 86400 | floor)d" elif
 | (if $vit.on_ac != null then $vit.on_ac elif $beat_battery == true then false elif $beat_battery == false then true else null end) as $on_ac
 | def gate($name; $close; $clear; $what):
     (($pg | map(select(.name == $name)) | .[0]) // {}) as $g
-    | if $close == null then
+    | if $close == null or ($g.state == "closed" and $mode != "publish") then
         (if $g.state == "closed" then {name: $name, state: "closed", since_epoch: $g.since_epoch, clear_count: ($g.clear_count // 0), what: $what}
          else {name: $name, state: "unknown", since_epoch: null, clear_count: 0, what: $what} end)
       elif $close then {name: $name, state: "closed", since_epoch: (if $g.state == "closed" then $g.since_epoch else $now end),
@@ -1054,6 +1054,7 @@ auto_budget() {
     --rawfile disks_tsv "$tmp/disks" --arg gpu_tsv "$LV_GPU" --arg host_tsv "$host" \
     --argjson prev_ledger "$prev_ledger" --argjson prev_doc "$prev_doc" --argjson disk_sample "$disk_sample" \
     --argjson cfg "$cfg" --argjson vit "$vit" --argjson young_s "$YOUNG_S" --argjson reopen "$GATE_REOPEN_SAMPLES" \
+    --arg mode "$mode" \
     --argjson grow "$( [ "$mode" = publish ] && echo 2 || echo 0)" \
     --argjson cores "$( [ "$cores" = unknown ] && echo null || echo "$cores")" \
     --argjson load1 "$( [ "$load1" = unknown ] && echo null || echo "$load1")" \

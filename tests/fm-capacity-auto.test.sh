@@ -230,6 +230,42 @@ test_gates_reopen_after_three_publishes() {
   pass "gates close at once, reopen after three clean publishes, and growth is damped"
 }
 
+test_reads_cannot_recover_a_closed_gate() {
+  local home fakebin p out rc mode before
+  home=$(make_home read-recovery)
+  p="$TMP_ROOT/p-read-recovery"
+  fakebin=$(make_probes "$p")
+  printf 'auto\nadmit-spawns\n' > "$home/config/lane-capacity"
+  set_v "$p" memlevel 90
+  set_v "$p" load1 9.00
+  run_cap "$home" "$fakebin" --publish >/dev/null
+  set_v "$p" load1 1.00
+  run_cap "$home" "$fakebin" --publish >/dev/null
+  run_cap "$home" "$fakebin" --publish >/dev/null
+  jq '.generated_epoch -= 900' "$home/state/lane-capacity.json" > "$home/state/aged.json"
+  mv "$home/state/aged.json" "$home/state/lane-capacity.json"
+  before=$(cat "$home/state/lane-capacity.json")
+  for mode in --spawn-gate --admit --json ''; do
+    rc=0
+    out=$(run_cap "$home" "$fakebin" "$mode") || rc=$?
+    case "$mode" in
+      --spawn-gate) expect_code 75 "$rc" "a stale budget must not let a read reopen CPU admission: $out" ;;
+      --admit) expect_code 75 "$rc" "admission must wait for a third clean publish: $out" ;;
+      --json)
+        assert_equals '["closed",2,false]' \
+          "$(printf '%s' "$out" | jq -c '[(.gates[] | select(.name == "cpu") | .state, .clear_count), .verdict.admit]')" \
+          "JSON must preserve the published recovery count" ;;
+      '') assert_contains "$out" 'free_lanes=0 reason=cpu ' "reporting must hold the CPU gate" ;;
+    esac
+    assert_equals "$before" "$(cat "$home/state/lane-capacity.json")" "$mode must leave the published document unchanged"
+  done
+  run_cap "$home" "$fakebin" --publish >/dev/null
+  assert_equals '["open",0,true]' \
+    "$(jq -c '[(.gates[] | select(.name == "cpu") | .state, .clear_count), .verdict.admit]' "$home/state/lane-capacity.json")" \
+    "the third clean publish must still reopen admission"
+  pass "reads hold a closed gate and its recovery count until the third clean publish"
+}
+
 test_pressure_thermal_and_battery_gates() {
   local home fakebin p out
   home=$(make_home pressure)
@@ -741,6 +777,7 @@ test_fixed_mode_is_unchanged
 test_budget_binds_the_scarcest_resource
 test_ceiling_and_young_lanes
 test_gates_reopen_after_three_publishes
+test_reads_cannot_recover_a_closed_gate
 test_pressure_thermal_and_battery_gates
 test_unmeasurable_memory_never_admits_on_cpu_alone
 test_learned_footprint
