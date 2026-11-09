@@ -134,18 +134,22 @@ make_home() {  # <name> <opted-in|plain>
   printf '%s\n' "$home"
 }
 
+# Make a home the plain checkout that carries the hook.
+install_hook_checkout() {  # <home>
+  [ ! -d "$1/bin" ] || return 0
+  cp -R "$CODE/bin" "$1/bin"
+  : > "$1/AGENTS.md"
+  git init -q "$1"
+  git -C "$1" commit -q --allow-empty -m init
+}
+
 # Run driver text under one fake codex that holds the home's session lock.
 # The home becomes the plain checkout carrying the hook on first use. PARK,
 # PAYLOAD, and SESSION_ID are available to the driver.
 under_codex() {  # <home> <driver> [VAR=VAL ...]
   local home=$1 driver=$2
   shift 2
-  if [ ! -d "$home/bin" ]; then
-    cp -R "$CODE/bin" "$home/bin"
-    : > "$home/AGENTS.md"
-    git init -q "$home"
-    git -C "$home" commit -q --allow-empty -m init
-  fi
+  install_hook_checkout "$home"
   env FM_HOME="$home" PARK="$home/bin/fm-codex-stop-park.sh" PAYLOAD="$PAYLOAD" SESSION_ID="$SESSION_ID" "$@" \
     "$FAKE_CODEX" -c 'printf "%s\n" "$PPID" > "$FM_HOME/state/.lock"
 '"$driver"
@@ -196,6 +200,46 @@ test_unconfigured_home_keeps_the_foreground_checkpoint() {
   assert_absent "$home/state/.codex-park-fallback" "a home without the opt-in must not latch a fallback"
   assert_contains "$out" "opted-in-capable=0" "the same session must be capable once opted in, or the gate is untested: $out"
   pass "an unconfigured home keeps the foreground checkpoint and every park hook is inert"
+}
+
+# A hook running from one checkout with another checkout inherited as FM_HOME
+# refuses before any home read, per bin/fm-primary-scope-lib.sh's binding
+# contract: the capability probe answers not-capable in silence, every hook
+# mode exits 0 with the mismatch diagnostic on stderr only, and neither home
+# gains park state.
+test_mismatched_inherited_home_is_refused() {
+  local home other home_real other_real out err rc mode f
+  home=$(make_home mismatch-home opted-in)
+  other=$(make_home mismatch-other opted-in)
+  install_hook_checkout "$home"
+  install_hook_checkout "$other"
+  home_real=$(cd "$home" && pwd -P)
+  other_real=$(cd "$other" && pwd -P)
+  rc=0
+  out=$(FM_HOME="$home" "$other/bin/fm-codex-stop-park.sh" --capable 2> "$TMP_ROOT/mismatch.err") || rc=$?
+  expect_code 1 "$rc" "a mismatched inherited home must not be capable"
+  assert_equals "" "$out" "the capability probe must stay silent on stdout"
+  [ ! -s "$TMP_ROOT/mismatch.err" ] \
+    || fail "the capability probe wrote the mismatch diagnostic: $(cat "$TMP_ROOT/mismatch.err")"
+  for mode in --session-start --guard ''; do
+    rc=0
+    # shellcheck disable=SC2086 # an empty mode selects the asynchronous Stop entry
+    out=$(printf '%s' "$PAYLOAD" | FM_HOME="$home" "$other/bin/fm-codex-stop-park.sh" $mode 2> "$TMP_ROOT/mismatch.err") || rc=$?
+    expect_code 0 "$rc" "hook mode '${mode:-stop}' under a mismatched inherited home"
+    assert_equals "" "$out" "hook mode '${mode:-stop}' wrote to stdout under a mismatched inherited home"
+    err=$(cat "$TMP_ROOT/mismatch.err")
+    assert_contains "$err" "running checkout $other_real" \
+      "hook mode '${mode:-stop}' omitted the running checkout from its diagnostic"
+    assert_contains "$err" "inherited FM_HOME resolves to $home_real" \
+      "hook mode '${mode:-stop}' omitted the inherited home from its diagnostic"
+  done
+  for f in .codex-park.lock .codex-park.json .codex-park-session .codex-park-fallback; do
+    assert_absent "$home/state/$f" "a mismatched hook wrote $f into the inherited home"
+    assert_absent "$other/state/$f" "a mismatched hook wrote $f into its own checkout"
+  done
+  assert_absent "$home/sessionstart-payload" "a mismatched session start still ran the session start"
+  assert_absent "$other/sessionstart-payload" "a mismatched session start ran the session start in its own checkout"
+  pass "a hook whose inherited home is another checkout refuses before any home read"
 }
 
 test_version_gate_selects_only_the_verified_cli() {
@@ -535,6 +579,7 @@ test_host_quiet_boundary_retains_the_watcher() {
 }
 
 test_unconfigured_home_keeps_the_foreground_checkpoint
+test_mismatched_inherited_home_is_refused
 test_version_gate_selects_only_the_verified_cli
 test_single_flight_claim_admits_one_park
 test_stop_rearms_after_a_delivering_park_releases_its_claim delivered 1

@@ -947,7 +947,7 @@ do_wake() {
   dead|missing) ;;
   *) die "task $ID's endpoint reads '$before' rather than a recovery-grade dead or missing state; refusing to launch a duplicate secondmate" ;;
   esac
-  if ! "$SCRIPT_DIR/fm-spawn.sh" "$ID" --secondmate >/dev/null; then
+  if ! "$SCRIPT_DIR/fm-spawn.sh" "$ID" --secondmate --backend "$BACKEND" >/dev/null; then
     die "secondmate $ID could not be launched through the normal recovery path; its dormant marker was retained"
   fi
   fm_backend_validate_task_endpoint "$META" "$ID" || die "secondmate $ID launched but its replacement metadata failed endpoint validation; inspect the endpoint before routing work to it"

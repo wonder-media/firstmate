@@ -247,7 +247,7 @@ In this 2026-07-28 Codex 0.145.0 semantic-busy probe, Firstmate-written lifecycl
 Codex also exposes no `StopFailure` hook, so an API-error turn end would need separate coverage even after hook discovery works.
 The app-server protocol schema does define the required lifecycle (`turn/started`, plus a `turn/completed` status of `completed`, `interrupted`, `failed`, or `inProgress`), so the gate is a reachability problem rather than a protocol gap.
 
-Secondmate coordinator observability now reuses only the adapter sources already established by the real per-harness runs above: Claude hooks, OpenCode `session.status`, and the Pi extension shared by pi and pi-signed.
+Secondmate coordinator observability now reuses only the adapter sources already established by the real per-harness runs above: Claude hooks, OpenCode `session.execution.*` (OpenCode 1 `session.status` as the legacy input), and the Pi extension shared by pi and pi-signed.
 The fresh portable matrix runs each supported harness through tmux and/or Herdr, then covers busy, healthy idle, open blocker, open decision, later informational notes, resolved decisions, stale generation, dead endpoint, remote-unavailable, unsupported harness, and unverified backend cases:
 
 ```sh

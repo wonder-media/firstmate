@@ -1435,8 +1435,8 @@ test_secondmate_wake_delegates_and_clears_only_after_alive() {
 
   out=$(run_control_with_stub_spawn "$dir" domain wake); rc=$?
   expect_code 0 "$rc" "wake should use the normal secondmate spawn path"
-  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate" ] \
-    || fail "wake did not delegate exactly to fm-spawn <id> --secondmate"
+  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate --backend tmux" ] \
+    || fail "wake did not delegate exactly to fm-spawn <id> --secondmate on the recorded backend"
   [ ! -e "$dir/home/state/domain.dormant" ] || fail "wake left the dormant marker after proving the agent alive"
   assert_contains "$out" "awake domain" "wake should report verified alive success"
 
@@ -1444,8 +1444,8 @@ test_secondmate_wake_delegates_and_clears_only_after_alive() {
   : > "$dir/fake/spawn-log"
   out=$(run_control_with_stub_spawn "$dir" domain wake); rc=$?
   expect_code 0 "$rc" "wake on a dead non-dormant secondmate should preserve ordinary recovery"
-  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate" ] \
-    || fail "dead non-dormant wake did not use the ordinary recovery spawn path"
+  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate --backend tmux" ] \
+    || fail "dead non-dormant wake did not use the ordinary recovery spawn path on the recorded backend"
   pass "fm-control wake: normal spawn delegation, verified alive postcondition, marker clearing"
 }
 

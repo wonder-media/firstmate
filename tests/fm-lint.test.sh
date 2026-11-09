@@ -502,18 +502,6 @@ SH
   pass "fm-lint.sh --fast catches an ordinary shell lint defect"
 }
 
-fm_lint_stub_actionlint() {
-  local fakebin=$1
-  cat > "$fakebin/actionlint" <<'SH'
-#!/usr/bin/env bash
-if [ "${1:-}" = -version ]; then
-  printf '1.7.12\n'
-fi
-exit 0
-SH
-  chmod +x "$fakebin/actionlint"
-}
-
 test_changed_mode_lints_only_the_changed_file() {
   local tmp fakebin log diff_file out target
   tmp=$(fm_test_tmproot fm-lint-changed)
@@ -521,7 +509,6 @@ test_changed_mode_lints_only_the_changed_file() {
   fm_lint_stub_git "$fakebin"
   log="$tmp/shellcheck.log"
   fm_lint_stub_shellcheck "$fakebin" "$log"
-  fm_lint_stub_actionlint "$fakebin"
   diff_file="$tmp/diff.nul"
   target="bin/fm-install-shellcheck.sh"
   fm_lint_write_diff_file "$diff_file" "$target" "README.md"
@@ -591,7 +578,6 @@ test_zero_changed_files_exits_clean() {
   fakebin=$(fm_fakebin "$tmp")
   fm_lint_stub_git "$fakebin"
   fm_lint_stub_shellcheck "$fakebin" "$tmp/shellcheck.log"
-  fm_lint_stub_actionlint "$fakebin"
   diff_file="$tmp/diff.nul"
   : > "$diff_file"
 

@@ -52,9 +52,10 @@ case "$MODE" in
 esac
 # shellcheck source=bin/fm-primary-scope-lib.sh
 . "$SCRIPT_DIR/fm-primary-scope-lib.sh"
-if ! fm_primary_home_bind "$SCRIPT_ROOT"; then
-  [ "$MODE" != --capable ] || exit 1
-  exit 0
+if [ "$MODE" = --capable ]; then
+  fm_primary_home_bind "$SCRIPT_ROOT" 2>/dev/null || exit 1
+else
+  fm_primary_home_bind "$SCRIPT_ROOT" || exit 0
 fi
 # shellcheck source=bin/fm-session-lock-lib.sh
 . "$SCRIPT_DIR/fm-session-lock-lib.sh"

@@ -675,11 +675,12 @@ test_procinfo_helper_fails_closed() {
   pass "fm-procinfo.py: dead pid and broken offsets both produce an empty refusal"
 }
 
-# Compare the controlled fixture argv by shape, preserving printable/UTF-8
-# bytes. Linux ps builds differ on whether a newline becomes a space or '?'.
-# On macOS, decode equivalent caret/meta and octal/native-UTF-8 presentations
-# before that same shape fold. Those escape spellings are unambiguous in this
-# fixture, whose argv deliberately contains no literal caret or backslash.
+# Compare the controlled fixture argv across routes. Linux ps builds differ on
+# whether a newline becomes a space or '?', so that branch compares by shape,
+# preserving printable/UTF-8 bytes. On macOS, decode the caret/meta and
+# octal/native-UTF-8 presentations to their exact bytes and compare those: the
+# escape spellings are unambiguous in this fixture, whose argv deliberately
+# contains no literal caret or backslash.
 normalize_control_bytes() {  # <text>
   if [ "$(uname -s)" = Darwin ]; then
     python3 -c '
@@ -701,7 +702,7 @@ while i < len(text):
     else:
         out.extend(bytes([ord(text[i]) | high]) if high else text[i].encode())
         i += 1
-print(bytes(63 if byte <= 32 or byte == 127 else byte for byte in out).hex())
+print(out.hex())
 ' "$1"
   else
     printf '%s' "$1" \
@@ -738,6 +739,15 @@ os.execv(sys.executable, [os.fsencode(sys.executable), b"-c", b"import sys,time;
   expected_normalized=$(normalize_control_bytes "$expected") || fail "ps identity normalization failed"
   [ -n "$got_normalized" ] && [ "$got_normalized" = "$expected_normalized" ] \
     || fail "control-byte routes disagree: provider '$got', ps '$expected'"
+  # The provider's own rendering is pinned to the BSD vis spelling ps uses
+  # (caret for controls, M- for high bytes), so a provider that emitted raw
+  # bytes or '?' placeholders could not pass by decoding to the same bytes.
+  if [ "$(uname -s)" = Darwin ]; then
+    case $got in
+      *'tab^Inewline^JhighM-CM-)'*) ;;
+      *) fail "the provider did not render the control and high bytes in ps's vis spelling: '$got'" ;;
+    esac
+  fi
   # Non-vacuity: every fixture word that sits around a control byte must
   # still arrive from both routes, so a route that swallowed that text
   # cannot pass by matching a loss on the other route. The words are
@@ -754,19 +764,21 @@ os.execv(sys.executable, [os.fsencode(sys.executable), b"-c", b"import sys,time;
       *) fail "the ps route's argv field lost '$word': '$expected'" ;;
     esac
   done
-  # The live pair above only proves agreement with the byte THIS host's ps
-  # writes for the fixture's newline. Pin the fold against both Linux
-  # renderings of it, and assert they really differ, so a comparison that
-  # went back to raw bytes fails here too instead of only on the other
+  # On Linux the live pair above only proves agreement with the byte THIS
+  # host's ps writes for the fixture's newline. Pin the fold against both
+  # procps renderings of it, and assert they really differ, so a comparison
+  # that went back to raw bytes fails here too instead of only on the other
   # procps build.
-  local prefix render_space render_question
-  prefix=${got%$'\t'*}
-  render_space=$(printf '%s\ttab?newline high' "$prefix")
-  render_question=$(printf '%s\ttab?newline?high' "$prefix")
-  [ "$render_space" != "$render_question" ] \
-    || fail "the two control-byte renderings are no longer distinct: '$render_space'"
-  [ "$(normalize_control_bytes "$render_space")" = "$(normalize_control_bytes "$render_question")" ] \
-    || fail "the argv comparison still depends on the byte a ps build writes for a newline"
+  if [ "$(uname -s)" != Darwin ]; then
+    local prefix render_space render_question
+    prefix=${got%$'\t'*}
+    render_space=$(printf '%s\ttab?newline high' "$prefix")
+    render_question=$(printf '%s\ttab?newline?high' "$prefix")
+    [ "$render_space" != "$render_question" ] \
+      || fail "the two control-byte renderings are no longer distinct: '$render_space'"
+    [ "$(normalize_control_bytes "$render_space")" = "$(normalize_control_bytes "$render_question")" ] \
+      || fail "the argv comparison still depends on the byte a ps build writes for a newline"
+  fi
   pass "control bytes preserve identical identity fields across routes"
 }
 

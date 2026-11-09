@@ -720,7 +720,7 @@ seed_secondmate_home() { # <home> <id> [home Stop guard]
   local home=$1 id=$2 guard=${3:-$ROOT/bin/fm-turnend-guard.sh}
   mkdir -p "$home/bin" "$home/data" "$home/state" "$home/config" "$home/projects"
   # Run the guard from the home it protects, with its actual sibling libraries.
-  cp "$ROOT/bin/"{fm-primary-scope-lib,fm-supervision-lib,fm-supervision-engine-lib,fm-wake-lib,fm-path-lib,fm-hook-host-lib,fm-session-lock-lib,fm-cursor-lib,fm-timeout-lib,fm-operational-input,fm-supervision-instructions,fm-harness}.sh "$home/bin/"
+  cp "$ROOT/bin/"{fm-primary-scope-lib,fm-supervision-lib,fm-supervision-engine-lib,fm-wake-lib,fm-path-lib,fm-hook-host-lib,fm-session-lock-lib,fm-cursor-lib,fm-gemini-lib,fm-hermes-process-lib,fm-timeout-lib,fm-operational-input,fm-supervision-instructions,fm-harness}.sh "$home/bin/"
   mkdir -p "$home/docs"
   cp -R "$ROOT/docs/supervision-protocols" "$home/docs/"
   cp "$guard" "$home/bin/fm-turnend-guard.sh"

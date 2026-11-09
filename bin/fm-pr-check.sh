@@ -398,10 +398,14 @@ if [ "${FM_PR_CHECK_MERGE:-}" != 1 ]; then
       ;;
     *)
       # Status lines carry an emission stamp, so compare the latest event
-      # untimed (bin/fm-classify-lib.sh) to keep the handoff idempotent.
+      # untimed (bin/fm-classify-lib.sh) to keep the handoff idempotent. A
+      # scan registers a done line found earlier, so it hands off only while
+      # that done line is still the latest event; a worker that has moved on
+      # is not waiting on the captain.
       LAST_EVENT=$(last_status_line "$STATUS")
       _fm_status_untimed "$LAST_EVENT" LAST_EVENT
-      if [ "$LAST_EVENT" != "$CAPTAIN_HELD_LINE" ]; then
+      if [ "$LAST_EVENT" != "$CAPTAIN_HELD_LINE" ] \
+        && { [ "${FM_PR_CHECK_SCAN:-}" != 1 ] || [ "$(status_line_verb "$LAST_EVENT")" = "done" ]; }; then
         rc=0
         fm_wake_status_append_self_announced "$STATE" "$STATUS" "$CAPTAIN_HELD_LINE" || rc=$?
         [ "$rc" -ne 2 ] || {

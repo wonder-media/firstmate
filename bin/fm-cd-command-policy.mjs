@@ -26,6 +26,7 @@
 
 import { Lexer, splitProgram, commandPosition } from "./fm-arm-command-policy.mjs";
 import { realpathSync } from "node:fs";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REASONS = {
@@ -79,7 +80,7 @@ function hasCommandQueryPrefix(position) {
 
 function resolvedPaths(path) {
   try {
-    return [realpathSync(path), realpathSync.native(path)];
+    return [realpathSync(path), realpathSync.native(path), realpathSync.native(resolve(path))];
   } catch {
     return null;
   }

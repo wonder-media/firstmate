@@ -7714,7 +7714,11 @@ else
 fi
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
-LAUNCH=${LAUNCH//__OMPEXT__/$sq_ompext}
+if [ -f "$STATE/$ID.omp-ext.ts" ]; then
+  LAUNCH=${LAUNCH//__OMPEXT__/$sq_ompext}
+else
+  LAUNCH=${LAUNCH// -e __OMPEXT__/}
+fi
 LAUNCH=${LAUNCH//__OMPWORKERCFG__/$sq_ompcfg}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 case "$HARNESS" in

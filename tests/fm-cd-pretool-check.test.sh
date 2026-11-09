@@ -396,6 +396,20 @@ test_policy_cli_direct() {
     || fail "policy CLI must allow a literal absolute cd to the --home path"
   [ "$(node "$policy" --command "cd $PRIMARY" | cut -f1)" = deny ] \
     || fail "policy CLI without --home must exempt no cd target"
+  # Bash's default logical cd collapses `..` on the typed path before it
+  # follows symlinks, so a target that is physically the home can still land
+  # the shell outside it. The oracle is the shell itself.
+  local link logical
+  link="$TMP_ROOT/cd-alias/y"
+  mkdir -p "${link%/*}"
+  ln -s "$PRIMARY/bin" "$link"
+  logical=$(cd "$link/.." && pwd)
+  [ "$logical" != "$(cd "$PRIMARY" && pwd -P)" ] \
+    || fail "fixture: the logical cd did not leave the home"
+  [ "$(node "$policy" --home "$PRIMARY" --command "cd $link/.." | cut -f1)" = deny ] \
+    || fail "policy CLI must deny a cd that leaves the home under the logical path rule"
+  [ "$(node "$policy" --home "$PRIMARY" --command "cd $PRIMARY/bin/..")" = allow ] \
+    || fail "policy CLI must allow a cd that reaches the home under both path rules"
   pass "cd-guard: fm-cd-command-policy.mjs CLI honors the deny/allow output contract"
 }
 

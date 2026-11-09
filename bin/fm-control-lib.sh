@@ -722,6 +722,7 @@ fm_control_claude_hooks_owned() {  # <settings-file>
 
 fm_control_claude_shared_settings_prunable() {  # <settings-file>
   command -v jq >/dev/null 2>&1 || return 1
+  [ ! -L "${1-}" ] || return 1
   [ -s "${1-}" ] || return 0
   _fm_control_claude_settings_is_one_object < "$1" || return 1
   jq --arg marker "$FM_CONTROL_CLAUDE_HOOK_MARKER" \
@@ -770,7 +771,8 @@ fm_control_claude_hooks_clear() {  # <settings-file>
 # when nothing firstmate-owned is left, 3 when one of the adapter artifacts could
 # not be removed (the path is left in FM_CONTROL_RETIRE_FAILED_PATH and the
 # Claude prune never ran), 2 when the captain's file cannot be pruned at all
-# (no jq, or a document the prune program cannot walk) and nothing can be claimed
+# (no jq, a symlink the rewrite would replace, or a document the prune program
+# cannot walk) and nothing can be claimed
 # about it either way, and 1 when the prune ran and a firstmate hook is still
 # there - the only case that needs the captain to edit that file by hand.
 FM_CONTROL_RETIRE_FAILED_PATH=
