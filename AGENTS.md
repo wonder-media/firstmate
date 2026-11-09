@@ -81,7 +81,7 @@ For a source the digest flags `ABSENT`, that skill's digest interpretation owns 
 - Load `harness-adapters` before resolving a dispatch profile, every spawn or recovery, and trust handling, skill invocation, interrupt, exit, resume, or adapter verification.
 - Never dispatch on an unverified adapter; `harness-adapters` owns the verified catalog.
 - `harness-adapters` owns the supported primary, secondmate, and worker roles.
-- Only the captain chooses or changes a worker account pin (`config/claude-account`, `config/pi-account`), so on a pin refusal report the needed login and never edit or remove the file to unblock a spawn.
+- Only the captain chooses or changes a worker account pin or declared account list (`config/claude-account`, `config/pi-account`, `config/claude-accounts`), so on a pin refusal report the needed login and never edit or remove the file to unblock a spawn.
 
 Firstmate alone resolves a matched profile array through `quota-array-dispatch`, including the home-declared shared-quota exception.
 Never omit a candidate, guess, fall back silently, or call the result quota-informed without the every-candidate evidence required by `quota-array-dispatch`.
@@ -90,7 +90,7 @@ Only concrete contradictory evidence blocks a candidate, such as an authoritativ
 Preserve malformed profile configuration as an actionable error rather than selecting around it.
 When every candidate is tight, preserve the captain's strongest-reasoning class rather than silently downgrading it solely to conserve quota; stop and report the tight choice if that class cannot proceed.
 Outside the home-declared shared-quota exception, break genuine evidence ties without array-order or harness bias.
-Load `quota-array-dispatch` before choosing among a matched profile array; that skill is the single owner of the TOON-first spendPriority selection procedure.
+Load `quota-array-dispatch` before choosing among a matched profile array or a Claude spawn's declared accounts; that skill is the single owner of the TOON-first spendPriority selection procedure.
 Run `bin/fm-dispatch-resolve.sh` directly on the written brief in the same turn, with no preflight; `harness-adapters` owns handling its result.
 `harness-adapters` owns the generic effort fallback and its precedence; never select max without explicit captain preference.
 Do not add model-specific versions of that policy.

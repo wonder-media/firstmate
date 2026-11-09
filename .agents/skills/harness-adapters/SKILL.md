@@ -3,7 +3,7 @@ name: harness-adapters
 description: >-
   Agent-only reference for firstmate harness operations.
   Use before resolving a dispatch profile, spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
-  Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, gemini, muse, rovo, omp, agy, devin, commandcode, polytoken, cortex, and kiro.
+  Contains verified facts for claude, codex, opencode, pi, pi-signed, grok, kimi, cursor, gemini, muse, rovo, omp, agy, devin, commandcode, polytoken, cortex, kiro, and hermes.
 user-invocable: false
 metadata:
   internal: true
@@ -35,7 +35,7 @@ For recovery and control, use the exact `harness=` in `state/<id>.meta`; never i
 Deliver lifecycle actions only through `../../../bin/fm-control.sh <task-id> interrupt|exit|relaunch|dormant|wake`; `secondmate-provisioning` owns the dormant/wake policy.
 Never type an interrupt key or exit command through `fm-send`, where routing-marked lifecycle text becomes chat.
 Trust handling is complete only when inspection proves the target started processing its instructions; delivery success alone is not proof.
-Muse, Gemini, Rovo, Devin, Command Code, Polytoken, Cortex, and Kiro are verified only for crewmate and scout work, never a secondmate or primary.
+Muse, Gemini, Rovo, Devin, Command Code, Polytoken, Cortex, Kiro, and Hermes are verified only for crewmate and scout work, never a secondmate or primary.
 
 ## Detection
 
@@ -100,7 +100,8 @@ A new tool remains undispatchable until the `verify` plan, its harness entry, ev
     "commandcode": "references/harness/commandcode.md",
     "polytoken": "references/harness/polytoken.md",
     "cortex": "references/harness/cortex.md",
-    "kiro": "references/harness/kiro.md"
+    "kiro": "references/harness/kiro.md",
+    "hermes": "references/harness/hermes.md"
   }
 }
 ```

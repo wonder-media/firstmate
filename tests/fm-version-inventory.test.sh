@@ -23,7 +23,7 @@ printf '%s\n' "${GH_REPO:-missing}" >> "${FM_FAKE_GITHUB_LOG:?}"
 case "${GH_REPO:-}" in
   kunchenguid/no-mistakes) version=1.64.0 ;;
   kunchenguid/treehouse) version=2.3.0 ;;
-  ogulcancelik/herdr) version=0.8.2 ;;
+  herdrdev/herdr) version=0.8.2 ;;
   *) exit 9 ;;
 esac
 printf 'releases[1]{tag,name,draft,prerelease,published}:\n  v%s,v%s,no,no,now\n' "$version" "$version"
@@ -96,13 +96,13 @@ test_inventory_separates_compatibility_freshness_and_pins() {
 
   assert_row "$out" $'no-mistakes\t1.31.2\t1.46.0\t1.64.0\tbelow-minimum\tupdate-available\tnone\tgithub:kunchenguid/no-mistakes'
   assert_row "$out" $'treehouse\t2.0.1\tlease-capable\t2.3.0\tsupported\tintentionally-pinned\tCI=2.0.1\tgithub:kunchenguid/treehouse'
-  assert_row "$out" $'herdr\t0.7.4\tprotocol>=14\t0.8.2\tunknown (protocol not probed)\tintentionally-pinned\tCI=0.7.4\tgithub:ogulcancelik/herdr'
+  assert_row "$out" $'herdr\t0.7.4\tprotocol>=14\t0.8.2\tunknown (protocol not probed)\tintentionally-pinned\tCI=0.7.4\tgithub:herdrdev/herdr'
   assert_row "$out" $'gh-axi\t0.1.35\t0.1.29\t0.1.35\tsupported\tcurrent-stable\tnone\tnpm:gh-axi'
   assert_row "$out" $'chrome-devtools-axi\t0.1.34\tpresent\t0.1.34\tsupported\tcurrent-stable\tnone\tnpm:chrome-devtools-axi'
   assert_row "$out" $'lavish-axi\t0.1.46\t0.1.77\t0.1.64\tbelow-minimum\tupdate-available\tnone\tnpm:lavish-axi'
   assert_row "$out" $'tasks-axi\t0.2.3\t0.2.6\t0.2.5\tbelow-minimum\tupdate-available\tnone\tnpm:tasks-axi'
   assert_row "$out" $'quota-axi\t0.1.38\t0.1.51\t0.1.37\tbelow-minimum\tahead-of-stable\tnone\tnpm:quota-axi'
-  [ "$(cat "$github_log")" = $'kunchenguid/no-mistakes\nkunchenguid/treehouse\nogulcancelik/herdr' ] \
+  [ "$(cat "$github_log")" = $'kunchenguid/no-mistakes\nkunchenguid/treehouse\nherdrdev/herdr' ] \
     || fail "GitHub release channels were not exact: $(cat "$github_log")"
   [ "$(cat "$npm_log")" = $'gh-axi\nchrome-devtools-axi\nlavish-axi\ntasks-axi\nquota-axi' ] \
     || fail "npm release channels were not exact: $(cat "$npm_log")"

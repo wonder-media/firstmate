@@ -459,6 +459,30 @@ _fm_status_at_epoch() {  # <status-line> <out-var> -> 0 and the epoch when known
   printf -v "$2" '%s' "$__fm_at_value"
 }
 
+# --- optional captain-hold deferral date --------------------------------------
+# A relayed captain hold (bin/fm-captain-hold.sh `hold --until`) may carry
+# "[until=YYYY-MM-DD]" before the first colon, beside its key and time tags:
+#   needs-decision [key=captain-hold-api-1] [until=2026-12-01] [at=1788576000]: ...
+# The head is located on the unstamped copy, exactly as the key reader does, so
+# a worker stamp cannot move it. Returns 0 and the date when exactly one
+# well-formed field is present, 1 when none is, and 2 when one is malformed or
+# repeated. Only this bracketed field is read; note prose never supplies a date.
+_fm_status_until_date() {  # <status-line> <out-var> -> 0 date, 1 absent, 2 malformed
+  local __fm_until_head __fm_until_rest __fm_until_value
+  printf -v "$2" '%s' ''
+  _fm_status_unstamped "$1" __fm_until_head
+  case "$__fm_until_head" in *:*) __fm_until_head=${__fm_until_head%%:*} ;; *) return 1 ;; esac
+  case "$__fm_until_head" in *\[until=*) ;; *) return 1 ;; esac
+  __fm_until_rest=${__fm_until_head#*\[until=}
+  case "$__fm_until_rest" in *\]*) ;; *) return 2 ;; esac
+  __fm_until_value=${__fm_until_rest%%\]*}
+  case "${__fm_until_rest#*\]}" in *\[until=*) return 2 ;; esac
+  case "$__fm_until_value" in
+    [0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]) printf -v "$2" '%s' "$__fm_until_value" ;;
+    *) return 2 ;;
+  esac
+}
+
 status_line_at_epoch() {  # <status-line> -> epoch; nonzero when unknown
   local epoch
   _fm_status_at_epoch "$1" epoch || return 1
@@ -834,7 +858,7 @@ _fm_status_kind() {
 
 _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb> <kind> [timed]
   local open=$1 line=$2 resolve=$3 held=$4 kind=$5 verb key note unstamped
-  local timed=${6:-} epoch
+  local timed=${6:-} epoch until old_key old_verb old_epoch old_note
   # Both colon tests below ask where the head ends, the same question the note
   # and key readers ask, so they read the same unstamped copy those readers do.
   # A worker-written time tag must never decide whether a decision opens or
@@ -869,13 +893,30 @@ _fm_decision_fold_line() {  # <open-set> <status-line> <resolve-verb> <held-verb
     needs-decision|blocked)
       note=$(status_line_note "$line")
       if [ "$timed" = timed ]; then
-        # The timed view adds an emission-time column, without changing any
-        # open/closed rule. Keyless or unstamped events have unknown age.
+        # The timed view adds emission-time and deferral-date columns, without
+        # changing any open/closed rule. Keyless or unstamped events have
+        # unknown age. A republish of a still-open key with the same verb and
+        # note keeps the open row's earlier time, so its age and reminder
+        # schedule survive; a resolution has already dropped the key, so a
+        # reopen takes its own time. The deferral column always comes from the
+        # newest line; it is `-` when absent and `?` when malformed, never
+        # empty, so a TAB-split read cannot collapse it.
         epoch=unknown
         if [ -n "$(_fm_decision_key "$line" '')" ]; then
           _fm_status_at_epoch "$line" epoch || epoch=unknown
         fi
-        note="$epoch"$'\t'"$note"
+        _fm_status_until_date "$line" until || case $? in 1) until=- ;; *) until='?' ;; esac
+        while IFS=$'\t' read -r old_key old_verb old_epoch _ old_note; do
+          [ "$old_key" = "$key" ] || continue
+          case "$old_epoch" in
+            ''|unknown|*[!0-9]*) ;;
+            *) [ "$old_verb" = "$verb" ] && [ "$old_note" = "$note" ] && epoch=$old_epoch ;;
+          esac
+          break
+        done <<EOF
+$open
+EOF
+        note="$epoch"$'\t'"$until"$'\t'"$note"
       fi
       open=$(_fm_decision_drop "$open" "$key")
       [ -n "$open" ] && open="${open}"$'\n'
@@ -1170,7 +1211,7 @@ EOF
 #
 # The cursor format is `version` (FM_OPEN_DECISIONS_FOLD_VERSION plus the task
 # kind, as `<n>:<kind>`), `offset`, `ident`, then the folded open set.
-# The optional timed view uses a separate `.timed` cursor and adds `:timed`
+# The optional timed view uses a separate `.timed` cursor and adds `:timed3`
 # to the version; status_open_decisions_incremental owns its row format.
 # FM_OPEN_DECISIONS_FOLD_VERSION must be bumped whenever
 # _fm_decision_fold_line semantics change, so persisted state from an older
@@ -1242,17 +1283,41 @@ _fm_open_decisions_file_ident() {  # <file> -> strongest available identity
     "$FM_STATUS_IDENTITY_READER" "$f"
     return
   fi
+  _fm_status_stat_fields "$f" || return 1
+  printf '%s' "$_FM_STAT_IDENTITY"
+}
+
+# One stat exec sets _FM_STAT_IDENTITY and _FM_STAT_SIZE for <file>, because
+# the drain reads identity and size of every status file several times and
+# each exec is slow on a loaded host.
+_fm_status_stat_fields() {  # <file>
+  local out dev_ino epoch birth rest
   if [ "$_FM_CLASSIFY_UNAME_S" = Darwin ]; then
-    ident=$(LC_ALL=C /usr/bin/stat -f '%d:%i' "$f" 2>/dev/null) || return 1
-    epoch=$(LC_ALL=C /usr/bin/stat -f '%B' "$f" 2>/dev/null) || epoch=0
-    if [ "$epoch" != 0 ]; then birth=$(LC_ALL=C /usr/bin/stat -f '%FB' "$f" 2>/dev/null) || birth=''; else birth=''; fi
+    out=$(LC_ALL=C /usr/bin/stat -f '%d:%i%t%z%t%B%t%FB' "$1" 2>/dev/null) || return 1
   else
-    ident=$(LC_ALL=C stat -c '%d:%i' "$f" 2>/dev/null) || return 1
-    epoch=$(LC_ALL=C stat -c '%W' "$f" 2>/dev/null) || epoch=0
-    if [ "$epoch" != 0 ]; then birth=$(LC_ALL=C stat -c '%w' "$f" 2>/dev/null) || birth=''; else birth=''; fi
+    out=$(LC_ALL=C stat -c $'%d:%i\t%s\t%W\t%w' "$1" 2>/dev/null) || return 1
   fi
-  case "$ident$birth" in *$'\t'*|*$'\n'*|'') return 1 ;; esac
-  if [ -n "$birth" ]; then printf 'strong:%s:%s' "$ident" "$birth"; else printf 'weak:%s' "$ident"; fi
+  dev_ino=${out%%$'\t'*}; rest=${out#*$'\t'}
+  _FM_STAT_SIZE=${rest%%$'\t'*}; rest=${rest#*$'\t'}
+  epoch=${rest%%$'\t'*}; birth=${rest#*$'\t'}
+  [ "$epoch" != 0 ] || birth=''
+  case "$dev_ino$birth" in *$'\t'*|*$'\n'*|'') return 1 ;; esac
+  if [ -n "$birth" ]; then
+    _FM_STAT_IDENTITY="strong:$dev_ino:$birth"
+  else
+    _FM_STAT_IDENTITY="weak:$dev_ino"
+  fi
+}
+
+# Set _FM_STAT_IDENTITY and _FM_STAT_SIZE for one status file with one stat
+# exec. Injected test readers are honored, identity first and size second.
+_fm_status_read_ident_size() {  # <status-file>
+  if [ -n "${FM_STATUS_IDENTITY_READER:-}" ] || [ -n "${FM_STATUS_SIZE_READER:-}" ]; then
+    _FM_STAT_IDENTITY=$(_fm_open_decisions_file_ident "$1") || return 1
+    _FM_STAT_SIZE=$(_fm_status_file_size "$1") || return 1
+    return 0
+  fi
+  _fm_status_stat_fields "$1"
 }
 
 _fm_status_file_size() {  # <status-file>
@@ -1315,8 +1380,10 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>] [
   fold_version="$FM_OPEN_DECISIONS_FOLD_VERSION:$kind"
   cf=$(_fm_open_decisions_cursor_path "$f")
   # A separate cursor keeps the ordinary presentation view byte-compatible.
-  # Timed rows are <key> TAB <verb> TAB <epoch-or-unknown> TAB <note>.
-  if [ "$timed" = timed ]; then cf="$cf.timed"; fold_version="$fold_version:timed"; fi
+  # Timed rows are <key> TAB <verb> TAB <epoch-or-unknown> TAB
+  # <until-date, `-` absent, `?` malformed> TAB <note>. The suffix number
+  # retires timed cursors persisted under an older row format or epoch rule.
+  if [ "$timed" = timed ]; then cf="$cf.timed"; fold_version="$fold_version:timed3"; fi
   offset=0
   ident=''
   if [ -f "$cf" ] && [ -r "$cf" ] && [ ! -L "$cf" ]; then
@@ -1363,10 +1430,9 @@ status_open_decisions_incremental() {  # <status-file> [<captured-end-offset>] [
   # A stat/size-read failure is a genuine I/O error, not "the file is empty" -
   # report the already-trusted persisted set unchanged rather than risking a
   # silent invalidation that would wipe it.
-  cur_ident=$(_fm_open_decisions_file_ident "$f") || { printf '%s' "$trusted_open"; return 0; }
+  _fm_status_read_ident_size "$f" || { printf '%s' "$trusted_open"; return 0; }
+  cur_ident=$_FM_STAT_IDENTITY actual_size=$_FM_STAT_SIZE
   [ -n "$cur_ident" ] || { printf '%s' "$trusted_open"; return 0; }
-  actual_size=$(_fm_status_file_size "$f") \
-    || { printf '%s' "$trusted_open"; return 0; }
   actual_size=${actual_size//[[:space:]]/}
   case "$actual_size" in ''|*[!0-9]*) printf '%s' "$trusted_open"; return 0 ;; esac
   if [ -n "$captured_end" ]; then
@@ -1575,9 +1641,8 @@ EOF
     offset=0
     ident=$(_fm_open_decisions_file_ident "$f") || return 1
   fi
-  cur_ident=$(_fm_open_decisions_file_ident "$f") || return 1
-  size=$(_fm_status_file_size "$f") || return 1
-  size=${size//[[:space:]]/}
+  _fm_status_read_ident_size "$f" || return 1
+  cur_ident=$_FM_STAT_IDENTITY size=${_FM_STAT_SIZE//[[:space:]]/}
   case "$size:$offset" in *[!0-9:]*) return 1 ;; esac
   if [ "$ident" != "$cur_ident" ] || [ "$offset" -gt "$size" ]; then offset=0; fi
   printf '%s' "$offset"
@@ -1599,9 +1664,8 @@ status_outcome_backstop_cursor_offset() {  # <status-file>
     case "$presented:$row_backstop" in *[!0-9:]*) return 1 ;; esac
     [ -n "$presented" ] && [ -n "$ident" ] || return 1
     if [ "$row_task" = "$task" ]; then
-      current=$(_fm_open_decisions_file_ident "$f") || return 1
-      size=$(_fm_status_file_size "$f") || return 1
-      size=${size//[[:space:]]/}
+      _fm_status_read_ident_size "$f" || return 1
+      current=$_FM_STAT_IDENTITY size=${_FM_STAT_SIZE//[[:space:]]/}
       case "$size" in ''|*[!0-9]*) return 1 ;; esac
       [ "$ident" = "$current" ] || { printf '0'; return 0; }
       backstop=${row_backstop:-0}
@@ -1899,9 +1963,8 @@ status_commit_presentation_snapshot() {  # <state> <snapshot>
     [ -n "$ident" ] || { rm -f "$tmp"; return 1; }
     f="$state/$task.status"
     [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || { rm -f "$tmp"; return 1; }
-    cur_ident=$(_fm_open_decisions_file_ident "$f") || { rm -f "$tmp"; return 1; }
-    size=$(_fm_status_file_size "$f") || { rm -f "$tmp"; return 1; }
-    size=${size//[[:space:]]/}
+    _fm_status_read_ident_size "$f" || { rm -f "$tmp"; return 1; }
+    cur_ident=$_FM_STAT_IDENTITY size=${_FM_STAT_SIZE//[[:space:]]/}
     case "$size" in ''|*[!0-9]*) rm -f "$tmp"; return 1 ;; esac
     [ "$cur_ident" = "$ident" ] && [ "$endpoint" -le "$size" ] \
       || { rm -f "$tmp"; return 1; }
@@ -2009,10 +2072,9 @@ status_open_decisions_cursor_offset() {  # <status-file>
       return 1
     fi
   fi
-  cur_ident=$(_fm_open_decisions_file_ident "$f") || return 1
+  _fm_status_read_ident_size "$f" || return 1
+  cur_ident=$_FM_STAT_IDENTITY size=${_FM_STAT_SIZE//[[:space:]]/}
   [ -n "$cur_ident" ] || return 1
-  size=$(_fm_status_file_size "$f") || return 1
-  size=${size//[[:space:]]/}
   case "$size" in ''|*[!0-9]*) return 1 ;; esac
   if [ -z "$version" ] || [ -z "$ident" ] || [ "$ident" != "$cur_ident" ] || [ "$offset" -gt "$size" ]; then
     offset=0
@@ -2701,10 +2763,9 @@ FM_WORKTREE_WRITE_MAXDEPTH=${FM_WORKTREE_WRITE_MAXDEPTH:-6}
 # heartbeat instead of escalating. Hitting the bound is a negative outcome like
 # every other: it reads as no evidence, so the caller's escalation schedule is
 # untouched and a stall that writes nothing still escalates on the existing
-# schedule. A value that is not a positive integer is not a bound at all (`timeout
-# 0` and the perl fallback's `alarm 0` both disable the deadline), so the default
-# applies instead; the check lives at the point of use so an in-process override
-# gets it too.
+# schedule. The shared runner's bound contract is owned by bin/fm-timeout-lib.sh.
+# Invalid values use the default; the check lives at the point of use so an
+# in-process override gets it too.
 FM_WORKTREE_WRITE_TIMEOUT=${FM_WORKTREE_WRITE_TIMEOUT:-10}
 
 # 0 when some regular file under <id>'s recorded worktree is newer than
