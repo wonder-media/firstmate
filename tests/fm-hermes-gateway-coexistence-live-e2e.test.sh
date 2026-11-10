@@ -20,6 +20,13 @@ LAB=$(cd "$LAB" && pwd -P)
 SOCKET="$LAB/gateway.sock"
 mkdir -p "$LAB/home" "$LAB/state" "$LAB/locks"
 [ -f "$PROFILE_HOME/config.yaml" ] || fail "throwaway profile $PROFILE_HOME is not prepared"
+trap 'rm -rf "$LAB"' EXIT
+for file in "$FM_HERMES_LIVE_HOME/.env" "$PROFILE_HOME/.env"; do
+  [ ! -s "$file" ] || fail "$file may configure a messaging platform; use a profile without one"
+done
+HERMES_HOME="$FM_HERMES_LIVE_HOME" "$HERMES_BIN" -p "$PROFILE" config get platforms --json > "$LAB/platforms.json" 2>/dev/null || fail 'could not read throwaway profile platform configuration'
+jq -e '. == null or . == {} or ([.[]? | objects | select(.enabled == true)] | length == 0)' "$LAB/platforms.json" >/dev/null \
+  || fail 'throwaway profile configures a messaging platform'
 cp -p "$PROFILE_HOME/config.yaml" "$LAB/config.yaml"
 cleanup() {
   tmux -S "$SOCKET" kill-server >/dev/null 2>&1 || true
@@ -27,12 +34,6 @@ cleanup() {
   rm -rf "$LAB"
 }
 trap cleanup EXIT
-for file in "$FM_HERMES_LIVE_HOME/.env" "$PROFILE_HOME/.env"; do
-  [ ! -s "$file" ] || fail "$file may configure a messaging platform; use a profile without one"
-done
-HERMES_HOME="$FM_HERMES_LIVE_HOME" "$HERMES_BIN" -p "$PROFILE" config get platforms --json > "$LAB/platforms.json" 2>/dev/null || echo null > "$LAB/platforms.json"
-jq -e '. == null or . == {} or ([.[]? | objects | select(.enabled == true)] | length == 0)' "$LAB/platforms.json" >/dev/null \
-  || fail 'throwaway profile configures a messaging platform'
 snapshot() {
   python3 -I - "$PROFILE_HOME" "$1" <<'PY'
 import hashlib, json, sqlite3, sys
