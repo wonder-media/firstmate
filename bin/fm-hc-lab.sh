@@ -299,11 +299,13 @@ FM_HCLAB_CALLER_PIDS=""
 fm_hclab_caller_pids() {
   [ -n "$FM_HCLAB_CALLER_PIDS" ] && return 0
   local pid=$PPID pgid
-  pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+  pgid=$(ps -o pgid= -p $$ 2>/dev/null) || return 1
+  pgid=${pgid// /}
   FM_HCLAB_CALLER_PIDS=" $$ g${pgid:-0}"
   while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
     FM_HCLAB_CALLER_PIDS="$FM_HCLAB_CALLER_PIDS $pid"
-    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null) || return 1
+    pid=${pid// /}
   done
 }
 
@@ -315,13 +317,12 @@ fm_hclab_caller_pids() {
 # match. The caller tree (ancestor chain, their children, and everything in
 # the caller's process group) is excluded.
 fm_hclab_session_pids() { # <session>
-  local name=$1
-  fm_hclab_caller_pids
-  # shellcheck disable=SC2009 # the match is on the process ENVIRONMENT (HC_SESSION), which pgrep -f cannot read.
-  ps ewwax -o pid=,ppid=,pgid=,command= 2>/dev/null \
-    | grep -E "(^|[[:space:]])HC_SESSION=${name}([[:space:]]|$)" \
-    | awk -v excl="$FM_HCLAB_CALLER_PIDS" \
-      'index(excl, " "$1" ") == 0 && index(excl, " "$2" ") == 0 && index(excl, " g"$3" ") == 0 { print $1 }'
+  local name=$1 inventory
+  fm_hclab_caller_pids || return 1
+  inventory=$(ps ewwax -o pid=,ppid=,pgid=,command= 2>/dev/null) || return 1
+  printf '%s\n' "$inventory" | awk -v name="$name" -v excl="$FM_HCLAB_CALLER_PIDS" \
+    '$0 ~ ("(^|[[:space:]])HC_SESSION=" name "([[:space:]]|$)") &&
+      index(excl, " "$1" ") == 0 && index(excl, " "$2" ") == 0 && index(excl, " g"$3" ") == 0 { print $1 }'
 }
 
 fm_hclab_teardown() { # <session>
@@ -340,7 +341,10 @@ fm_hclab_teardown() { # <session>
   # its HC_SESSION marker is terminated - TERM first, KILL for the stubborn.
   i=0
   while [ "$i" -lt 16 ]; do
-    pids=$(fm_hclab_session_pids "$name")
+    pids=$(fm_hclab_session_pids "$name") || {
+      fm_hclab_error "could not enumerate session processes for '$name'; refusing cleanup"
+      return 1
+    }
     [ -z "$pids" ] && break
     if [ "$i" -lt 8 ]; then sig=TERM; else sig=KILL; fi
     printf '%s\n' "$pids" | while IFS= read -r p; do
@@ -354,12 +358,18 @@ fm_hclab_teardown() { # <session>
   # dir). Keep polling well past that envelope before giving up.
   i=0
   while [ "$i" -lt 180 ]; do
-    pids=$(fm_hclab_session_pids "$name")
+    pids=$(fm_hclab_session_pids "$name") || {
+      fm_hclab_error "could not enumerate session processes for '$name'; refusing cleanup"
+      return 1
+    }
     [ -z "$pids" ] && break
     sleep 0.5
     i=$((i + 1))
   done
-  pids=$(fm_hclab_session_pids "$name")
+  pids=$(fm_hclab_session_pids "$name") || {
+    fm_hclab_error "could not enumerate session processes for '$name'; refusing cleanup"
+    return 1
+  }
   [ -z "$pids" ] || {
     fm_hclab_error "session processes for '$name' did not exit: $pids; refusing to remove state they still hold"
     return 1

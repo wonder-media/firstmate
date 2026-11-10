@@ -87,11 +87,13 @@ HC_CI_CALLER_PIDS=""
 hc_ci_caller_pids() {
   [ -n "$HC_CI_CALLER_PIDS" ] && return 0
   local pid=$PPID pgid
-  pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+  pgid=$(ps -o pgid= -p $$ 2>/dev/null) || return 1
+  pgid=${pgid// /}
   HC_CI_CALLER_PIDS=" $$ g${pgid:-0}"
   while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null; do
     HC_CI_CALLER_PIDS="$HC_CI_CALLER_PIDS $pid"
-    pid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    pid=$(ps -o ppid= -p "$pid" 2>/dev/null) || return 1
+    pid=${pid// /}
   done
 }
 
@@ -101,13 +103,12 @@ hc_ci_caller_pids() {
 # match "fm-hclab-ab" or a longer assignment. Same-uid env scan works on macOS
 # (BSD ps) and Linux (procps) alike; the caller's process tree is excluded.
 hc_ci_session_pids() {  # <name>
-  local name=$1
-  hc_ci_caller_pids
-  # shellcheck disable=SC2009 # the match is on the process ENVIRONMENT (HC_SESSION), which pgrep -f cannot read.
-  ps ewwax -o pid=,ppid=,pgid=,command= 2>/dev/null \
-    | grep -E "(^|[[:space:]])HC_SESSION=${name}([[:space:]]|$)" \
-    | awk -v excl="$HC_CI_CALLER_PIDS" \
-      'index(excl, " "$1" ") == 0 && index(excl, " "$2" ") == 0 && index(excl, " g"$3" ") == 0 { print $1 }'
+  local name=$1 inventory
+  hc_ci_caller_pids || return 1
+  inventory=$(ps ewwax -o pid=,ppid=,pgid=,command= 2>/dev/null) || return 1
+  printf '%s\n' "$inventory" | awk -v name="$name" -v excl="$HC_CI_CALLER_PIDS" \
+    '$0 ~ ("(^|[[:space:]])HC_SESSION=" name "([[:space:]]|$)") &&
+      index(excl, " "$1" ") == 0 && index(excl, " "$2" ") == 0 && index(excl, " g"$3" ") == 0 { print $1 }'
 }
 
 case "$cmd" in
@@ -139,7 +140,7 @@ case "$cmd" in
       # daemons stay by design; sweep every process still carrying the
       # session's HC_SESSION env marker (same-uid env scan, macOS and Linux).
       for sig in TERM TERM TERM TERM KILL KILL KILL KILL; do
-        pids=$(hc_ci_session_pids "$name")
+        pids=$(hc_ci_session_pids "$name") || die "could not enumerate session processes for '$name'; refusing cleanup"
         [ -z "$pids" ] && break
         printf '%s\n' "$pids" | while IFS= read -r p; do
           [ -n "$p" ] && kill -"$sig" "$p" 2>/dev/null || true
@@ -151,12 +152,12 @@ case "$cmd" in
       # envelope before counting them survivors.
       i=0
       while [ "$i" -lt 180 ]; do
-        pids=$(hc_ci_session_pids "$name")
+        pids=$(hc_ci_session_pids "$name") || die "could not enumerate session processes for '$name'; refusing cleanup"
         [ -z "$pids" ] && break
         sleep 0.5
         i=$((i + 1))
       done
-      pids=$(hc_ci_session_pids "$name")
+      pids=$(hc_ci_session_pids "$name") || die "could not enumerate session processes for '$name'; refusing cleanup"
       if [ -n "$pids" ]; then
         log "session processes for $name did not exit: $pids"
         failed=1
