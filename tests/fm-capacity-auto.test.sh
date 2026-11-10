@@ -655,6 +655,39 @@ test_admission_honours_the_damped_budget() {
   pass "admission counts lanes started since the last publish against the damped budget, so a burst cannot exceed it"
 }
 
+test_stale_publication_retains_admission_budget() {
+  local home fakebin p now mode out rc before
+  home=$(make_home stale-budget)
+  p="$TMP_ROOT/p-stale-budget"
+  fakebin=$(make_probes "$p")
+  printf 'auto\nadmit-spawns\n' > "$home/config/lane-capacity"
+  set_v "$p" memsize $((64 * GIB))
+  set_v "$p" load1 9.00
+  run_cap "$home" "$fakebin" --publish >/dev/null
+  set_v "$p" load1 1.00
+  for _ in 1 2 3; do run_cap "$home" "$fakebin" --publish >/dev/null; done
+  assert_equals '[2,5]' "$(jq -c '[.verdict.free_lanes, .budget.raw]' "$home/state/lane-capacity.json")" "recovery publishes two available lanes against five raw lanes"
+  jq '.generated_epoch -= 301' "$home/state/lane-capacity.json" > "$home/state/aged.json"
+  mv "$home/state/aged.json" "$home/state/lane-capacity.json"
+  before=$(cat "$home/state/lane-capacity.json")
+  assert_equals '[2,5,true]' "$(json "$home" "$fakebin" '[.verdict.free_lanes, .budget.raw, .budget.damped]')" "stale observations must not grow the published allowance"
+  now=$(date +%s)
+  fm_write_meta "$home/state/burst-a.meta" "kind=ship" "harness=codex" "spawn_gen=s$now.1.1"
+  fm_write_meta "$home/state/burst-b.meta" "kind=ship" "harness=codex" "spawn_gen=s$now.2.2"
+  for mode in --admit --spawn-gate; do
+    rc=0
+    out=$(run_cap "$home" "$fakebin" "$mode") || rc=$?
+    expect_code 75 "$rc" "$mode must count lanes started after a stale publication: $out"
+  done
+  assert_equals '[0,3,false]' "$(json "$home" "$fakebin" '[.verdict.free_lanes, .budget.raw, .verdict.admit]')" "the two started lanes exhaust the stale published allowance"
+  out=$(run_cap "$home" "$fakebin")
+  assert_contains "$out" 'free_lanes=0 reason=damped ' "reporting must retain the stale admission limit"
+  assert_equals "$before" "$(cat "$home/state/lane-capacity.json")" "reads must not alter the publication"
+  run_cap "$home" "$fakebin" --publish >/dev/null
+  assert_equals '[2,3]' "$(jq -c '[.verdict.free_lanes, .budget.raw]' "$home/state/lane-capacity.json")" "the next publish adds two lanes net of starts since the stale publication"
+  pass "stale publications retain their admission allowance and account for subsequent lane starts"
+}
+
 test_admission_skips_unused_probes() {
   local home fakebin p tool rc
   home=$(make_home lean-admit)
@@ -788,6 +821,7 @@ test_unknown_reading_holds_a_closed_gate
 test_closed_gate_survives_a_stale_publish
 test_native_windows_reads_the_host_view
 test_admission_honours_the_damped_budget
+test_stale_publication_retains_admission_budget
 test_admission_skips_unused_probes
 test_spawn_gate_is_opt_in
 test_auto_config_validation

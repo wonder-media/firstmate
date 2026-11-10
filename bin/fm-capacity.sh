@@ -794,8 +794,8 @@ def dur: if . == null then "?" elif . >= 86400 then "\(. / 86400 | floor)d" elif
 | (if $measurable then ($by | to_entries | map(select(.value != null)) | if length == 0 then null else min_by(.value) end)
    elif $ceil_open != null then {key: "ceiling", value: $ceil_open} else null end) as $bind
 | (if $bind == null then 0 else ([$bind.value, 0] | max) end) as $raw
-| ($pd.verdict.free_lanes // null) as $prev_free
-| (if $pd == null then 0 else ([ $lanes[] | select(.spawn != null and .spawn >= $pd.generated_epoch) ] | length) end) as $since_publish
+| ($pa.verdict.free_lanes // null) as $prev_free
+| (if $pa == null then 0 else ([ $lanes[] | select(.spawn != null and .spawn >= $pa.generated_epoch) ] | length) end) as $since_publish
 | (if $prev_free != null and $raw > ($prev_free + $grow - $since_publish) then ([$prev_free + $grow - $since_publish, 0] | max) else $raw end) as $open
 | (if $pd != null and $vit.swapin != null and $pd.vitals.swapin_total != null and $vit.swapin >= $pd.vitals.swapin_total
      and ($now - $pd.generated_epoch) > 0
