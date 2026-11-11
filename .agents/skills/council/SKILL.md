@@ -1,7 +1,7 @@
 ---
 name: council
 description: >-
-  Run a bounded multi-model review of an implementation plan when the captain invokes /council or asks for a council review.
+  Run a bounded multi-model review of a plan or document set when the captain invokes /council or asks for a council review.
   On request only; never run on simple tasks.
 user-invocable: true
 metadata:
@@ -12,11 +12,11 @@ metadata:
 
 ## Triggers and boundaries
 
-Invoke as `/council <plan-path> [--seats a,b,c] [--max-rounds N]`.
+Invoke as `/council <plan-or-packet-path> [--pack software|deal|marketing] [--research none|light|deep] [--seats a,b,c] [--max-rounds N]`.
 This captain-invocable skill runs only on request, never unasked and never on a simple task.
 Firstmate may suggest it once at plan intake when a plan has more than two phases, adds a daemon, service, schema, or subsystem, or changes a captain-facing surface.
 The council refines; the captain approves.
-An invocation authorizes review, not implementation, a merge, or an expansion of scope.
+An invocation authorizes review, not implementation, signing, a merge, or an expansion of scope.
 A finding that expands scope, is destructive, irreversible, or security-sensitive, or contradicts a captain rule becomes a captain question registered through the decision-hold path, never a council decision.
 Load [ask-user-authority](../ask-user-authority/SKILL.md) when classifying such a finding and [captain-hold-lifecycle](../captain-hold-lifecycle/SKILL.md) for registration and completion.
 Reviewer labels are evidence, never authority.
@@ -28,7 +28,8 @@ Name one planner: firstmate for firstmate-repo plans, the owning secondmate othe
 A worker may author a project plan; that home's planner still merges and is the only author of the next version.
 The planner writes a disposition with a reason for every finding, including nice items.
 Counted seats are independent reviewers on different models, each in its own scout copy and a fresh context every round.
-The default counted roster is architect, empiricist, economist, and the standing security seat; UX joins when the plan changes a captain-facing surface and may be selected explicitly.
+Apply [domain intake and family coverage](../../../bin/council/packs.md) to every run, including software; it owns packet handling, lens assignment, rotation, document-set caps, and advisory promotion.
+For software, the default counted roster is architect, empiricist, economist, and the standing security seat; UX joins when the plan changes a captain-facing surface and may be selected explicitly.
 The advisory seat is extra, not counted; the live roster's `advisory.rounds` determines which rounds include it.
 
 Read captain-private `config/council.json` using the [Council configuration schema](../../../docs/configuration.md#council-configcounciljson) and [example roster](../../../bin/council/council.example.json).
@@ -37,9 +38,9 @@ Resolve selection at every intake through the normal captain override, matching 
 Load [harness-adapters](../harness-adapters/SKILL.md) before dispatch; for a matched profile array load [quota-array-dispatch](../quota-array-dispatch/SKILL.md) and consult current `quota-axi` output.
 Pass the resolved concrete profile through the ordinary spawn path; never use an unverified harness for a counted seat.
 Missing or malformed roster/rule configuration is reported for correction, not silently replaced with guessed models.
-`--seats` selects a comma-separated roster from architect, empiricist, economist, security, ux, advisory; retain at least three distinct counted seats.
+`--seats` selects a comma-separated roster from the selected pack (software: architect, empiricist, economist, security, ux), plus advisory; retain at least three distinct counted seats.
 `--max-rounds N` may lower the configured cap, never raise the three-round hard cap; require an integer from 1 through 3.
-Reviews are capped at 2000 words, or 1000 for the economist, with mandatory evidence citations.
+Single software-plan reviews are capped at 2000 words, or 1000 for the economist, with mandatory evidence citations; document-set caps are selected at intake under the domain procedure.
 
 ## Finding-state model
 
@@ -73,10 +74,14 @@ Initialize the records from the [findings template](../../../bin/council/finding
 Frozen versions are immutable; revisions produce the next numbered version.
 Keep the review input free of peer reviews or findings, including embedded review summaries and linked paths that a seat would follow.
 
+### 1a. Shared research
+
+Follow [research.md](../../../bin/council/research.md) for the optional pre-phase, authorization, frozen shared evidence, between-round requests, and whole-run spend accounting.
+
 ### 2. Round n: blind, parallel
 
 Use [bin/fm-brief.sh](../../../bin/fm-brief.sh) `--scout` to scaffold one brief per counted seat.
-Paste the common clauses and matching round variant from [rubric.md](../../../bin/council/rubric.md), plus exactly one role template, into its task section:
+For software, paste the common clauses and matching round variant from [rubric.md](../../../bin/council/rubric.md), the [common supplement](../../../bin/council/review-supplement.md), and exactly one role template into its task section; other packs use the [neutral rubric](../../../bin/council/rubric-neutral.md) with their assigned lenses:
 
 - [Architect](../../../bin/council/roles/architect.md)
 - [Empiricist](../../../bin/council/roles/empiricist.md)
@@ -92,10 +97,10 @@ Remove peer attributions and cross-references from the seat's disposition excerp
 Never send the shared findings table, another seat's report, or advisory findings to a counted seat.
 New ids in round 2+ are admissible as must only on changed text or as a regression of an accepted change; new findings on untouched text are should or nice.
 
-Dispatch the seats in parallel and record each attempt's spawn time and 15-minute deadline.
+Dispatch the seats in parallel and record each attempt's spawn time and selected attempt deadline (15 minutes for a single software plan).
 At minute 5, check a seat that has no status line using ordinary current-state supervision; a quiet seat is not by itself proof of failure.
 Use [bin/fm-send.sh](../../../bin/fm-send.sh) for necessary steering under its normal home and identity contract, preserving blindness.
-A seat that misses its deadline, returns a malformed report, or sees another seat's findings is invalid and is replaced once against exactly the same input, with the same 15-minute deadline in a fresh isolated copy.
+A seat that misses its deadline, returns a malformed report, or sees another seat's findings is invalid and is replaced once against exactly the same input, with the same selected attempt deadline in a fresh isolated copy.
 One replacement total per seat per round covers all invalidity causes; it does not add a round.
 Validate report sections, citations, word cap, and round-specific admissibility before counting a report.
 Record failures and replacement links even when no report exists.
@@ -120,7 +125,8 @@ Use one row per atomic finding, reusing ids for repeated issues and retaining al
 Carry prior findings forward so every round's dispositions and outstanding items remain visible.
 Write one disposition and reason per finding, including should and nice items.
 Register captain questions through the decision-hold path and record their keys before treating the review as complete.
-Write `plan-v<n+1>.md` with an applied anchor for every accepted item, and record its sha256 and file time.
+Perform the [merge claim check](../../../bin/council/research.md#merge-claim-check) before applying external-fact musts.
+Write `plan-v<n+1>.md` (or a proposed-changes version for packets under the domain procedure) with an applied anchor for every accepted item, and record its sha256 and file time.
 Keep post-review edits limited to dispositioned applications and editorial changes; unrelated revisions require their own review.
 Check that previously applied fixes still hold; reopen the original id with a reason if a later version undoes one.
 Reconcile conflicting repository observations against the logged seat commits and evidence instead of treating differing copies as identical.
@@ -129,7 +135,7 @@ Reconcile conflicting repository observations against the logged seat commits an
 
 Evaluate in this order after completing the inventory and merge:
 
-1. **incomplete** if fewer than three valid counted reports this round after the one replacement.
+1. **incomplete** if fewer than three valid counted reports this round after the one replacement, or the domain procedure's family/lens coverage fails.
    Deliver the inventory anyway, even at the round cap and even if no must is outstanding.
 2. **converged** if every finding from every round has a disposition, no must is outstanding, and this round accepted no must on changed text, so the delivered version is the reviewed version apart from editorial edits and should/nice applications.
 3. **converged-with-applied-deltas** if every finding has a disposition, no must is outstanding, and the only difference between the reviewed and delivered versions is the planner's application of this round's accepted items.
@@ -140,7 +146,7 @@ Evaluate in this order after completing the inventory and merge:
 5. **capped-unresolved** at the selected cap, at most three rounds, with a must still outstanding.
    Deliver the last version plus every unresolved and contested item with both positions.
 
-Every outcome label carries its counted coverage: name each seat of the selected counted roster that filed no valid report this round.
+Every outcome label carries its counted seat, family and lens coverage: name each seat of the selected counted roster that filed no valid report this round.
 
 Log value density per round: accepted must+should per minute of file-backed round wall time.
 It is the captain's diminishing-returns signal, not a gate.
@@ -149,6 +155,7 @@ Do not double-count a repeated id or an already-applied item as newly accepted v
 ### 6. Deliver
 
 Deliver the final version, all findings tables, and `council/log.md` next to the plan.
+For researched or packet reviews include frozen inputs, the shared brief and coverage map, spend ledger and unanswered research requests; deal delivery also consolidates questions for licensed counsel.
 Use the delivery format below and complete the planner's decision inventory under the shared decision-hold lifecycle before declaring the review complete.
 Neither convergence nor exhaustion grants implementation or merge approval.
 
@@ -158,6 +165,11 @@ The following are generated paths under the plan's task directory, not tracked d
 
 ```text
 plan-v1.md ... plan-vN.md
+packet-v1.md ... packet-vN.md                 # document sets
+proposed-changes-v2.md ... proposed-changes-vN.md
+council/research/perspectives.md
+council/research/questions.md
+council/research/brief-v1.md ... brief-vN.md
 council/log.md
 council/v<n>/<seat>.md
 council/v<n>/<seat>.attempt<k>.md
@@ -175,8 +187,9 @@ Reconsider automation only after this procedure has run twice without edits.
 
 ## Advisory-seat contract
 
-Use [advisory.md](../../../bin/council/roles/advisory.md) with the applicable common rubric; it is a second economist or generalist opinion from a model without a verified harness.
+Use [advisory.md](../../../bin/council/roles/advisory.md) with the applicable common rubric; it is a domain-neutral cold read, uncounted regardless of whether the model also has a verified scout path.
 Firstmate runs the direct CLI in print mode in the background, from a scratchpad directory, never a home or project.
+Withhold shared research under the domain procedure so this reader provides an anchoring control.
 Use the pinned model and command template in the roster, with `--print-timeout 15m`; do not rely on the CLI's shorter default.
 Add no repo directory.
 The prompt contains everything the seat needs and explicitly states no tools and no filesystem are available, and asks it to answer directly in Markdown.
@@ -187,7 +200,7 @@ Advisory reports never count toward the three valid counted seats.
 Never forward their findings to counted seats; an advisory-only must is recorded as original must / effective should unless an independent counted finding covers the same point.
 Keep the same finding identity when independently corroborated and preserve each source's original tag rather than promoting an advisory label.
 These operating restrictions do not claim an operating-system sandbox or a verified fleet harness.
-Harness verification is separate follow-up work; only once verified does this seat become a counted scout through the normal path.
+Host-specific harness verification and a separate ordinary scout assignment are required for counted promotion under the domain procedure.
 
 ## Captain delivery format
 

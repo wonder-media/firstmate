@@ -2091,7 +2091,7 @@ FM_DISPATCH_BASE_URL=http://127.0.0.1:8080
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 ## Council (config/council.json)
 
-The captain-invocable [`council` skill](../.agents/skills/council/SKILL.md) owns the plan-review procedure, finding states, stop checklist, and captain boundaries.
+The captain-invocable [`council` skill](../.agents/skills/council/SKILL.md) owns the plan/document-review procedure, finding states, stop checklist, and captain boundaries.
 The live roster is captain-private `config/council.json`; [`bin/council/council.example.json`](../bin/council/council.example.json) is its copyable schema example.
 Firstmate prepares the live file and corresponding seat rules before routine use; phase 1 reads and fills these records manually without a Council runner.
 The file is primary-authoritative inherited local material; `fm_config_inherit_items` in `bin/fm-config-inherit-lib.sh` owns the complete declared set propagated to secondmate homes.
@@ -2099,22 +2099,44 @@ This section owns the roster schema; the example supplies the concrete default v
 
 | Field | Meaning |
 |---|---|
-| `seats` | Object mapping counted seat names (`architect`, `empiricist`, `economist`, `ux`) to the matching `when` rule names in `config/crew-dispatch.json` |
+| `seats` | Object mapping counted seat names (`architect`, `empiricist`, `economist`, `security`, `ux`) to the matching `when` rule names in `config/crew-dispatch.json` |
 | `default_roster` | Array of distinct counted seat names used when the invocation omits `--seats` |
 | `ux_on_captain_surface` | Whether the default roster adds UX when the plan changes a captain-facing surface |
 | `advisory.command_template` | Pinned direct CLI print command; `{prompt}` is one literal argument containing the self-contained prompt, never executable shell interpolation |
-| `advisory.rounds` | Default rounds including the extra advisory seat; later rounds require the captain's request under the skill |
+| `advisory.rounds` | Rounds including the extra advisory seat, within the selected round cap |
 | `advisory.word_cap` | Advisory response limit, bounded by the common review cap |
+| `advisory.note` | Optional operator note; the direct CLI cold read stays uncounted and receives no research brief |
 | `caps.max_rounds` | Default round cap; `--max-rounds` may lower it within the skill's hard bound |
 | `caps.minimum_counted_reports` | Required valid counted coverage under the skill's stop checklist |
 | `caps.review_words`, `caps.economist_words` | Common and economist report limits |
 | `caps.seat_deadline_minutes`, `caps.no_status_check_minutes` | Per-attempt deadline and the early quiet-seat check |
 | `caps.replacements_per_seat_per_round` | Shared replacement allowance across all invalidity causes |
+| `caps.minimum_provider_families` | Minimum distinct provider families among valid counted reports, at least 3 |
+| `caps.max_family_share` | Maximum fraction of valid counted reports from one family, at most 0.5 |
+| `caps.document_set_review_words` | Document-set report limit, 2000-3000 words; software single-plan limits stay unchanged |
+| `caps.document_set_deadline_minutes` | Document-set attempt deadline, 15-25 minutes, also used for its replacement |
+| `research.budget_usd` | Optional nonnegative whole-run USD cap; null or absent means uncapped, with cost logged per response in every mode |
+| `research.max_deep_runs` | Nonnegative integer limiting high-effort submissions across the whole run; example 2, used only for explicit deep research |
+| `research.deidentify_queries` | Boolean, default true; false requires permission for identifiable research queries at intake |
+| `packs.software.research_tier` | Default none; top-level software seat mappings and roster remain compatible |
+| `packs.deal`, `packs.marketing` | Domain pack objects; each defaults to light research and supplies the fields below |
+| `packs.<pack>.research_tier` | Default none or light; deep is selected explicitly per run, never silently enabled |
+| `packs.<pack>.role_directory` | Repository-relative folder of that pack's Markdown lens files |
+| `packs.<pack>.seats` | Object mapping logical seat names to `{rule, lenses}`; rule names a crew-dispatch rule, lenses names role-file stems |
+| `packs.<pack>.default_roster` | Distinct logical counted seat names; advisory is separate |
+| `packs.<pack>.required_lenses` | Lenses that require counted coverage for this pack |
+| `packs.<pack>.cross_family_lenses` | Highest-stakes lenses, each requiring counted owners from at least two provider families |
 
 The cap fields make the skill's limits explicit in the roster, not permission to relax them; reject configuration that conflicts with the skill.
 Invoke the advisory command using literal argument passing or proper shell quoting for the entire prompt; do not `eval` substituted prompt text.
 The seat mappings name rules, not models: harness, model, effort, and quota selection remain owned by [Crew dispatch profiles](#crew-dispatch-profiles-configcrew-dispatchjson).
 The example does not create live configuration or install those rules, and it does not verify the advisory CLI as a fleet harness.
+The [domain procedure](../bin/council/packs.md) owns family exclusions, packet manifests, coverage checks, lens rotation and host-verified advisory promotion; the [research procedure](../bin/council/research.md) owns query hygiene, API use and spend accounting.
+Older software rosters keep their seat mappings, but every run must meet the family check; migrate new pack/research fields deliberately before using them.
+Reject unknown packs, missing rules or lens files, duplicate/unknown roster seats, invalid cap types/ranges, non-boolean query options and rosters that cannot cover their required lenses rather than guessing replacements.
+The tracked example uses a $5 research cap, two deep submissions, de-identification on and Gemini 4 Argon (`gemini-4-argon-high`) as an uncounted cold reader.
+Null/absent budget explicitly permits uncapped research; neither this nor a newer advisory pin grants transmission permission or counted harness verification.
+The credential is loaded by the existing vault/environment path named in the research procedure, never stored in council configuration.
 
 ## Toolchain
 

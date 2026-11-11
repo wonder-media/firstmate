@@ -7,9 +7,11 @@ Planner: {name and home}.
 Reviewed input: {version and full sha256}; delivered version: {version and full sha256}.
 Counted seats: {valid seats}; advisory: {seat or none}; invalid attempts: {attempt ids or none}.
 
-| id | seat | tag (original / effective) | source anchor | one-line summary | state | reason | applied anchor | deferred owner and destination | hold key |
-|---|---|---|---|---|---|---|---|---|---|
-| {stable id} | {originating seat(s)} | {original / effective} | {archived report:anchor} | {atomic finding} | {state} | {disposition or reopening reason; both positions if contested} | {plan version:anchor or -} | {owner; follow-up or later phase, or -} | {origin and decision key, or -} |
+| id | seat | tag (original / effective) | source anchor | claim check | one-line summary | state | reason | applied anchor | deferred owner and destination | hold key |
+|---|---|---|---|---|---|---|---|---|---|---|
+| {stable id} | {originating seat(s)} | {original / effective} | {archived report:anchor} | {verified/unverified/contradicted/not-applicable; URL, access date, scope and reason} | {atomic finding} | {state} | {disposition or reopening reason; both positions if contested} | {plan version:anchor or -} | {owner; follow-up or later phase, or -} | {origin and decision key, or -} |
+
+The [merge claim-check procedure](research.md#merge-claim-check) governs external-fact musts before application.
 
 Carry prior findings forward and retain all source anchors for equivalent findings under the same id.
 Record every finding, including nice items outside each report's top-changes list.
