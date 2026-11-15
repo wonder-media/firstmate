@@ -247,6 +247,20 @@ SH
   out=$(lv "$fakebin" /nonexistent /nonexistent "fm_lane_vitals_processes Darwin '$dir/ps' && echo readable || echo unreadable; wc -l < '$dir/ps' | tr -d ' '")
   assert_equals "unreadable
 3" "$out" "a failed lsof must report the table unreadable while still listing processes"
+  local probe
+  for probe in id lsof ps; do
+    printf '#!/usr/bin/env bash\nprintf "p100\\nn/wt\\n"\n' > "$fakebin/lsof"
+    printf '#!/usr/bin/env bash\necho "100 1 51200 1:00"\n' > "$fakebin/ps"
+    printf '#!/usr/bin/env bash\necho 501\n' > "$fakebin/id"
+    printf 'exit 1\n' >> "$fakebin/$probe"
+    chmod +x "$fakebin/id"
+    out=$(lv "$fakebin" /nonexistent /nonexistent "fm_lane_vitals_processes Darwin '$dir/ps' && echo readable || echo unreadable")
+    assert_equals unreadable "$out" "partial output from failed $probe must not be accepted"
+  done
+  printf '#!/usr/bin/env bash\nprintf "p100\\nn/wt\\n"\nexit 124\n' > "$fakebin/lsof"
+  printf '#!/usr/bin/env bash\necho "100 1 51200 1:00"\n' > "$fakebin/ps"
+  out=$(lv "$fakebin" /nonexistent /nonexistent "fm_lane_vitals_processes Darwin '$dir/ps' && echo readable || echo unreadable")
+  assert_equals unreadable "$out" "a timed-out lsof with partial output must be rejected"
   pass "the macOS process table joins ps and lsof, and reports a failed lsof"
 }
 
@@ -263,6 +277,17 @@ SH
   out=$(lv "$fakebin" /nonexistent /nonexistent 'fm_lane_vitals_disk_mount /x; fm_lane_vitals_du_gb /x 3')
   assert_equals "/System/Volumes/Data	13.5
 3.40" "$out" "df and du must report free and used GB"
+  cat > "$fakebin/df" <<'SH'
+#!/usr/bin/env bash
+echo "Filesystem 1024-blocks Used Available Capacity Mounted on"
+case "$2" in
+  /one) echo "/dev/one 999999999 1 104857600 1% /Volumes/Build One" ;;
+  /two) echo "/dev/two 999999999 1 1048576 1% /Volumes/Build Two" ;;
+esac
+SH
+  out=$(lv "$fakebin" /nonexistent /nonexistent 'fm_lane_vitals_disk_mount /one; fm_lane_vitals_disk_mount /two')
+  assert_equals $'/Volumes/Build One\t100.0\n/Volumes/Build Two\t1.0' "$out" \
+    "disk identities must include the complete spaced mount names"
   printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/du"
   out=$(lv "$fakebin" /nonexistent /nonexistent 'fm_lane_vitals_du_gb /x 3 && echo measured || echo unknown')
   assert_equals unknown "$out" "a failed du must read unknown"

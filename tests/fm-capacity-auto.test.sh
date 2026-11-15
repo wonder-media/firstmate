@@ -123,6 +123,27 @@ write_lane() {  # <home> <id> <worktree> [extra-line...]
     "spawn_gen=s$(( $(date +%s) - 3600 )).1.1" "$@"
 }
 
+test_distinct_mounts_with_spaces() {
+  local home fakebin wt
+  home=$(make_home spaced-mounts)
+  fakebin=$(make_probes "$TMP_ROOT/p-spaced-mounts")
+  wt="$home/worktree"
+  mkdir -p "$wt"
+  write_lane "$home" lane-a "$wt"
+  printf 'auto\n' > "$home/config/lane-capacity"
+  cat > "$fakebin/df" <<SH
+#!/usr/bin/env bash
+echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'
+case "\$2" in
+  "$wt") echo '/dev/two 999999999 1 1048576 1% /Volumes/Build Two' ;;
+  *) echo '/dev/one 999999999 1 104857600 1% /Volumes/Build One' ;;
+esac
+SH
+  assert_equals true "$(json "$home" "$fakebin" '.budget.by.disk <= 0')" \
+    "the second spaced mount must constrain the budget despite the roomy home mount"
+  pass "distinct mounts with spaces retain their disk constraints"
+}
+
 test_fixed_mode_is_unchanged() {
   local home fakebin out
   home=$(make_home fixed)
@@ -357,6 +378,20 @@ test_publish_writes_ledger_and_history() {
   # Ten CPU seconds over the ten-to-twelve wall seconds since the backdated sample.
   assert_equals '[2,2,2,true]' "$(jq -c '.lanes["lane-a"] | [.samples, .mem_gb, .peak_mem_gb, (.cpu_cores >= 0.8 and .cpu_cores <= 1)]' "$home/state/lane-footprint.json")" \
     "the second sample must record CPU from the pid's time delta"
+  local probe
+  for probe in id lsof ps; do
+    [ ! -e "$fakebin/$probe" ] || cp "$fakebin/$probe" "$p/$probe.saved"
+    printf '#!/usr/bin/env bash\nexit 1\n' > "$fakebin/$probe"
+    chmod +x "$fakebin/$probe"
+    run_cap "$home" "$fakebin" --publish >/dev/null
+    assert_equals '[2,1,2,null]' "$(jq -c '.lanes["lane-a"] | [.samples, .procs, .mem_gb, .noagent_since]' "$home/state/lane-footprint.json")" \
+      "a failed $probe must preserve the verified process sample"
+    if [ -e "$p/$probe.saved" ]; then
+      mv "$p/$probe.saved" "$fakebin/$probe"
+    else
+      rm -f "$fakebin/$probe"
+    fi
+  done
   printf '' > "$p/v/lsof"
   run_cap "$home" "$fakebin" --publish >/dev/null
   assert_equals '[2,1,2]' "$(jq -c '.lanes["lane-a"] | [.samples, .procs, .mem_gb]' "$home/state/lane-footprint.json")" \
@@ -806,6 +841,7 @@ test_real_host_auto_smoke() {
   pass "auto mode runs against this real host"
 }
 
+test_distinct_mounts_with_spaces
 test_fixed_mode_is_unchanged
 test_budget_binds_the_scarcest_resource
 test_ceiling_and_young_lanes

@@ -213,15 +213,15 @@ fm_lane_vitals_windows_host() {
 }
 
 fm_lane_vitals_processes() {  # <os> <out-file>
-  local os=$1 out=$2 tmp d pid cwd tck page uid
+  local os=$1 out=$2 tmp d pid cwd tck page uid probe_ok=true
   : > "$out" || return 1
   if [ "$os" = Darwin ]; then
     tmp="$out.cwd"
-    uid=$(id -u 2>/dev/null) || uid=
-    [ -n "$uid" ] || return 0
-    fm_run_timed 8 lsof -b -w -a -d cwd -u "$uid" -Fpn 2>/dev/null </dev/null |
-      awk '/^p/ { p = substr($0, 2) } /^n/ { print p "\t" substr($0, 2) }' > "$tmp" 2>/dev/null || : > "$tmp"
-    ps -axo pid=,ppid=,rss=,time= 2>/dev/null | awk -v OFS='\t' '
+    uid=$(id -u 2>/dev/null) || return 1
+    [ -n "$uid" ] || return 1
+    (set -o pipefail; fm_run_timed 8 lsof -b -w -a -d cwd -u "$uid" -Fpn 2>/dev/null </dev/null |
+      awk '/^p/ { p = substr($0, 2) } /^n/ { print p "\t" substr($0, 2) }' > "$tmp" 2>/dev/null) || probe_ok=false
+    (set -o pipefail; ps -axo pid=,ppid=,rss=,time= 2>/dev/null | awk -v OFS='\t' '
       FILENAME == ARGV[1] { cwd[$1] = substr($0, index($0, "\t") + 1); next }
       $1 ~ /^[0-9]+$/ {
         t = $4; d = 0
@@ -229,8 +229,8 @@ fm_lane_vitals_processes() {  # <os> <out-file>
         n = split(t, a, ":")
         if (n == 3) s = a[1] * 3600 + a[2] * 60 + a[3]; else if (n == 2) s = a[1] * 60 + a[2]; else s = a[1]
         print $1, $2, $3, s + d * 86400, ($1 in cwd ? cwd[$1] : "")
-      }' "$tmp" - > "$out" 2>/dev/null
-    if [ -s "$tmp" ]; then rm -f "$tmp"; return 0; fi
+      }' "$tmp" - > "$out" 2>/dev/null) || probe_ok=false
+    if [ "$probe_ok" = true ] && [ -s "$tmp" ]; then rm -f "$tmp"; return 0; fi
     rm -f "$tmp"
     return 1
   fi
@@ -310,7 +310,7 @@ fm_lane_vitals_pss() {  # <os> <attribution-file>
 }
 
 fm_lane_vitals_disk_mount() {  # <path>
-  df -Pk "$1" 2>/dev/null | awk 'NR == 2 && $4 ~ /^[0-9]+$/ { printf "%s\t%.1f\n", $6, $4 / 1048576 }'
+  df -Pk "$1" 2>/dev/null | awk 'NR == 2 && $4 ~ /^[0-9]+$/ { free = $4; for (i = 0; i < 5; i++) sub(/^[[:space:]]*[^[:space:]]+[[:space:]]+/, ""); printf "%s\t%.1f\n", $0, free / 1048576 }'
 }
 
 fm_lane_vitals_du_gb() {  # <path> <seconds>

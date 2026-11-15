@@ -147,9 +147,21 @@ make_lab() {  # <name>
   mkdir -p "$fm" "$lab/bin" "$lab/claims"
   git -C "$ROOT" ls-files -z -co --exclude-standard \
     | (cd "$ROOT" && tar --null -T - -cf -) | (cd "$fm" && tar -xf -)
+  mv "$fm/bin/fm-wake-drain.sh" "$fm/bin/fm-wake-drain-real.sh"
+  cat > "$fm/bin/fm-wake-drain.sh" <<'SH'
+#!/usr/bin/env bash
+dir=$(cd "$(dirname "$0")" && pwd) || exit 1
+if [ "${1:-}" = --ack-through ] && [ -p "$dir/../ack-release" ]; then
+  read -r release < "$dir/../ack-release" || exit 1
+  [ "$release" = acknowledge ] || exit 1
+fi
+exec "$dir/fm-wake-drain-real.sh" "$@"
+SH
+  chmod +x "$fm/bin/fm-wake-drain.sh"
   git -C "$fm" init -q -b main
   git -C "$fm" add -A >/dev/null
   git -C "$fm" -c user.name=fmtest -c user.email=fmtest@example.invalid commit -q -m lab
+  mkfifo "$fm/ack-release"
   mkdir -p "$fm/state" "$fm/config" "$fm/data"
   : > "$fm/config/supervision-host"
   : > "$fm/config/supervision-handoff-ack"
@@ -435,7 +447,9 @@ while ! acked_since "$LAB_PRIMARY" "$e1"; do
   [ "$i" -lt $((TURN_POLLS * 2)) ] || fail "the primary never ran the acknowledgement"$'\n'"$(diagnose "$LAB_PRIMARY")"
   sleep 0.1
 done
-evidence "step 5: primary drained and acknowledged - commands: $(commands_since "$LAB_PRIMARY" "$e1" | tr '\n' ';' | cut -c1-240)"
+printf 'acknowledge\n' > "$LAB_PRIMARY/fm/ack-release"
+rm -f "$LAB_PRIMARY/fm/ack-release"
+evidence "step 5: primary drained and acknowledgement released - commands: $(commands_since "$LAB_PRIMARY" "$e1" | tr '\n' ';' | cut -c1-240)"
 wait_until 300 pending_gone "$LAB_PRIMARY" \
   || fail "the exact acknowledgement did not remove the pending marker"$'\n'"$(diagnose "$LAB_PRIMARY")"
 evidence "step 5: pending marker removed only after the acknowledgement"
