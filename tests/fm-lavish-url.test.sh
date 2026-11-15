@@ -507,7 +507,7 @@ test_cssom_and_reserved_markup() {
   home=$(make_home cssom)
   printf '<html><head><link rel="stylesheet" href="/deleted.css"><style id="disabled-inline">.disabled-inline{display:none}</style><link rel="stylesheet" href="/disabled.css"><style>.removed{display:none}.dynamic{color:black}</style><style id="empty-sheet">.removed-empty{display:none}</style><style id="unreadable-sheet">.fallback{color:green}</style><link rel="stylesheet" href="https://external.test/sheet.css"></head><body><div id="fm-lavish-url-panel">Page panel</div><form name="fmLavishUrl"><input id="fmLavishUrl"><p id="fm-lavish-url-outline">Content</p></form></body></html>' > "$home/pages/css.test.html"
   cat > "$home/pages/css.test.html.json" <<'JSON'
-{"styles":[{"owner":"<link rel=\"stylesheet\" href=\"/deleted.css\">","css":".linked{color:blue}","baseURI":"https://css.test/deleted.css"},{"owner":"<style id=\"disabled-inline\">","css":".disabled-inline{display:none}","disabled":true},{"owner":"<link rel=\"stylesheet\" href=\"/disabled.css\">","css":".disabled-link{display:none}","disabled":true,"unreadable":true},{"css":".disabled{color:green}","disabled":true},{"owner":"<style>","css":".dynamic{color:red;background:url(img.png)}","baseURI":"https://css.test/assets/sheet.css","media":"(width < 600px)"},{"owner":"<style id=\"empty-sheet\">","css":""},{"css":".adopted{color:red} /* </style><img src=x> */","baseURI":"https://css.test/"}],"inaccessible_stylesheets":["https://external.test/sheet.css"]}
+{"styles":[{"owner":"<link rel=\"stylesheet\" href=\"/deleted.css\">","css":"@import url(linked.css); .linked{color:blue}","media":"screen","baseURI":"https://css.test/deleted.css"},{"owner":"<style id=\"disabled-inline\">","css":".disabled-inline{display:none}","disabled":true},{"owner":"<link rel=\"stylesheet\" href=\"/disabled.css\">","css":".disabled-link{display:none}","disabled":true,"unreadable":true},{"css":".disabled{color:green}","disabled":true},{"owner":"<style>","css":"@import url(inline.css); .dynamic{color:red;background:url(img.png)}","baseURI":"https://css.test/assets/sheet.css","media":"(width < 600px)"},{"owner":"<style id=\"empty-sheet\">","css":""},{"css":"@import url(adopted.css); .adopted{color:red} /* </style><img src=x> */","media":"print","baseURI":"https://css.test/"}],"inaccessible_stylesheets":["https://external.test/sheet.css"]}
 JSON
   out=$(lu "$home" snapshot https://css.test/ 2>&1) || fail "$out"
   snap=$(field "$out" snapshot)
@@ -529,11 +529,20 @@ class Output(HTMLParser):
         if tag == "link": assert attrs.get("href") not in {"https://css.test/deleted.css", "https://css.test/disabled.css"}
         if tag == "link" and attrs.get("href") == "https://external.test/sheet.css": self.cascade.append("external-blue")
         self.in_style = tag == "style"
+        if self.in_style: self.media = attrs.get("media", "")
     def handle_endtag(self, tag):
         if tag == "style": self.in_style = False
     def handle_data(self, data):
         if self.in_style:
             self.styles.append(data)
+            for selector, media, url in [
+                (".linked{", "screen", "https://css.test/linked.css"),
+                (".dynamic{", "(width < 600px)", "https://css.test/assets/inline.css"),
+                (".adopted{", "print", "https://css.test/adopted.css"),
+            ]:
+                if selector in data:
+                    assert self.media == media, (selector, self.media)
+                    assert data.lstrip().startswith("@import url(" + url + ");"), data
             if ".linked{color:blue}" in data: self.cascade.append("linked-blue")
             if ".dynamic{color:red" in data: self.cascade.append("copied-red")
 p = Output()
@@ -544,7 +553,6 @@ assert "fmLavishUrl" not in p.ids
 assert "fm-lavish-url-outline" not in p.ids
 assert any("url(https://css.test/assets/img.png)" in css for css in p.styles)
 assert any(".adopted{color:red}" in css for css in p.styles)
-assert any("@media (width < 600px)" in css for css in p.styles)
 assert not any(".disabled" in css for css in p.styles)
 assert not any(".removed" in css or ".dynamic{color:black}" in css for css in p.styles)
 assert any(".fallback{color:green}" in css for css in p.styles)

@@ -150,7 +150,7 @@ def rewrite_css(text, base):
 class Sanitizer(HTMLParser):
     def __init__(self, base, html_extra_attrs, styles=()):
         super().__init__(convert_charrefs=False)
-        self.sheet_styles = {str(i): rewrite_css(sheet["css"], sheet.get("baseURI") or base) for i, sheet in enumerate(styles) if sheet.get("owner") is not None}
+        self.sheet_styles = {str(i): (rewrite_css(sheet["css"], sheet.get("baseURI") or base), sheet.get("media")) for i, sheet in enumerate(styles) if sheet.get("owner") is not None}
         self.style_replaced = False
         self.base = base
         self.html_extra_attrs = html_extra_attrs
@@ -251,8 +251,12 @@ class Sanitizer(HTMLParser):
             if tag not in VOID and not selfclosing and tag not in DROP_VOID:
                 self.skip.append(tag)
             return
-        copied = self.sheet_styles.get(dict(attrs).get("data-fm-captured-sheet"))
+        sheet = self.sheet_styles.get(dict(attrs).get("data-fm-captured-sheet"))
+        copied = sheet[0] if sheet is not None else None
         kept = self.clean_attrs(tag, attrs)
+        if sheet is not None and sheet[1] is not None:
+            kept = [(n, v) for n, v in kept if n != "media"]
+            kept.append(("media", sheet[1]))
         if tag == "link" and copied is not None:
             self.out.append("<style%s>\n%s</style>" % (
                 self.render_attrs([(n, v) for n, v in kept if n in {"id", "class", "media", "type"}]), copied))
@@ -270,8 +274,6 @@ class Sanitizer(HTMLParser):
             self.style_replaced = copied is not None
             if self.style_replaced:
                 self.out.append(copied)
-        elif copied is not None:
-            self.out.append("<style>\n%s</style>" % copied)
 
     def handle_endtag(self, tag):
         tag = tag.lower()
@@ -459,7 +461,8 @@ def build(args):
     for sheet in capture.get("styles", []):
         if sheet.get("owner") is not None:
             continue
-        captured_css.append("<style>\n%s</style>" % rewrite_css(sheet["css"], sheet.get("baseURI") or base))
+        captured_css.append('<style media="%s">\n%s</style>' % (
+            html.escape(sheet.get("media") or "", quote=True), rewrite_css(sheet["css"], sheet.get("baseURI") or base)))
     head_inject = '<style id="fm-lavish-url-style">\n%s</style>' % css
     context_json = json.dumps(context).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     tail = [

@@ -257,10 +257,9 @@ PYCLAIM
       try {
         let css = sheet.disabled ? '' : Array.from(sheet.cssRules, rule => rule.cssText).join('\n');
         const media = sheet.media && sheet.media.mediaText;
-        if (media) css = '@media ' + media + ' {' + css + '}';
         const owner = sheet.ownerNode;
         if (owner) owner.setAttribute('data-fm-captured-sheet', String(styles.length));
-        styles.push({ css, baseURI: sheet.href || document.baseURI, owner: owner ? styles.length : null });
+        styles.push({ css, media: media || '', baseURI: sheet.href || document.baseURI, owner: owner ? styles.length : null });
       } catch (_) { if (sheet.href) inaccessible.push(sheet.href); }
     }
     return { url: location.href, baseURI: document.baseURI, title: document.title, html: document.documentElement.outerHTML, styles, inaccessible_stylesheets: inaccessible };
