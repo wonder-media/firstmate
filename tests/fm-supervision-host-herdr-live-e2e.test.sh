@@ -35,12 +35,13 @@
 # shellcheck disable=SC2016 # single-quoted scripts expand inside their own shells
 set -u
 
+FLEET_SESSION=${FM_HERDR_LAB_FLEET_SESSION:-${HERDR_SESSION:-}}
+
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
 
-FLEET_SESSION=${FM_HERDR_LAB_FLEET_SESSION:-${HERDR_SESSION:-}}
 herdr_forget_inherited_pane
 fm_live_gate opt-in FM_SUPERVISION_HOST_HERDR_LIVE_E2E claude herdr jq node perl git
 
