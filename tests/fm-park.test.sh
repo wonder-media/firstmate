@@ -928,6 +928,24 @@ test_closed_pr_is_reported_once() {
   [ "$out" = "closed lane: PR $GL_URL was closed without merging; the lane needs a decision" ] || fail "closed-busy: $out"
   [ ! -e "$w/state/lane.review-park" ] && [ ! -e "$w/control.log" ] && [ ! -e "$w/teardown.log" ] \
     || fail "closed-busy: lifecycle action occurred"
+  w=$(make_world closed-obsolete "$GH_URL"); gh_fixture "$w/gh.1.json" state=CLOSED
+  : > "$w/config/auto-land"
+  cat > "$w/gh.1.sh" <<SH
+sed 's|pull/7|pull/8|' "$w/state/lane.meta" > "$w/state/lane.meta.new"
+mv "$w/state/lane.meta.new" "$w/state/lane.meta"
+SH
+  out=$(run_park "$w" tick 2>&1)
+  [ -z "$out" ] || fail "obsolete closure was reported: $out"
+  [ ! -e "$w/state/.review-park-closed-lane" ] || fail "obsolete closure recreated marker"
+  printf 'closed lane: PR %s was closed without merging; the lane needs a decision\n' "$GH_URL" \
+    > "$w/state/.review-park-report-lane"
+  rm -f "$w/config/auto-land"
+  run_park "$w" tick > /dev/null 2>&1
+  [ ! -e "$w/state/.review-park-closed-lane" ] || fail "queued obsolete closure recreated marker"
+  : > "$w/config/auto-land"
+  out=$(run_park "$w" tick 2>&1)
+  [ "$out" = "closed lane: PR ${GH_URL%7}8 was closed without merging; the lane needs a decision" ] \
+    || fail "replacement closure was suppressed: $out"
   pass "closed-without-merge reporting for unparked lanes requires a feature flag and does not require an idle worker"
 }
 

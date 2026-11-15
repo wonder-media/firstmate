@@ -464,6 +464,7 @@ if [ "${FM_PR_CHECK_SCAN:-}" = 1 ]; then
   [ -z "$RECORDED_PR" ] || [ "$RECORDED_PR" = "$URL" ] \
     || [ "$RECORDED_PR" = "${FM_PR_CHECK_SCAN_REPLACES:-}" ] || exit 0
 fi
+PREVIOUS_PR=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
 META_DEVICE=$(fm_pr_file_device "$META") || exit 1
 STATE_DEVICE=$(fm_pr_file_device "$STATE") || exit 1
 [ "$META_DEVICE" = "$STATE_DEVICE" ] || { echo "error: task metadata is unavailable" >&2; exit 1; }
@@ -490,12 +491,13 @@ if [ "${FM_PR_CHECK_MERGE:-}" != 1 ] && { [ "$DEGRADED_WATCH_ENABLED" = 1 ] || {
   restore_baselines() {
     local artifact backup
     for artifact in "$META" "$STATE/$ID.pr-poll-degraded" "$STATE/$ID.pr-poll-train" \
-      "$STATE/$ID.check.sh" "$STATE/$ID.pr-poll" "$STATE/$ID.pr-poll-registration"; do
+      "$STATE/$ID.check.sh" "$STATE/$ID.pr-poll" "$STATE/$ID.pr-poll-registration" \
+      "$STATE/.review-park-closed-$ID"; do
       backup="$BASELINE_BACKUP/$(basename "$artifact")"
       if [ -e "$backup" ]; then
         rm -f -- "$artifact" || return 1
         mv -- "$backup" "$artifact" || return 1
-      elif [ "$BASELINE_BACKUP_COMPLETE" = 1 ]; then
+      elif [ "$BASELINE_BACKUP_COMPLETE" = 1 ] && [ "$artifact" != "$STATE/.review-park-closed-$ID" ]; then
         rm -f -- "$artifact" || return 1
       fi
     done
@@ -504,7 +506,8 @@ if [ "${FM_PR_CHECK_MERGE:-}" != 1 ] && { [ "$DEGRADED_WATCH_ENABLED" = 1 ] || {
     exit 1
   }
   for artifact in "$META" "$STATE/$ID.pr-poll-degraded" "$STATE/$ID.pr-poll-train" \
-    "$STATE/$ID.check.sh" "$STATE/$ID.pr-poll" "$STATE/$ID.pr-poll-registration"; do
+    "$STATE/$ID.check.sh" "$STATE/$ID.pr-poll" "$STATE/$ID.pr-poll-registration" \
+      "$STATE/.review-park-closed-$ID"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     [ -f "$artifact" ] && [ ! -L "$artifact" ] \
       && [ "$(fm_pr_file_device "$artifact")" = "$STATE_DEVICE" ] \
@@ -558,6 +561,13 @@ else
   echo "error: could not publish PR poll" >&2
   [ -z "${BASELINE_BACKUP:-}" ] || baseline_failure
   exit 1
+fi
+if [ "$PREVIOUS_PR" != "$URL" ] && [ -e "$STATE/.review-park-closed-$ID" ]; then
+  if [ -n "${BASELINE_BACKUP:-}" ]; then
+    mv -- "$STATE/.review-park-closed-$ID" "$BASELINE_BACKUP/.review-park-closed-$ID" || baseline_failure
+  else
+    rm -f -- "$STATE/.review-park-closed-$ID" || exit 1
+  fi
 fi
 fm_lock_release "$META_LOCK" || { [ -z "${BASELINE_BACKUP:-}" ] || baseline_failure; exit 1; }
 META_LOCK_HELD=0

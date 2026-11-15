@@ -769,6 +769,7 @@ cmd_run() {
 
 # Prints a close once; the tick writes the marker after recording the wake.
 closed_once() {  # <id> <pr>
+  [ "$(fm_meta_get "$STATE/$1.meta" pr)" = "$2" ] || return 0
   [ ! -e "$STATE/.review-park-closed-$1" ] || return 0
   printf 'closed %s: PR %s was closed without merging; the lane needs a decision\n' "$1" "$2"
 }
@@ -870,7 +871,7 @@ cmd_tick() {
   command -v jq >/dev/null 2>&1 || return 0
   lock_try "$STATE/.review-park-tick.lock" || return 0
   DEADLINE=$(( $(date +%s) + TICK_SECS ))
-  local lines='' line
+  local lines='' line pr meta_lock
   local -a reports=()
   for rec in "$STATE"/.review-park-report-*; do
     [ -f "$rec" ] || continue
@@ -907,7 +908,22 @@ cmd_tick() {
   fm_wake_append check park-on-review "check: park-on-review: $(printf '%s\n' "$lines" | paste -sd ';' - | sed 's/;/; /g')" || return 0
   rm -f -- ${reports[@]+"${reports[@]}"}
   while IFS= read -r line; do
-    case "$line" in "closed "*:*) line=${line#closed }; : > "$STATE/.review-park-closed-${line%%:*}" ;; esac
+    case "$line" in
+      "closed "*:*)
+        line=${line#closed }
+        id=${line%%:*}
+        pr=${line#*: PR }
+        pr=${pr%% was closed*}
+        meta_lock=$(fm_meta_lock_path "$STATE/$id.meta") || continue
+        (
+          LOCKS_HELD=
+          trap release_locks EXIT
+          lock_try "$meta_lock" || exit 0
+          [ "$(fm_meta_get "$STATE/$id.meta" pr)" = "$pr" ] || exit 0
+          : > "$STATE/.review-park-closed-$id"
+        )
+        ;;
+    esac
   done <<< "$lines"
   printf '%s\n' "$lines"
 }

@@ -1187,6 +1187,7 @@ test_scan_replaces_a_recorded_pr_named_by_an_older_line() {
   printf '%s\n' 'done [at=2]: PR https://github.com/o/r/pull/7 checks green' > "$state/task-a.status"
   run_check_entry "$dir" scan > /dev/null 2> "$dir/stderr" || fail "the first scan failed: $(cat "$dir/stderr")"
   grep -qxF 'pr=https://github.com/o/r/pull/7' "$state/task-a.meta" || fail "the first PR was not recorded"
+  : > "$state/.review-park-closed-task-a"
   printf '%s\n' 'working [at=3]: PR 7 closed, reopening' 'done [at=4]: PR https://github.com/o/r/pull/8 checks green' >> "$state/task-a.status"
 
   out=$(run_check_entry "$dir" scan 2> "$dir/stderr") || fail "the replacement scan failed: $(cat "$dir/stderr")"
@@ -1195,6 +1196,7 @@ test_scan_replaces_a_recorded_pr_named_by_an_older_line() {
   [ "$(grep -c '^pr=' "$state/task-a.meta")" = 1 ] || fail "the replacement left two pr= lines"
   fm_pr_poll_artifacts_valid "$state" task-a "$POLL" || fail "the replacement left an invalid poll"
   [ "$FM_PR_DATA_URL" = 'https://github.com/o/r/pull/8' ] || fail "the poll still watches $FM_PR_DATA_URL"
+  [ ! -e "$state/.review-park-closed-task-a" ] || fail "replacement closure marker lifecycle failed"
   pass "a replacement PR on a newer ready line takes over pr= and the merge poll"
 }
 
@@ -1211,6 +1213,7 @@ test_scan_failed_replacement_restores_previous_watch() {
   run_check_entry "$dir" scan > /dev/null 2> "$dir/stderr" || fail "the first scan failed: $(cat "$dir/stderr")"
   grep -qxF 'pr=https://github.com/o/r/pull/7' "$state/task-a.meta" || fail "the first PR was not recorded"
   before=$(poll_artifact_snapshot "$state" task-a)
+  : > "$state/.review-park-closed-task-a"
   printf '%s\n' 'working [at=3]: PR 7 closed, reopening' 'done [at=4]: PR https://github.com/o/r/pull/8 checks green' >> "$state/task-a.status"
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
@@ -1227,6 +1230,7 @@ SH
   [ -e "$dir/fail-once" ] || fail "the publication failure was not forced"
   grep -qxF 'pr=https://github.com/o/r/pull/7' "$state/task-a.meta" || fail "failed replacement lost prior pr=: $(grep '^pr=' "$state/task-a.meta")"
   [ "$(poll_artifact_snapshot "$state" task-a)" = "$before" ] || fail "failed replacement changed prior poll"
+  [ -e "$state/.review-park-closed-task-a" ] || fail "replacement closure marker lifecycle failed"
   pass "a failed scan replacement restores the previous watch without degraded watching"
 }
 
