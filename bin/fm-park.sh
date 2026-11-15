@@ -295,7 +295,7 @@ review_bots_json() {
 
 GITHUB_QUERY='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){
   state isDraft headRefOid baseRefName mergeable mergeStateStatus reviewDecision
-  commits(last:1){nodes{commit{oid committedDate checkSuites(first:100){nodes{createdAt}} statusCheckRollup{state contexts(first:100){nodes{__typename ... on CheckRun{name completedAt} ... on StatusContext{context createdAt}}}}}}}
+  commits(last:1){nodes{commit{oid committedDate checkSuites(first:100){nodes{createdAt}} statusCheckRollup{state contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name completedAt} ... on StatusContext{context createdAt}}}}}}}
   reviewThreads(first:100){totalCount nodes{isResolved comments(last:100){totalCount nodes{author{login __typename} createdAt updatedAt}}}}
   reviews(last:100){totalCount nodes{author{login __typename} state body submittedAt updatedAt commit{oid}}}
   comments(first:100,after:$endCursor){totalCount nodes{author{login __typename} createdAt updatedAt} pageInfo{hasNextPage endCursor}}
@@ -307,6 +307,7 @@ GITHUB_NORMALIZE='
   | ($p.commits.nodes[0].commit) as $c
   | if ($c.oid // "") != $p.headRefOid then error("head commit read is incoherent") else . end
   | ($c.statusCheckRollup) as $r
+  | if $r != null and $r.contexts.pageInfo.hasNextPage != false then error("incomplete check inventory") else . end
   | {
       provider: "github",
       state: ($p.state | ascii_downcase),
