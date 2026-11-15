@@ -295,7 +295,7 @@ review_bots_json() {
 
 GITHUB_QUERY='query($owner:String!,$repo:String!,$number:Int!,$endCursor:String){repository(owner:$owner,name:$repo){pullRequest(number:$number){
   state isDraft headRefOid baseRefName mergeable mergeStateStatus reviewDecision
-  commits(last:1){nodes{commit{oid committedDate checkSuites(first:100){nodes{createdAt}} statusCheckRollup{state contexts(first:100){pageInfo{hasNextPage} nodes{__typename ... on CheckRun{name completedAt} ... on StatusContext{context createdAt}}}}}}}
+  commits(last:1){nodes{commit{oid committedDate checkSuites(first:100){nodes{createdAt}} statusCheckRollup{state contexts(first:100){nodes{__typename ... on CheckRun{name completedAt} ... on StatusContext{context createdAt}}}}}}}
   reviewThreads(first:100){totalCount nodes{isResolved comments(last:100){totalCount nodes{author{login __typename} createdAt updatedAt}}}}
   reviews(last:100){totalCount nodes{author{login __typename} state body submittedAt updatedAt commit{oid}}}
   comments(first:100,after:$endCursor){totalCount nodes{author{login __typename} createdAt updatedAt} pageInfo{hasNextPage endCursor}}
@@ -307,7 +307,6 @@ GITHUB_NORMALIZE='
   | ($p.commits.nodes[0].commit) as $c
   | if ($c.oid // "") != $p.headRefOid then error("head commit read is incoherent") else . end
   | ($c.statusCheckRollup) as $r
-  | if $r != null and $r.contexts.pageInfo.hasNextPage != false then error("incomplete check inventory") else . end
   | {
       provider: "github",
       state: ($p.state | ascii_downcase),
@@ -770,7 +769,6 @@ cmd_run() {
 
 # Prints a close once; the tick writes the marker after recording the wake.
 closed_once() {  # <id> <pr>
-  [ "$(fm_meta_get "$STATE/$1.meta" pr)" = "$2" ] || return 0
   [ ! -e "$STATE/.review-park-closed-$1" ] || return 0
   printf 'closed %s: PR %s was closed without merging; the lane needs a decision\n' "$1" "$2"
 }
@@ -872,7 +870,7 @@ cmd_tick() {
   command -v jq >/dev/null 2>&1 || return 0
   lock_try "$STATE/.review-park-tick.lock" || return 0
   DEADLINE=$(( $(date +%s) + TICK_SECS ))
-  local lines='' line pr meta_lock
+  local lines='' line
   local -a reports=()
   for rec in "$STATE"/.review-park-report-*; do
     [ -f "$rec" ] || continue
@@ -909,22 +907,7 @@ cmd_tick() {
   fm_wake_append check park-on-review "check: park-on-review: $(printf '%s\n' "$lines" | paste -sd ';' - | sed 's/;/; /g')" || return 0
   rm -f -- ${reports[@]+"${reports[@]}"}
   while IFS= read -r line; do
-    case "$line" in
-      "closed "*:*)
-        line=${line#closed }
-        id=${line%%:*}
-        pr=${line#*: PR }
-        pr=${pr%% was closed*}
-        meta_lock=$(fm_meta_lock_path "$STATE/$id.meta") || continue
-        (
-          LOCKS_HELD=
-          trap release_locks EXIT
-          lock_try "$meta_lock" || exit 0
-          [ "$(fm_meta_get "$STATE/$id.meta" pr)" = "$pr" ] || exit 0
-          : > "$STATE/.review-park-closed-$id"
-        )
-        ;;
-    esac
+    case "$line" in "closed "*:*) line=${line#closed }; : > "$STATE/.review-park-closed-${line%%:*}" ;; esac
   done <<< "$lines"
   printf '%s\n' "$lines"
 }

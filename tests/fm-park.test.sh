@@ -183,7 +183,7 @@ gh_fixture() {  # <out> [key=value...]
   local suites="[{\"createdAt\":\"${pushed:-$committed}\"}]"
   [ "$pushed" != none ] || suites='[]'
   local rollup_obj=null
-  [ "$rollup" = null ] || rollup_obj="{\"state\":$rollup,\"contexts\":{\"pageInfo\":{\"hasNextPage\":false},\"nodes\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"completedAt\":\"$completed\"}]}}"
+  [ "$rollup" = null ] || rollup_obj="{\"state\":$rollup,\"contexts\":{\"nodes\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"completedAt\":\"$completed\"}]}}"
   cat > "$out" <<JSON
 {"data":{"repository":{"pullRequest":{
   "state":"$state","isDraft":$draft,"headRefOid":"$head","baseRefName":"main","mergeable":"$mergeable",
@@ -260,29 +260,6 @@ test_github_gate_clean_and_each_unclean_condition() {
   jq '.data.repository.pullRequest.reviewThreads.nodes[0].comments.totalCount = 101' "$w/gh.1.json" > "$w/truncated.json" && mv "$w/truncated.json" "$w/gh.1.json"
   expect_unclean "$w" thread-comments-truncated "review comments could not all be read"
   pass "github gate: clean PR parks, and draft, closed, conflict, behind, unknown mergeability, CI pending/failing/absent, changes requested, unresolved and unread threads each refuse"
-}
-
-test_github_gate_rejects_truncated_checks() {
-  local w out rc=0
-  w=$(make_world gh-truncated-checks "$GH_URL")
-  gh_fixture "$w/gh.1.json"
-  : > "$w/config/contribution-review-bots"
-  printf '%s\n' '{"protected":true,"protection":{"required_status_checks":{"contexts":["last-job"]}}}' > "$w/gh.branch.json"
-  jq --arg old "$OLD_ISO" --arg now "$NOW_ISO" '
-    .data.repository.pullRequest.reviews = {totalCount:0,nodes:[]}
-    | .data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.contexts = {
-      pageInfo:{hasNextPage:false}, nodes:([range(100) | {__typename:"CheckRun",name:("job-" + tostring),completedAt:$old}]
-      + [{__typename:"CheckRun",name:"last-job",completedAt:$now}])}' "$w/gh.1.json" > "$w/full.json"
-  jq '.data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.contexts |=
-    (.pageInfo.hasNextPage = true | .nodes = .nodes[:100])' "$w/full.json" > "$w/gh.1.json"
-  out=$(run_park "$w" gate lane 2>&1) || rc=$?
-  [ "$rc" != 0 ] || fail "truncated checks admitted parking"
-  case "$out" in *"could not read the PR"*) ;; *) fail "truncated inventory was treated as complete: $out" ;; esac
-  cp "$w/full.json" "$w/gh.1.json"
-  expect_unclean "$w" recent-last-check "quiet"
-  jq --arg old "$OLD_ISO" '.data.repository.pullRequest.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[-1].completedAt = $old' "$w/full.json" > "$w/gh.1.json"
-  expect_clean "$w" complete-required-last-check
-  pass "check inventory completeness protects quiet time and required checks"
 }
 
 test_github_gate_refuses_until_every_required_check_reports() {
@@ -951,24 +928,6 @@ test_closed_pr_is_reported_once() {
   [ "$out" = "closed lane: PR $GL_URL was closed without merging; the lane needs a decision" ] || fail "closed-busy: $out"
   [ ! -e "$w/state/lane.review-park" ] && [ ! -e "$w/control.log" ] && [ ! -e "$w/teardown.log" ] \
     || fail "closed-busy: lifecycle action occurred"
-  w=$(make_world closed-obsolete "$GH_URL"); gh_fixture "$w/gh.1.json" state=CLOSED
-  : > "$w/config/auto-land"
-  cat > "$w/gh.1.sh" <<SH
-sed 's|pull/7|pull/8|' "$w/state/lane.meta" > "$w/state/lane.meta.new"
-mv "$w/state/lane.meta.new" "$w/state/lane.meta"
-SH
-  out=$(run_park "$w" tick 2>&1)
-  [ -z "$out" ] || fail "obsolete closure was reported: $out"
-  [ ! -e "$w/state/.review-park-closed-lane" ] || fail "obsolete closure recreated marker"
-  printf 'closed lane: PR %s was closed without merging; the lane needs a decision\n' "$GH_URL" \
-    > "$w/state/.review-park-report-lane"
-  rm -f "$w/config/auto-land"
-  run_park "$w" tick > /dev/null 2>&1
-  [ ! -e "$w/state/.review-park-closed-lane" ] || fail "queued obsolete closure recreated marker"
-  : > "$w/config/auto-land"
-  out=$(run_park "$w" tick 2>&1)
-  [ "$out" = "closed lane: PR ${GH_URL%7}8 was closed without merging; the lane needs a decision" ] \
-    || fail "replacement closure was suppressed: $out"
   pass "closed-without-merge reporting for unparked lanes requires a feature flag and does not require an idle worker"
 }
 
@@ -1243,7 +1202,6 @@ test_land_waits_for_an_action_under_way() {
 }
 
 fm_test_run \
-  test_github_gate_rejects_truncated_checks \
   test_github_gate_clean_and_each_unclean_condition \
   test_github_gate_refuses_until_every_required_check_reports \
   test_github_gate_waits_for_review_bots_or_quiet_window \
