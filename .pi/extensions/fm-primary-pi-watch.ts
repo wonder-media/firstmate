@@ -423,7 +423,7 @@ function nodeErrorCode(error: unknown): string {
 // behavior. docs/watcher-continuity.md owns what the arm layer already
 // records; this file is the extension side.
 function appendExtensionLog(detail: string): void {
-  if (extensionLogMaxLines <= 0) return;
+  if (homeBindingError || extensionLogMaxLines <= 0) return;
   try {
     mkdirSync(state, { recursive: true });
     const cleaned = detail.replace(/[\r\n\t]+/g, " ").slice(0, 512);
@@ -1333,6 +1333,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   function activateOwnedWatch(owner: SessionGeneration): ArmResult {
+    if (homeBindingError) return { ok: false, message: homeBindingError };
     if (!generationIsLive(owner)) return { ok: false, message: shuttingDownMessage };
     if (lockOwnership() !== "owned") return startArm(owner);
     replacementCoordinator.receiver = receiveReplacementActionable;

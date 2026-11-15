@@ -238,23 +238,43 @@ SH
   main_real=$(cd "$main" && pwd -P)
   repo_real=$(cd "$repo" && pwd -P)
   status=0
-  out=$(PLUGIN="$plugin" FM_HOME="$main" FM_ROOT_OVERRIDE="$repo" node --input-type=module 2>&1 <<'EOF'
-import { writeFileSync } from "node:fs";
+  out=$(PLUGIN="$plugin" FM_HOME="$main" FM_ROOT_OVERRIDE="$repo" FM_WATCH_EXTENSION_LOG_KEEP_LINES=20 node --input-type=module 2>&1 <<'EOF'
+import { writeFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 let execute = null;
+let command = null;
+const handlers = new Map();
+const messages = [];
 const pi = {
-  on() {},
-  registerCommand() {},
+  on(name, handler) { handlers.set(name, handler); },
+  registerCommand(name, options) { command = options.handler; },
   registerTool(tool) {
     if (tool.name === "fm_watch_arm_pi") execute = tool.execute;
   },
-  sendUserMessage: async () => {},
+  sendUserMessage: async (message) => { messages.push(message); },
 };
 writeFileSync(`${process.env.FM_HOME}/state/.lock`, `${process.pid}\n`);
+const state = `${process.env.FM_HOME}/state`;
+const handoff = `${state}/extensions/pi-primary-watch/session-replacement-actionable.json`;
+mkdirSync(`${state}/extensions/pi-primary-watch`, { recursive: true });
+const message = "signal: foreign pending handoff";
+writeFileSync(handoff, JSON.stringify({version:2,pending:[{version:1,token:"1-2-3",message,predecessorArmPid:""}]}));
+function snapshot(dir) {
+  return readdirSync(dir, {withFileTypes:true}).sort((a,b) => a.name.localeCompare(b.name)).map(entry =>
+    [entry.name, entry.isDirectory() ? snapshot(`${dir}/${entry.name}`) : readFileSync(`${dir}/${entry.name}`, "hex")]);
+}
+const before = JSON.stringify(snapshot(state));
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
+await handlers.get("session_start")?.({}, {});
+await command("", {ui:{notify() {}}});
 const result = await execute();
+await handlers.get("before_agent_start")?.({prompt:message}, {});
+await handlers.get("message_start")?.({message:{role:"user",content:message}}, {});
+await handlers.get("session_shutdown")?.({reason:"quit"}, {});
+if (messages.length) throw new Error(`foreign messages delivered: ${JSON.stringify(messages)}`);
+if (JSON.stringify(snapshot(state)) !== before) throw new Error("foreign state changed");
 console.log(result.content[0].text);
 EOF
 ) || status=$?
