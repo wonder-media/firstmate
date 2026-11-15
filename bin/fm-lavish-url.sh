@@ -254,9 +254,8 @@ PYCLAIM
     const styles = [], inaccessible = [];
     for (const node of document.querySelectorAll('[data-fm-captured-sheet]')) node.removeAttribute('data-fm-captured-sheet');
     for (const sheet of [...document.styleSheets, ...document.adoptedStyleSheets]) {
-      if (sheet.disabled) continue;
       try {
-        let css = Array.from(sheet.cssRules, rule => rule.cssText).join('\n');
+        let css = sheet.disabled ? '' : Array.from(sheet.cssRules, rule => rule.cssText).join('\n');
         const media = sheet.media && sheet.media.mediaText;
         if (media) css = '@media ' + media + ' {' + css + '}';
         const owner = sheet.ownerNode;

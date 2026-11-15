@@ -72,7 +72,7 @@ const fs = require("fs"), vm = require("vm");
 const [url, page, expression] = process.argv.slice(2);
 const fixture = JSON.parse(fs.readFileSync(page + ".json", "utf8"));
 let markup = fs.readFileSync(page, "utf8");
-const sheets = fixture.styles.map(s => ({ownerNode: s.owner ? {setAttribute(key, value) { markup = markup.replace(s.owner, s.owner.replace(">", ` ${key}="${value}">`)); }} : null, href: s.baseURI, cssRules: [{cssText: s.css}], media: {mediaText: s.media || ""}, disabled: !!s.disabled}));
+const sheets = fixture.styles.map(s => ({ownerNode: s.owner ? {setAttribute(key, value) { markup = markup.replace(s.owner, s.owner.replace(">", ` ${key}="${value}">`)); }} : null, href: s.baseURI, get cssRules() { if (s.unreadable) throw new Error("SecurityError"); return [{cssText: s.css}]; }, media: {mediaText: s.media || ""}, disabled: !!s.disabled}));
 const adopted = sheets.pop();
 for (const href of fixture.inaccessible_stylesheets) {
   sheets.push({href, get cssRules() { throw new Error("SecurityError"); }});
@@ -505,9 +505,9 @@ test_overlapping_captures_keep_pages_and_names_distinct() {
 test_cssom_and_reserved_markup() {
   local home out snap
   home=$(make_home cssom)
-  printf '<html><head><style>.removed{display:none}.dynamic{color:black}</style><style id="empty-sheet">.removed-empty{display:none}</style><style id="unreadable-sheet">.fallback{color:green}</style><link rel="stylesheet" href="https://external.test/sheet.css"></head><body><div id="fm-lavish-url-panel">Page panel</div><form name="fmLavishUrl"><input id="fmLavishUrl"><p id="fm-lavish-url-outline">Content</p></form></body></html>' > "$home/pages/css.test.html"
+  printf '<html><head><link rel="stylesheet" href="/deleted.css"><style id="disabled-inline">.disabled-inline{display:none}</style><link rel="stylesheet" href="/disabled.css"><style>.removed{display:none}.dynamic{color:black}</style><style id="empty-sheet">.removed-empty{display:none}</style><style id="unreadable-sheet">.fallback{color:green}</style><link rel="stylesheet" href="https://external.test/sheet.css"></head><body><div id="fm-lavish-url-panel">Page panel</div><form name="fmLavishUrl"><input id="fmLavishUrl"><p id="fm-lavish-url-outline">Content</p></form></body></html>' > "$home/pages/css.test.html"
   cat > "$home/pages/css.test.html.json" <<'JSON'
-{"styles":[{"css":".disabled{color:green}","disabled":true},{"owner":"<style>","css":".dynamic{color:red;background:url(img.png)}","baseURI":"https://css.test/assets/sheet.css","media":"(width < 600px)"},{"owner":"<style id=\"empty-sheet\">","css":""},{"css":".adopted{color:red} /* </style><img src=x> */","baseURI":"https://css.test/"}],"inaccessible_stylesheets":["https://external.test/sheet.css"]}
+{"styles":[{"owner":"<link rel=\"stylesheet\" href=\"/deleted.css\">","css":".linked{color:blue}","baseURI":"https://css.test/deleted.css"},{"owner":"<style id=\"disabled-inline\">","css":".disabled-inline{display:none}","disabled":true},{"owner":"<link rel=\"stylesheet\" href=\"/disabled.css\">","css":".disabled-link{display:none}","disabled":true,"unreadable":true},{"css":".disabled{color:green}","disabled":true},{"owner":"<style>","css":".dynamic{color:red;background:url(img.png)}","baseURI":"https://css.test/assets/sheet.css","media":"(width < 600px)"},{"owner":"<style id=\"empty-sheet\">","css":""},{"css":".adopted{color:red} /* </style><img src=x> */","baseURI":"https://css.test/"}],"inaccessible_stylesheets":["https://external.test/sheet.css"]}
 JSON
   out=$(lu "$home" snapshot https://css.test/ 2>&1) || fail "$out"
   snap=$(field "$out" snapshot)
@@ -526,6 +526,7 @@ class Output(HTMLParser):
         if "id" in attrs: self.ids.append(attrs["id"])
         assert attrs.get("name") != "fmLavishUrl"
         assert tag != "img"
+        if tag == "link": assert attrs.get("href") not in {"https://css.test/deleted.css", "https://css.test/disabled.css"}
         if tag == "link" and attrs.get("href") == "https://external.test/sheet.css": self.cascade.append("external-blue")
         self.in_style = tag == "style"
     def handle_endtag(self, tag):
@@ -533,10 +534,11 @@ class Output(HTMLParser):
     def handle_data(self, data):
         if self.in_style:
             self.styles.append(data)
+            if ".linked{color:blue}" in data: self.cascade.append("linked-blue")
             if ".dynamic{color:red" in data: self.cascade.append("copied-red")
 p = Output()
 p.feed(open(sys.argv[1]).read())
-assert p.cascade == ["copied-red", "external-blue"], p.cascade
+assert p.cascade == ["linked-blue", "copied-red", "external-blue"], p.cascade
 assert "fm-lavish-url-panel" not in p.ids
 assert "fmLavishUrl" not in p.ids
 assert "fm-lavish-url-outline" not in p.ids

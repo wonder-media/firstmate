@@ -253,6 +253,10 @@ class Sanitizer(HTMLParser):
             return
         copied = self.sheet_styles.get(dict(attrs).get("data-fm-captured-sheet"))
         kept = self.clean_attrs(tag, attrs)
+        if tag == "link" and copied is not None:
+            self.out.append("<style%s>\n%s</style>" % (
+                self.render_attrs([(n, v) for n, v in kept if n in {"id", "class", "media", "type"}]), copied))
+            return
         if tag == "html":
             if self.saw_html:
                 return
