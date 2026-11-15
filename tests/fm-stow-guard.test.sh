@@ -355,16 +355,45 @@ test_overlong_token_line_keeps_the_default() {
 }
 
 test_tracked_stop_hook_is_synchronous_and_grok_inert() {
-  local matches
-  matches=$(jq -e '
-    [.hooks.Stop[0].hooks[]
-      | select(.command | contains("/bin/fm-stow-guard.sh"))
-      | select(.timeout == 10)
-      | select(.asyncRewake | not)
-      | select(.command | contains("${GROK_AGENT:-}${GROK_HOOK_EVENT:-}"))]
-    | length' "$ROOT/.claude/settings.json") \
-    || fail "tracked Stop hooks could not be read"
-  [ "$matches" -eq 1 ] || fail "expected one synchronous grok-inert Stop hook for fm-stow-guard.sh, saw $matches"
+  local hooks hook command marker expected calls
+  local fixture="$TMP_ROOT/hook project" record="$TMP_ROOT/hook-calls"
+  hooks=$(jq -ce '
+    [.hooks.Stop[].hooks[]
+      | select(.type == "command")
+      | select(.command | contains("/bin/fm-stow-guard.sh"))]
+    | select(length > 0)' "$ROOT/.claude/settings.json") \
+    || fail "tracked stow Stop hooks could not be read"
+  jq -e 'all(.[]; .timeout == 10 and (.asyncRewake | not) and (.async | not))' \
+    <<< "$hooks" >/dev/null || fail "stow Stop hooks must be synchronous with a 10-second timeout"
+
+  mkdir -p "$fixture/bin"
+  cat > "$fixture/bin/fm-stow-guard.sh" <<'STUB'
+#!/usr/bin/env bash
+printf 'called\n' >> "$STOW_CALL_RECORD"
+STUB
+  chmod +x "$fixture/bin/fm-stow-guard.sh"
+
+  for marker in neither agent event both; do
+    : > "$record"
+    while IFS= read -r hook; do
+      command=$(jq -r '.command' <<< "$hook")
+      (
+        unset GROK_AGENT GROK_HOOK_EVENT
+        case "$marker" in
+          agent) export GROK_AGENT=1 ;;
+          event) export GROK_HOOK_EVENT=Stop ;;
+          both) export GROK_AGENT=1 GROK_HOOK_EVENT=Stop ;;
+        esac
+        export CLAUDE_PROJECT_DIR="$fixture" STOW_CALL_RECORD="$record"
+        bash -c "$command" < /dev/null
+      ) || fail "configured stow Stop command failed with marker=$marker"
+    done < <(jq -c '.[]' <<< "$hooks")
+    expected=0
+    [ "$marker" != neither ] || expected=1
+    calls=$(wc -l < "$record" | tr -d '[:space:]')
+    [ "$calls" -eq "$expected" ] \
+      || fail "stow Stop marker=$marker invoked guard $calls times, expected $expected"
+  done
   pass "tracked Claude Stop settings run fm-stow-guard.sh once, synchronously, and inert under grok"
 }
 
