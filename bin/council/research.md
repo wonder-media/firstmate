@@ -40,16 +40,16 @@ Presets and rates can change; do not treat the scout report's estimates as measu
 ## Spend ledger
 
 Read `research.budget_usd` and `research.max_deep_runs` from the live roster at intake and log the resolved values.
-A nonnegative numeric budget is a hard per-council-run USD cap; null or absent means uncapped, still with per-response accounting.
+A finite, nonnegative JSON number is required as the hard per-council-run USD cap before any paid call.
+If the budget is missing, null, non-finite, negative or of another type, refuse paid research and stop with the configuration message: `research.budget_usd must be a finite, nonnegative JSON number before paid research`.
 The tracked example uses $5 and at most two deep submissions across the entire council, not per round; light never makes high calls and deep requires an explicit request.
 Include discovery, answers, follow-ups, merge claim checks, failed/retried billable requests and background jobs in the same ledger.
 Never hide research fees inside seat costs or reset the budget when a round changes.
 
-For a capped run, reserve a documented worst-case charge before submitting each request, checking settled spend plus all outstanding reservations plus the new reservation against the cap.
+Reserve a documented worst-case charge before submitting each request, checking settled spend plus all outstanding reservations plus the new reservation against the cap.
 Use current published rates and enforceable input/output/tool/step limits, or a provider-side hard billing limit, to establish that upper bound; a typical price or estimate is insufficient.
 If a call's maximum charge cannot be bounded within the remaining allowance, skip it and log the unanswered question rather than claiming the cap is enforceable after billing.
 Keep uncertain or timed-out charges reserved; no further call may spend that reservation.
-Uncapped runs do not require a dollar reservation, but retain call-count and tier limits.
 
 For each response record question id, phase, endpoint/preset, response id, start/end time, seconds, input/output tokens, source count, reserved USD, actual `usage.cost` components/currency/total, and cumulative settled USD in the council log.
 For background retrievals update the original call row rather than charging repeatedly.

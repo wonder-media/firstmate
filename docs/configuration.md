@@ -2115,7 +2115,7 @@ This section owns the roster schema; the example supplies the concrete default v
 | `caps.max_family_share` | Maximum fraction of valid counted reports from one family, at most 0.5 |
 | `caps.document_set_review_words` | Document-set report limit, 2000-3000 words; software single-plan limits stay unchanged |
 | `caps.document_set_deadline_minutes` | Document-set attempt deadline, 15-25 minutes, also used for its replacement |
-| `research.budget_usd` | Optional nonnegative whole-run USD cap; null or absent means uncapped, with cost logged per response in every mode |
+| `research.budget_usd` | Finite, nonnegative JSON number required before paid research; whole-run USD cap, with validation and accounting owned by the [research procedure](../bin/council/research.md#spend-ledger) |
 | `research.max_deep_runs` | Nonnegative integer limiting high-effort submissions across the whole run; example 2, used only for explicit deep research |
 | `research.deidentify_queries` | Boolean, default true; false requires permission for identifiable research queries at intake |
 | `packs.software.research_tier` | Default none; top-level software seat mappings and roster remain compatible |
@@ -2135,7 +2135,7 @@ The [domain procedure](../bin/council/packs.md) owns family exclusions, packet m
 Older software rosters keep their seat mappings, but every run must meet the family check; migrate new pack/research fields deliberately before using them.
 Reject unknown packs, missing rules or lens files, duplicate/unknown roster seats, invalid cap types/ranges, non-boolean query options and rosters that cannot cover their required lenses rather than guessing replacements.
 The tracked example uses a $5 research cap, two deep submissions, de-identification on and Gemini 4 Argon (`gemini-4-argon-high`) as an uncounted cold reader.
-Null/absent budget explicitly permits uncapped research; neither this nor a newer advisory pin grants transmission permission or counted harness verification.
+Neither a configured budget nor a newer advisory pin grants transmission permission or counted harness verification.
 The credential is loaded by the existing vault/environment path named in the research procedure, never stored in council configuration.
 
 ## Toolchain

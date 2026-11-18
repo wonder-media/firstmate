@@ -34,13 +34,13 @@ Times use {timezone/UTC offset} and full dates; missing evidence is `unknown: {r
 
 ## Research and spend
 
-Whole-run budget USD: {numeric cap or uncapped}; deep submission limit/used: {limit/used}; query de-identification: {on/off and permission reference}.
+Whole-run budget USD: {finite nonnegative numeric cap or configuration error (paid research stopped)}; deep submission limit/used: {limit/used}; query de-identification: {on/off and permission reference}.
 Shared brief versions: {paths/full hashes/frozen times, or none}; coverage map: {anchor or provisional/no research}.
 Research tier, cost limits and per-response accounting follow [research.md](research.md).
 
 | question | phase | endpoint/preset | response id | start/end | seconds | input/output tokens | sources | reserved USD | usage.cost components/currency/total | cumulative settled USD | billing evidence or unknown reason |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| {Qid} | {discover/answer/deepen/claim/between} | {path/effort} | {id} | {times} | {elapsed} | {counts} | {count} | {bound or uncapped} | {returned fields or unknown} | {total} | {evidence} |
+| {Qid} | {discover/answer/deepen/claim/between} | {path/effort} | {id} | {times} | {elapsed} | {counts} | {count} | {reserved bound} | {returned fields or unknown} | {total} | {evidence} |
 
 Outstanding reservations/uncertain charges: {response ids, USD and reason, or none}.
 Skipped/unanswered questions and moderator passes: {artifact anchors and reason}.
