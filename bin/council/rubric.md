@@ -5,6 +5,8 @@ Replace brace placeholders before dispatch; retain the scout scaffold's canonica
 For direct advisory use, the advisory role replaces filesystem/report-writing instructions with an embedded-input, Markdown-only response.
 The [council skill](../../.agents/skills/council/SKILL.md) owns orchestration and finding-state semantics.
 
+Also paste the [common supplement](review-supplement.md) for every software review; other domains use [rubric-neutral.md](rubric-neutral.md).
+
 ## Common clauses: paste every round
 
 You are the {seat} seat on a review COUNCIL for an implementation plan, round {round}.
