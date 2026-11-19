@@ -9,9 +9,10 @@
   "default_roster": ["architect", "empiricist", "economist", "security"],
   "ux_on_captain_surface": true,
   "advisory": {
-    "command_template": "agy --model gemini-3.8-flash-high --print-timeout 15m --disable-slash-commands --print={prompt}",
+    "command_template": "agy --model gemini-4-argon-high --print-timeout 15m --disable-slash-commands --print={prompt}",
     "rounds": [1, 2, 3],
-    "word_cap": 1000
+    "word_cap": 1000,
+    "note": "Domain-neutral cold read without the research brief; uncounted direct CLI output. Counted promotion requires agy verification on the running host and an ordinary scout dispatch."
   },
   "caps": {
     "max_rounds": 3,
@@ -20,6 +21,70 @@
     "economist_words": 1000,
     "seat_deadline_minutes": 15,
     "no_status_check_minutes": 5,
-    "replacements_per_seat_per_round": 1
+    "replacements_per_seat_per_round": 1,
+    "minimum_provider_families": 3,
+    "max_family_share": 0.5,
+    "document_set_review_words": 3000,
+    "document_set_deadline_minutes": 25
+  },
+  "research": {
+    "budget_usd": 5,
+    "max_deep_runs": 2,
+    "deidentify_queries": true
+  },
+  "packs": {
+    "software": {
+      "research_tier": "none"
+    },
+    "deal": {
+      "research_tier": "light",
+      "role_directory": "bin/council/roles/deal",
+      "required_lenses": ["structure", "fact-check", "money", "risk", "operator", "counterparty"],
+      "cross_family_lenses": ["structure", "counterparty"],
+      "default_roster": ["governance", "risk", "facts", "operations"],
+      "seats": {
+        "governance": {
+          "rule": "council deal governance seat",
+          "lenses": ["structure", "counterparty"]
+        },
+        "risk": {
+          "rule": "council deal risk seat",
+          "lenses": ["risk", "counterparty"]
+        },
+        "facts": {
+          "rule": "council deal facts seat",
+          "lenses": ["fact-check", "money"]
+        },
+        "operations": {
+          "rule": "council deal operations seat",
+          "lenses": ["operator", "structure"]
+        }
+      }
+    },
+    "marketing": {
+      "research_tier": "light",
+      "role_directory": "bin/council/roles/marketing",
+      "required_lenses": ["strategy", "measurement", "economics", "claims", "audience", "competitor"],
+      "cross_family_lenses": ["strategy", "claims"],
+      "default_roster": ["strategy", "measurement", "economics", "audience"],
+      "seats": {
+        "strategy": {
+          "rule": "council marketing strategy seat",
+          "lenses": ["strategy", "competitor"]
+        },
+        "measurement": {
+          "rule": "council marketing measurement seat",
+          "lenses": ["measurement", "strategy"]
+        },
+        "economics": {
+          "rule": "council marketing economics seat",
+          "lenses": ["economics", "claims"]
+        },
+        "audience": {
+          "rule": "council marketing audience seat",
+          "lenses": ["audience", "claims"]
+        }
+      }
+    }
   }
 }

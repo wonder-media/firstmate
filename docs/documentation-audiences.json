@@ -740,6 +740,78 @@
     {
       "path": ".agents/skills/validation-supervision/SKILL.md",
       "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/packet.template.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/packs.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/research-brief.template.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/research.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/review-supplement.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/deal/counterparty.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/deal/fact-check.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/deal/money.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/deal/operator.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/deal/risk.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/deal/structure.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/marketing/audience.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/marketing/claims.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/marketing/competitor.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/marketing/economics.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/marketing/measurement.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/roles/marketing/strategy.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "bin/council/rubric-neutral.md",
+      "audience": "agent-runtime"
     }
   ]
 }

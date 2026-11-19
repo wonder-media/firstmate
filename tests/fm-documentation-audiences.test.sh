@@ -120,6 +120,32 @@ for seat in seats:
 if len(counted) < floor:
     problems.append("default roster has %d counted seats, below the floor of %d" % (len(counted), floor))
 
+# Resolve pack lens references as the manual council procedure consumes them.
+for name, pack in roster.get("packs", {}).items():
+    if name == "software":
+        continue
+    directory = root / pack["role_directory"]
+    pack_seats = pack["seats"]
+    owners = {}
+    for seat in pack["default_roster"]:
+        if seat not in pack_seats:
+            problems.append("pack %s has unknown seat %s" % (name, seat))
+            continue
+        definition = pack_seats[seat]
+        if not definition.get("rule"):
+            problems.append("pack %s seat %s has no dispatch rule" % (name, seat))
+        for lens in definition["lenses"]:
+            if not (directory / (lens + ".md")).is_file():
+                problems.append("pack %s missing lens template %s" % (name, lens))
+            owners.setdefault(lens, []).append(seat)
+    for lens in pack["required_lenses"]:
+        if lens not in owners:
+            problems.append("pack %s has no counted owner for %s" % (name, lens))
+    for lens in pack["cross_family_lenses"]:
+        if len(owners.get(lens, [])) < 2:
+            problems.append("pack %s cannot spread lens %s across families" % (name, lens))
+    print("pack=%s counted=%s" % (name, ",".join(pack["default_roster"])))
+
 if problems:
     sys.exit("council roster does not resolve: " + "; ".join(problems))
 
@@ -131,11 +157,29 @@ PY
 }
 
 test_council_roster_resolves_to_dispatchable_seats() {
-  local resolved unknown
+  local resolved unknown missing_lens
   resolved=$(resolve_council_roster "$ROOT/bin/council/council.example.json") \
     || fail "the example council roster does not resolve to dispatchable seats"
   assert_contains "$resolved" "brief=security -> bin/council/roles/security.md" \
     "security is not a counted default seat with its own linked role template"
+
+  assert_contains "$resolved" "pack=deal counted=governance,risk,facts,operations" \
+    "deal pack does not resolve to counted seats and lens files"
+  assert_contains "$resolved" "pack=marketing counted=strategy,measurement,economics,audience" \
+    "marketing pack does not resolve to counted seats and lens files"
+
+  missing_lens="$TMP_ROOT/missing-lens.json"
+  python3 - "$ROOT/bin/council/council.example.json" "$missing_lens" <<'MUTATE'
+import json
+import sys
+from pathlib import Path
+source, destination = map(Path, sys.argv[1:])
+data = json.loads(source.read_text(encoding="utf-8"))
+data["packs"]["deal"]["seats"]["facts"]["lenses"].append("unavailable")
+destination.write_text(json.dumps(data), encoding="utf-8")
+MUTATE
+  run_expect_failure "pack deal missing lens template unavailable" \
+    resolve_council_roster "$missing_lens"
 
   # Negative control: an unresolvable seat is reported, never silently dispatched.
   unknown="$TMP_ROOT/unknown-seat.json"
