@@ -32,9 +32,19 @@ if [ "$#" -ne 2 ] && [ -z "$mode" ]; then
 fi
 
 codex_newer_model() {
-  local pin=$1 cache newer
+  local pin=$1 cache newer age
   [[ "$pin" =~ ^gpt-[0-9]+(\.[0-9]+)*-(sol|astra|terra|luna)$ ]] || return 0
   cache="${CODEX_HOME:-${HOME:-}/.codex}/models_cache.json"
+  if [ -f "$cache" ] && [ -r "$cache" ]; then
+    age=$(jq -ers '
+      if length == 1 then .[0].fetched_at else null end | strings | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601
+      | (now - .) | floor
+    ' "$cache" 2>/dev/null) || age=unknown
+    if [ "$age" = unknown ] || [ "$age" -lt 0 ] || [ "$age" -gt 604800 ]; then
+      printf 'Model freshness for %s is unknown because the Codex catalog age is %s seconds (maximum 604800).\n' "$pin" "$age" >&2
+      return 0
+    fi
+  fi
   if [ -f "$cache" ] && [ -r "$cache" ] && newer=$(jq -ers --arg pin "$pin" '
     def slug_parts:
       capture("^gpt-(?<version>[0-9]+(?:\\.[0-9]+)*)-(?<family>sol|astra|terra|luna)$")
@@ -72,7 +82,7 @@ case "$mode" in
     ;;
   advisory)
     if [ -n "$newer" ]; then
-      printf 'Codex model for %s: %s -> %s available. Keeping the explicit override.\n' "$task" "$model" "$newer" >&2
+      printf 'Codex model for %s: %s -> %s available. Keeping the explicit model pin.\n' "$task" "$model" "$newer" >&2
     fi
     printf '%s\n' "$model"
     ;;

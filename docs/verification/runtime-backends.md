@@ -789,7 +789,7 @@ That is the launch-prompt backstop: the same spawn's record classified `busy fm-
 ## Codex model catalog
 
 Verified 2026-11-20 with codex-cli 0.167.0.
-The live guard runs the installed CLI's `codex debug models --bundled` in a disposable Codex home and checks that the freshness reader resolves the listed families from its output.
+The live guard runs the installed CLI's `codex debug models --bundled` in a disposable Codex home and checks that the freshness reader resolves listed families only from a current catalog and reports age uncertainty for an undated or stale bundled catalog.
 
 ```text
 $ bash bin/fm-test-run.sh tests/fm-model-freshness-live-e2e.test.sh

@@ -1250,7 +1250,7 @@ test_same_harness_relaunch_keeps_the_profile_axes() {
 test_codex_relaunch_checks_model_freshness() {
   local dir out rc scenario expected id
   local -a override
-  for scenario in upgrade override; do
+  for scenario in upgrade override dispatch; do
     id="rl-freshness-$scenario"
     dir=$(new_case "codex-freshness-$scenario" "$id")
     add_ship_task "$dir" "$id" codex
@@ -1258,12 +1258,15 @@ test_codex_relaunch_checks_model_freshness() {
     printf codex > "$dir/fake/becomes"
     printf '%s\n' 'model=gpt-6.1-sol' >> "$dir/home/state/$id.meta"
     mkdir -p "$dir/user-home/.codex"
-    printf '%s\n' '{"models":[{"slug":"gpt-6.2-sol","visibility":"list"}]}' > "$dir/user-home/.codex/models_cache.json"
+    jq -n '{fetched_at: (now | todateiso8601), models: [{slug:"gpt-6.2-sol",visibility:"list"}]}' > "$dir/user-home/.codex/models_cache.json"
+    if [ "$scenario" = dispatch ]; then
+      printf '%s\n' 'dispatch_override=effort routing override' >> "$dir/home/state/$id.meta"
+    fi
     expected=gpt-6.2-sol
     override=()
     if [ "$scenario" = override ]; then
       expected=gpt-6.1-sol
-      override=(--model "$expected")
+      override=(--model "$expected" --keep-model)
     fi
 
     out=$(CODEX_HOME="$dir/user-home/.codex" run_control "$dir" "$id" relaunch --note 'Continue the task.' ${override[@]+"${override[@]}"}); rc=$?
@@ -1275,7 +1278,7 @@ test_codex_relaunch_checks_model_freshness() {
       out=$(CODEX_HOME="$dir/user-home/.codex" run_control "$dir" "$id" relaunch --note 'Continue again.'); rc=$?
       expect_code 0 "$rc" "Codex relaunch with a recorded override should succeed: $out"
       [ "$(meta_field "$dir" "$id" model)" = "$expected" ] || fail "relaunch replaced a recorded model override"
-      assert_contains "$out" "Keeping the explicit override." "relaunch omitted the override advisory"
+      assert_contains "$out" "Keeping the explicit model pin." "relaunch omitted the override advisory"
     fi
   done
   pass "fm-control relaunch: Codex refreshes the model while preserving explicit overrides across replacements"

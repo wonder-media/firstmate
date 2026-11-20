@@ -914,7 +914,7 @@ test_codex_model_freshness() {
   local fixture catalog scenario id model effective out launch notice status
   local -a override
   fixture="$TMP_ROOT/model-freshness"
-  mkdir -p "$fixture"/{listed,missing,corrupt}
+  mkdir -p "$fixture"/{listed,missing,corrupt,stale,undated}
   cat > "$fixture/listed/models_cache.json" <<'JSON'
 {"models":[
   {"slug":"gpt-6.10-sol","visibility":"list","priority":100},
@@ -926,7 +926,10 @@ test_codex_model_freshness() {
 ]}
 JSON
   printf '%s\n' '{"models":' > "$fixture/corrupt/models_cache.json"
-  for scenario in upgrade newest override missing corrupt family; do
+  cp "$fixture/listed/models_cache.json" "$fixture/undated/models_cache.json"
+  jq '. + {fetched_at: (now | todateiso8601)}' "$fixture/undated/models_cache.json" > "$fixture/listed/models_cache.json"
+  jq '. + {fetched_at: "2000-01-01T00:00:00Z"}' "$fixture/undated/models_cache.json" > "$fixture/stale/models_cache.json"
+  for scenario in upgrade newest override dispatch missing corrupt stale undated family; do
     id="profile-freshness-$scenario"
     read_case_record "$(make_spawn_case "$id" codex "$id")"
     enable_dispatch_profile "$HOME_DIR"
@@ -942,10 +945,19 @@ JSON
         ;;
       newest) model=gpt-6.10-sol; effective=$model ;;
       override)
-        override=(--dispatch-override 'explicit model for this task')
-        notice="Codex model for $id: $model -> gpt-6.10-sol available. Keeping the explicit override."
+        override=(--keep-model)
+        notice="Codex model for $id: $model -> gpt-6.10-sol available. Keeping the explicit model pin."
         ;;
-      missing|corrupt)
+      dispatch)
+        override=(--dispatch-override 'effort routing override')
+        effective=gpt-6.10-sol
+        notice="Codex model for $id: $model -> $effective for this launch."
+        ;;
+      stale|undated|corrupt)
+        catalog=$scenario
+        notice=age
+        ;;
+      missing)
         catalog=$scenario
         notice="Model freshness for $model is unknown because the Codex catalog at $fixture/$catalog/models_cache.json could not be read or parsed."
         ;;
@@ -960,8 +972,15 @@ JSON
     grep -Fxq -- "model=$effective" "$HOME_DIR/state/$id.meta" || fail "metadata did not record model=$effective in $scenario: $out"
     launch=$(fm_test_launch_unframe "$(cat "$LAUNCH_LOG")")
     assert_contains "$launch" "codex --model '$effective'" "unexpected model in $scenario launch"
-    [ "$(printf '%s\n' "$out" | sed -n '/^Codex model for /p; /^Model freshness for /p')" = "$notice" ] \
-      || fail "unexpected freshness notice in $scenario: $out"
+    if [ "$notice" = age ]; then
+      assert_contains "$out" "Model freshness for $model is unknown because the Codex catalog age is" "missing catalog age in $scenario"
+    else
+      [ "$(printf '%s\n' "$out" | sed -n '/^Codex model for /p; /^Model freshness for /p')" = "$notice" ] \
+        || fail "unexpected freshness notice in $scenario: $out"
+    fi
+    if [ "$scenario" = override ]; then
+      grep -Fxq 'keep_model=1' "$HOME_DIR/state/$id.meta" || fail "explicit pin was not persisted"
+    fi
     cmp -s "$CASE_DIR/config.before" "$HOME_DIR/config/crew-dispatch.json" || fail "spawn changed the dispatch config"
   done
   pass "Codex model freshness follows the listed family and honors explicit overrides"

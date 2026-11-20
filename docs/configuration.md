@@ -2047,8 +2047,10 @@ Firstmate resolves the rule's profile object or array under `AGENTS.md` section 
 
 After dispatch validates the chosen profile, a Codex ship or scout launches with the highest strictly newer listed version in the pinned model's family when one exists.
 The check compares numeric version components for the `sol`, `astra`, `terra`, and `luna` suffixes using `models_cache.json` under `${CODEX_HOME:-~/.codex}`.
-Mark a captain-selected model with `--dispatch-override <reason>` to keep it and receive an advisory when a newer model is listed.
-Worker replacements check the same catalog against the recorded model, honoring a recorded override or an explicit relaunch model.
+Mark a captain-selected model with `--keep-model` to keep it and receive an advisory when a newer model is listed.
+Worker replacements check the same catalog against the recorded model, honoring `keep_model=1` recorded by that flag and replayed on relaunch.
+A dispatch override changes routing authority only and does not suppress model upgrades.
+The catalog must have a valid `fetched_at` timestamp no more than seven days old; an absent, invalid, future, or older timestamp prints an uncertainty notice naming the age and keeps the configured model.
 An unavailable or invalid catalog leaves the model in place and prints an uncertainty notice.
 An already-current pin, a model without a recognized version and family, or a harness without a discovery source proceeds silently.
 Upgrades apply per launch and leave `config/crew-dispatch.json` intact.
