@@ -10,6 +10,7 @@ Routing precedence is an explicit per-task captain override, then the best-fit c
 Use the router's detection and safety sections for static crew and secondmate harness resolution and all explicit overrides.
 For a profile array, load `quota-array-dispatch` after establishing harness and provider facts here.
 On `clear`, pass the `profile:` line from `bin/fm-dispatch-resolve.sh` to `fm-spawn` or pass your reason to override as `--dispatch-override <reason>`; `ambiguous`, `escalate`, `error`, and off all mean the intake above, unchanged (contract: `docs/configuration.md` "Typed dispatch resolution").
+Relay any [model freshness](../../../../../docs/configuration.md#crew-dispatch-profiles-configcrew-dispatchjson) notice to the captain in one line for the launch.
 
 `../secondmate-provisioning/SKILL.md` owns inherited local material.
 Its harness consequence is that a secondmate's workers receive literal `config/crew-harness` and `config/crew-dispatch.json`, while the primary-only `config/secondmate-harness` is never inherited because secondmates do not spawn secondmates.

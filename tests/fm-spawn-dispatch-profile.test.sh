@@ -910,6 +910,63 @@ test_codex_threads_model_and_effort() {
   pass "codex receives --model and model_reasoning_effort profile flags"
 }
 
+test_codex_model_freshness() {
+  local fixture catalog scenario id model effective out launch notice status
+  local -a override
+  fixture="$TMP_ROOT/model-freshness"
+  mkdir -p "$fixture"/{listed,missing,corrupt}
+  cat > "$fixture/listed/models_cache.json" <<'JSON'
+{"models":[
+  {"slug":"gpt-6.10-sol","visibility":"list","priority":100},
+  {"slug":"gpt-6.9-sol","visibility":"list","priority":1},
+  {"slug":"gpt-7-sol","visibility":"hide"},
+  {"slug":"gpt-8-astra","visibility":"list"},
+  {"slug":"gpt-6.2-terra","visibility":"list"},
+  {"slug":"gpt-6.2.0-terra","visibility":"list"}
+]}
+JSON
+  printf '%s\n' '{"models":' > "$fixture/corrupt/models_cache.json"
+  for scenario in upgrade newest override missing corrupt family; do
+    id="profile-freshness-$scenario"
+    read_case_record "$(make_spawn_case "$id" codex "$id")"
+    enable_dispatch_profile "$HOME_DIR"
+    catalog=listed
+    model=gpt-6.1-sol
+    effective=$model
+    override=()
+    notice=
+    case "$scenario" in
+      upgrade)
+        effective=gpt-6.10-sol
+        notice="Codex model for $id: $model -> $effective for this launch."
+        ;;
+      newest) model=gpt-6.10-sol; effective=$model ;;
+      override)
+        override=(--dispatch-override 'explicit model for this task')
+        notice="Codex model for $id: $model -> gpt-6.10-sol available. Keeping the explicit override."
+        ;;
+      missing|corrupt)
+        catalog=$scenario
+        notice="Model freshness for $model is unknown because the Codex catalog at $fixture/$catalog/models_cache.json could not be read or parsed."
+        ;;
+      family) model=gpt-6.2-terra; effective=$model ;;
+    esac
+    record_dispatch "$HOME_DIR" "$id" clear codex "$model" high
+    cp "$HOME_DIR/config/crew-dispatch.json" "$CASE_DIR/config.before"
+    out=$(CODEX_HOME="$fixture/$catalog" run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+      "$id" "$PROJ_DIR" --harness codex --model "$model" --effort high ${override[@]+"${override[@]}"} 2>&1)
+    status=$?
+    expect_code 0 "$status" "freshness case $scenario should launch: $out"
+    grep -Fxq -- "model=$effective" "$HOME_DIR/state/$id.meta" || fail "metadata did not record model=$effective in $scenario: $out"
+    launch=$(fm_test_launch_unframe "$(cat "$LAUNCH_LOG")")
+    assert_contains "$launch" "codex --model '$effective'" "unexpected model in $scenario launch"
+    [ "$(printf '%s\n' "$out" | sed -n '/^Codex model for /p; /^Model freshness for /p')" = "$notice" ] \
+      || fail "unexpected freshness notice in $scenario: $out"
+    cmp -s "$CASE_DIR/config.before" "$HOME_DIR/config/crew-dispatch.json" || fail "spawn changed the dispatch config"
+  done
+  pass "Codex model freshness follows the listed family and honors explicit overrides"
+}
+
 test_codex_percent_autocompact_uses_effective_model_window() {
   local rec id out status launch codex_home
   id=profile-codex-autocompact-percent-z3a
@@ -3109,6 +3166,7 @@ test_chained_raw_launch_strips_ai_trailer_in_every_step
 test_claude_threads_model_and_effort
 test_claude_absolute_autocompact_uses_supported_launch_flag
 test_codex_threads_model_and_effort
+test_codex_model_freshness
 test_codex_percent_autocompact_uses_effective_model_window
 test_codex_unknown_autocompact_window_warns_and_omits_override
 test_codex_threads_model_and_max_effort

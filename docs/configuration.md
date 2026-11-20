@@ -2043,6 +2043,17 @@ Firstmate resolves the rule's profile object or array under `AGENTS.md` section 
 - Batch spawns satisfy the same requirement with a shared `--harness`.
 - Secondmate spawns are exempt and resolve through `config/secondmate-harness` using the registered mate's id; see [Choose the secondmate harness](#choose-the-secondmate-harness) for pin precedence and legacy parsing.
 
+**Model freshness**
+
+After dispatch validates the chosen profile, a Codex ship or scout launches with the highest strictly newer listed version in the pinned model's family when one exists.
+The check compares numeric version components for the `sol`, `astra`, `terra`, and `luna` suffixes using `models_cache.json` under `${CODEX_HOME:-~/.codex}`.
+Mark a captain-selected model with `--dispatch-override <reason>` to keep it and receive an advisory when a newer model is listed.
+Worker replacements check the same catalog against the recorded model, honoring a recorded override or an explicit relaunch model.
+An unavailable or invalid catalog leaves the model in place and prints an uncertainty notice.
+An already-current pin, a model without a recognized version and family, or a harness without a discovery source proceeds silently.
+Upgrades apply per launch and leave `config/crew-dispatch.json` intact.
+[`fm-model-freshness.sh`](../bin/fm-model-freshness.sh) exposes the same read-only comparison for pin audits.
+
 **Contract owners**
 
 This section is the single owner of the canonical schema and its per-field semantics.

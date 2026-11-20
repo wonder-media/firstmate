@@ -983,6 +983,7 @@ PRIOR_MODEL=
 PRIOR_EFFORT=
 TARGET_HARNESS=$HARNESS
 TARGET_MODEL=
+TARGET_DISPATCH_OVERRIDE=
 TARGET_EFFORT=
 TARGET_ACCOUNT=
 
@@ -1149,6 +1150,15 @@ resolve_relaunch_profile() {
     TARGET_MODEL=$PRIOR_MODEL
   else
     TARGET_MODEL=default
+  fi
+  if [ "$KIND" != secondmate ] && [ "$TARGET_HARNESS" = codex ]; then
+    local freshness_mode=upgrade
+    TARGET_DISPATCH_OVERRIDE=$(fm_meta_get "$META" dispatch_override)
+    if [ "$MODEL_SET" = 1 ] && [ -z "$TARGET_DISPATCH_OVERRIDE" ]; then
+      TARGET_DISPATCH_OVERRIDE='explicit model chosen for relaunch'
+    fi
+    [ -z "$TARGET_DISPATCH_OVERRIDE" ] || freshness_mode=advisory
+    TARGET_MODEL=$("$SCRIPT_DIR/fm-model-freshness.sh" "$TARGET_HARNESS" "$TARGET_MODEL" --launch "$ID" "$freshness_mode")
   fi
   if [ "$EFFORT_SET" = 1 ]; then
     TARGET_EFFORT=$NEW_EFFORT
@@ -1369,6 +1379,7 @@ do_relaunch() {
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
   [ -z "$TARGET_ACCOUNT" ] || spawn_args+=(--account "$TARGET_ACCOUNT")
+  [ -z "$TARGET_DISPATCH_OVERRIDE" ] || spawn_args+=(--dispatch-override "$TARGET_DISPATCH_OVERRIDE")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1

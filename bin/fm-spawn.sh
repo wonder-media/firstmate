@@ -3298,6 +3298,19 @@ if [ "$KIND" != secondmate ] && [ "$RELAUNCH" -eq 0 ] && [ -f "$CONFIG/crew-disp
   fi
 fi
 
+# Control-plane relaunch checks its target before journaling it.
+if [ "$RELAUNCH" = 1 ] && [ -z "$DISPATCH_OVERRIDE" ]; then
+  DISPATCH_OVERRIDE=$(fm_meta_get "$RELAUNCH_META" dispatch_override)
+fi
+if [ "$KIND" != secondmate ] && [ "$HARNESS" = codex ] && [ -n "$MODEL" ] && [ "$SPAWN_CONTROL_PARENT" = 0 ]; then
+  freshness_mode=upgrade
+  if [ "$RELAUNCH" = 1 ] && [ "$MODEL_SET" = 1 ] && [ -z "$DISPATCH_OVERRIDE" ]; then
+    DISPATCH_OVERRIDE='explicit model chosen for relaunch'
+  fi
+  [ -z "$DISPATCH_OVERRIDE" ] || freshness_mode=advisory
+  MODEL=$("$SCRIPT_DIR/fm-model-freshness.sh" "$HARNESS" "$MODEL" --launch "$ID" "$freshness_mode")
+fi
+
 # muse, gemini, devin, commandcode, polytoken, cortex, and kiro are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
@@ -7492,6 +7505,7 @@ preserve_relaunch_meta() {
     BEGIN {
       split("window endpoint_task_id worktree project harness hermes_profile hermes_home kind mode yolo branch tasktmp base_branch upstream_consent forge backup_remote backup_prefix model effort opencode_version account account_provider omp_profile busy_gen spawn_gen approval_mode traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id paseo_terminal_id paseo_workspace_id rex_server rex_session_id rex_window_id rex_block_id t3_thread_id t3_project_id tern_session_id tern_tab_id tern_block_id hc_session hc_terminal home projects control_relaunch_tx polytoken_session polytoken_port polytoken_credential", keys, " ")
       for (i in keys) owned[keys[i]] = 1
+      owned["dispatch_override"] = 1
     }
     !($1 in owned)
   ' "$RELAUNCH_META"
