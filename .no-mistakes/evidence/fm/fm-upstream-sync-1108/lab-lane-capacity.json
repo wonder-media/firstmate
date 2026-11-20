@@ -1,0 +1,57 @@
+{
+  "schema": "fm-lane-capacity.v1",
+  "generated_epoch": 1795135041,
+  "home": "main",
+  "machine": "Mac",
+  "lanes": {
+    "count": 0,
+    "pr_ready": 0,
+    "ids": []
+  },
+  "cap": {
+    "target": 3,
+    "status": "ok"
+  },
+  "projects": [],
+  "pressure": {
+    "level": "ok",
+    "why": [],
+    "basis": "probe",
+    "beat_age_s": null,
+    "avail_gb": 40.32,
+    "total_gb": 96,
+    "runq_per_core": 0.18,
+    "swap_rate_pps_1m": null,
+    "mem_stall_pct": null,
+    "load1": 5.41,
+    "on_battery": null,
+    "disks": [
+      {
+        "label": "home",
+        "free_gb": 244.7
+      }
+    ]
+  },
+  "uptime_s": 1229963,
+  "boot_id": "1793905078",
+  "boots": [
+    1793905078
+  ],
+  "watcher_beat_age_s": null,
+  "reserve": {
+    "flag": "not-configured",
+    "label": null
+  },
+  "captain": "not-configured",
+  "quota": null,
+  "limits": {
+    "min_avail_gb": null,
+    "min_disk_gb": null,
+    "max_load1": null
+  },
+  "verdict": {
+    "admit": true,
+    "free_lanes": 3,
+    "reasons": []
+  }
+}

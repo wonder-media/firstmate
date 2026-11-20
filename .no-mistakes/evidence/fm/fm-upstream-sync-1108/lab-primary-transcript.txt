@@ -1,0 +1,33 @@
+  - jq failed because state/lane-capacity.json is not there. With no lane target set, --publish did not write that file.
+  I did nothing else.
+✻ Sautéed for 11s · done 4:36 PM
+❯ Lab check 2. Run exactly: bin/fm-capacity.sh --publish && bin/fm-capacity.sh && jq -c "{schema, cap, free_lanes}" "$FM_HOME/state/lane-capacity.json"; bin/fm-capacity.sh --admit; echo
+  ADMIT_EXIT=$?. Reply with the raw output and stop.
+  Ran 1 shell command
+⏺ Captain, all four commands ran this time, and the admit check exited 0. Raw output:
+  capacity: free_lanes=3 reason=ok lanes=0 target=3 secondmates=0 load1=5.41 cores=30 mem_free_pct=42 disk_free_mb=250552
+  Lanes: 0 running of 3 target, 3 open.
+  Host: load 5.41 on 30 cores, memory free 42%, disk free 250552 MB.
+  {"schema":"fm-lane-capacity.v1","cap":{"target":3,"status":"ok"},"free_lanes":null}
+  ADMIT_EXIT=0
+  One thing to note: the file shows "free_lanes":null, but the report line says free_lanes=3. The file may keep that count under a different key.
+  I did nothing else.
+✻ Churned for 11s · done 4:37 PM
+❯ Lab check 3. Run exactly: bin/fm-capacity.sh; echo REPORT_EXIT=$?; bin/fm-capacity.sh --admit; echo ADMIT_EXIT=$?. Reply with the raw output and stop.
+  Ran 1 shell command
+⏺ Captain, both commands failed with exit code 1. Raw output:
+  capacity: free_lanes=unknown reason=invalid-target lanes=0 target=invalid secondmates=0 load1=6.14 cores=30 mem_free_pct=11 disk_free_mb=235078
+  Lanes: 0 running, target unreadable (config/lane-capacity: line 1: the first line must be the lane cap, one non-negative integer, or auto).
+  Host: load 6.14 on 30 cores, memory free 11%, disk free 235078 MB.
+  fm-capacity: config/lane-capacity: line 1: the first line must be the lane cap, one non-negative integer, or auto
+  REPORT_EXIT=1
+  fm-capacity: config/lane-capacity: line 1: the first line must be the lane cap, one non-negative integer, or auto
+  ADMIT_EXIT=1
+  The cause is that line 1 of config/lane-capacity is not valid. It must be one whole number (0 or more) or auto.
+  I did nothing else.
+✻ Sautéed for 8s · done 4:38 PM
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 · 01M7V5NWXJJEJ3TC717E87G8QC · ⎇ firstmate  ┃  ctx 7% · think:on · effort:medium  ┃  7d 71%↻Nov 22
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 2 agents
