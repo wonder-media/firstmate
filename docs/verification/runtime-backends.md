@@ -789,11 +789,11 @@ That is the launch-prompt backstop: the same spawn's record classified `busy fm-
 ## Codex model catalog
 
 Verified 2026-11-20 with codex-cli 0.167.0.
-The live guard runs the installed CLI's `codex debug models --bundled` in a disposable Codex home and checks that the freshness reader resolves listed families only from a current catalog and reports age uncertainty for an undated or stale bundled catalog.
+The live guard runs the installed CLI's `codex debug models --bundled` in a disposable Codex home and sets controlled fresh, stale, and absent timestamps on that catalog to check listed-family resolution and age uncertainty independently of the production timestamp parser.
 
 ```text
 $ bash bin/fm-test-run.sh tests/fm-model-freshness-live-e2e.test.sh
-ok - codex-cli 0.167.0 bundled catalog resolved 4 listed model families
+ok - codex-cli 0.167.0 bundled catalog checked 4 model families against fresh, stale, and undated timestamps
 $ bash bin/fm-model-freshness.sh codex gpt-6.1-sol
 gpt-6.2-sol
 $ bash bin/fm-model-freshness.sh codex gpt-6-astra
