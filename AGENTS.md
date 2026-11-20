@@ -81,7 +81,7 @@ For a source the digest flags `ABSENT`, that skill's digest interpretation owns 
 - Load `harness-adapters` before resolving a dispatch profile, every spawn or recovery, and trust handling, skill invocation, interrupt, exit, resume, or adapter verification.
 - Never dispatch on an unverified adapter; `harness-adapters` owns the verified catalog.
 - `harness-adapters` owns the supported primary, secondmate, and worker roles.
-- Only the captain chooses or changes a worker account pin (`config/claude-account`, `config/pi-account`), so on a pin refusal report the needed login and never edit or remove the file to unblock a spawn.
+- Only the captain chooses or changes a worker account pin or declared account list (`config/claude-account`, `config/pi-account`, `config/claude-accounts`), so on a pin refusal report the needed login and never edit or remove the file to unblock a spawn.
 
 Firstmate alone resolves a matched profile array through `quota-array-dispatch`, including the home-declared shared-quota exception.
 Never omit a candidate, guess, fall back silently, or call the result quota-informed without the every-candidate evidence required by `quota-array-dispatch`.
@@ -90,7 +90,7 @@ Only concrete contradictory evidence blocks a candidate, such as an authoritativ
 Preserve malformed profile configuration as an actionable error rather than selecting around it.
 When every candidate is tight, preserve the captain's strongest-reasoning class rather than silently downgrading it solely to conserve quota; stop and report the tight choice if that class cannot proceed.
 Outside the home-declared shared-quota exception, break genuine evidence ties without array-order or harness bias.
-Load `quota-array-dispatch` before choosing among a matched profile array; that skill is the single owner of the TOON-first spendPriority selection procedure.
+Load `quota-array-dispatch` before choosing among a matched profile array or a Claude spawn's declared accounts; that skill is the single owner of the TOON-first spendPriority selection procedure.
 Run `bin/fm-dispatch-resolve.sh` directly on the written brief in the same turn, with no preflight; `harness-adapters` owns handling its result.
 `harness-adapters` owns the generic effort fallback and its precedence; never select max without explicit captain preference.
 Do not add model-specific versions of that policy.
@@ -183,7 +183,7 @@ Steer a worker with ordinary text through fail-closed `bin/fm-send.sh`; its head
 A remote secondmate steer rides the same durable-inbox model through the remote transport; after an unconfirmed delivery, only the exact `FM_PENDING_REPLY_EXISTING_CORR=<id>` resend command printed by `fm-send` is safe because it preserves the request body for remote enqueue deduplication (`bin/fm-send.sh` header).
 When a steer answers an open keyed decision or blocker, pass `fm-send`'s `--resolve-key` so the answer itself closes that decision record at answer time, identically for local and remote workers (contract: `bin/fm-send.sh` header).
 `fm-send` is the data plane for text the worker should read; never use its key or text paths for interrupt, exit, or other lifecycle control, because routing-marked lifecycle text becomes chat the worker reasons about instead of executing.
-Drive a worker's lifecycle through `bin/fm-control.sh <task-id> interrupt|exit|relaunch`, which owns the per-runtime mechanics, verifies each action, and never tears down or discards anything ([`docs/agent-control.md`](docs/agent-control.md)).
+Drive a worker's lifecycle through `bin/fm-control.sh <task-id> interrupt|exit|relaunch|dormant|wake`, which owns the per-runtime mechanics, verifies each action, and never tears down or discards anything ([`docs/agent-control.md`](docs/agent-control.md)).
 When the captain adds or changes an ask mid-task, append the captain's words without added speaker labels or direct address to that brief's `## Captain's intent` and relay those words to the worker; Firstmate build constraints stay in `## Firstmate spec` or the steer.
 Supervise all live work under section 8.
 

@@ -722,6 +722,28 @@ test_commandcode_relaunch_off_tmux_and_herdr_refuses_before_stopping() {
   pass "fm-control relaunch: commandcode off tmux and herdr is refused before the running agent is stopped"
 }
 
+test_hermes_profile_refusals_preserve_running_worker() {
+  local dir out rc before
+  dir=$(new_case hermes-preflight)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  before=$(cat "$dir/home/state/t1.meta")
+  out=$(run_control "$dir" t1 relaunch --harness hermes --model unsupported --note x); rc=$?
+  expect_code 1 "$rc" "Hermes must refuse a model override before stopping: $out"
+  assert_contains "$out" 'profile-owned' 'Hermes model diagnostic missing'
+  [ -z "$(literals "$dir")$(keys_sent "$dir")" ] || fail 'invalid Hermes model stopped the current worker'
+  mkdir -p "$dir/profile"
+  printf '#!/bin/sh\nprintf "%%s\\n" "%s/config.yaml"\n' "$dir/profile" > "$dir/fakebin/hermes"
+  chmod +x "$dir/fakebin/hermes"
+  printf '{"pid":%s,"gateway_state":"running","restart_requested":false,"active_agents":1,"updated_at":"%s"}\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%S+00:00)" > "$dir/profile/gateway_state.json"
+  out=$(run_control "$dir" t1 relaunch --harness hermes --note x); rc=$?
+  expect_code 1 "$rc" "Hermes must refuse a mid-turn gateway before stopping: $out"
+  assert_contains "$out" 'gateway' 'Hermes gateway diagnostic missing'
+  [ -z "$(literals "$dir")$(keys_sent "$dir")" ] || fail 'Hermes gateway refusal stopped the current worker'
+  [ "$(cat "$dir/home/state/t1.meta")" = "$before" ] || fail 'Hermes preflight changed task metadata'
+  pass 'fm-control relaunch: Hermes profile model and gateway refusals preserve the current worker'
+}
+
 test_state_verified_backends_are_exactly_tmux_herdr_and_rex() {
   fm_control_backend_state_verified tmux || fail "tmux has a recovery-grade classifier"
   fm_control_backend_state_verified herdr || fail "herdr has a recovery-grade classifier"
@@ -1413,8 +1435,8 @@ test_secondmate_wake_delegates_and_clears_only_after_alive() {
 
   out=$(run_control_with_stub_spawn "$dir" domain wake); rc=$?
   expect_code 0 "$rc" "wake should use the normal secondmate spawn path"
-  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate" ] \
-    || fail "wake did not delegate exactly to fm-spawn <id> --secondmate"
+  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate --backend tmux" ] \
+    || fail "wake did not delegate exactly to fm-spawn <id> --secondmate on the recorded backend"
   [ ! -e "$dir/home/state/domain.dormant" ] || fail "wake left the dormant marker after proving the agent alive"
   assert_contains "$out" "awake domain" "wake should report verified alive success"
 
@@ -1422,8 +1444,8 @@ test_secondmate_wake_delegates_and_clears_only_after_alive() {
   : > "$dir/fake/spawn-log"
   out=$(run_control_with_stub_spawn "$dir" domain wake); rc=$?
   expect_code 0 "$rc" "wake on a dead non-dormant secondmate should preserve ordinary recovery"
-  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate" ] \
-    || fail "dead non-dormant wake did not use the ordinary recovery spawn path"
+  [ "$(cat "$dir/fake/spawn-log")" = "domain --secondmate --backend tmux" ] \
+    || fail "dead non-dormant wake did not use the ordinary recovery spawn path on the recorded backend"
   pass "fm-control wake: normal spawn delegation, verified alive postcondition, marker clearing"
 }
 
@@ -1446,6 +1468,7 @@ test_harness_kind_capability
 test_orca_refuses_an_escape_harness_interrupt
 test_unverified_state_backends_refuse_stop_verbs
 test_commandcode_relaunch_off_tmux_and_herdr_refuses_before_stopping
+test_hermes_profile_refusals_preserve_running_worker
 test_state_verified_backends_are_exactly_tmux_herdr_and_rex
 test_window_label_is_refused_with_the_exact_id
 test_explicit_endpoint_is_refused

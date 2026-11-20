@@ -9,19 +9,21 @@
 # answered. The thread is archived afterwards; the scratch T3 project stays,
 # because T3 refuses to delete a project that still holds an archived thread.
 # Opt-in (it spends model tokens): FM_T3CODE_PR_TOOLS_LIVE=1 or FM_LIVE=1.
-# The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's, else
+# The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's (direct invocation only), else
 # this checkout's own config/t3code-token; FM_T3CODE_LIVE_CLAUDE_INSTANCE and
 # FM_T3CODE_LIVE_CLAUDE_MODEL choose the thread's Claude instance and model.
-# Refresh: FM_T3CODE_PR_TOOLS_LIVE=1 FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
+# Refresh: FM_T3CODE_PR_TOOLS_LIVE=1 FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-pr-tools-live-e2e.test.sh
 # docs/verification/runtime-backends.md "Claude pull-request tools" records its result.
 set -u
+
+LIVE_CONFIG=${FM_CONFIG_OVERRIDE:-}
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 fm_live_gate opt-in FM_T3CODE_PR_TOOLS_LIVE node git
 
-TOKEN=${FM_T3CODE_LIVE_TOKEN_FILE:-${FM_CONFIG_OVERRIDE:-$ROOT/config}/t3code-token}
+TOKEN=${FM_T3CODE_LIVE_TOKEN_FILE:-${LIVE_CONFIG:-$ROOT/config}/t3code-token}
 HELPER="$ROOT/bin/fm-t3-mcp.mjs"
 INSTANCE=${FM_T3CODE_LIVE_CLAUDE_INSTANCE:-claudeAgent}
 MODEL=${FM_T3CODE_LIVE_CLAUDE_MODEL:-claude-haiku-5-5}

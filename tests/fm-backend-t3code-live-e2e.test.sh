@@ -6,11 +6,13 @@
 # thread-not-found read (state). Default-on wherever node is installed;
 # FM_T3CODE_LIVE_E2E=0 or FM_LIVE=0 turns it off, and FM_T3CODE_LIVE_E2E=1 or
 # FM_LIVE=1 makes a missing credential or unreachable server a failure.
-# The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's, else
+# The credential is FM_T3CODE_LIVE_TOKEN_FILE, else FM_CONFIG_OVERRIDE's (direct invocation only), else
 # this checkout's own config/t3code-token; none present is a clean skip.
-# Refresh: FM_CONFIG_OVERRIDE=<home>/config bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
+# Refresh: FM_T3CODE_LIVE_TOKEN_FILE=<home>/config/t3code-token bin/fm-test-run.sh tests/fm-backend-t3code-live-e2e.test.sh
 # docs/verification/runtime-backends.md "T3 Code" records its result.
 set -u
+
+LIVE_CONFIG=${FM_CONFIG_OVERRIDE:-}
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -19,7 +21,7 @@ fm_live_gate default-on FM_T3CODE_LIVE_E2E node
 
 REQUESTED=0
 [ "${FM_T3CODE_LIVE_E2E:-}" = 1 ] || [ "${FM_LIVE:-}" = 1 ] && REQUESTED=1
-TOKEN=${FM_T3CODE_LIVE_TOKEN_FILE:-${FM_CONFIG_OVERRIDE:-$ROOT/config}/t3code-token}
+TOKEN=${FM_T3CODE_LIVE_TOKEN_FILE:-${LIVE_CONFIG:-$ROOT/config}/t3code-token}
 HELPER="$ROOT/bin/fm-t3-mcp.mjs"
 
 skip_or_fail() {  # <reason>

@@ -6,6 +6,9 @@
 # clean fast-forward, never forcing, merging, or stashing" used by every sync
 # path:
 #   - /updatefirstmate (bin/fm-update.sh) pulls from origin: base_mode "origin".
+#     With an optional config/self-update-source, it instead fetches that one
+#     remote branch for the primary and passes it as a local base, and its
+#     secondmates follow the primary's resulting commit (bin/fm-update.sh owns it).
 #   - the local-HEAD secondmate sync (bin/fm-spawn.sh on launch, bin/fm-bootstrap.sh
 #     on startup) follows the PRIMARY checkout's current default-branch commit:
 #     base_mode is that local commit, with no origin dependency.
@@ -431,15 +434,18 @@ live_secondmate_meta_records() {
 #                  local-HEAD secondmate sync). A linked worktree already shares
 #                  the object. When local_source is supplied, a standalone clone
 #                  may acquire a missing object only from that local checkout.
+#                  FF_IMPORT_FROM is the default source for /updatefirstmate's
+#                  explicit self-update-source path; the same guards apply.
 # Guards are identical in both modes: never force/merge/stash; skip a dirty or
 # wrong-branch target and leave its work untouched. An optional secondmate id
 # enables the content-equivalent divergence proof and durable marker described
 # in this file's header.
 FF_STATUS=""
 FF_INSTR=""
+FF_IMPORT_FROM=""
 ff_target() {
   local dir=$1 label=$2 base_mode=$3 allow_detached=${4:-no} ignore_seed_marker=${5:-no}
-  local secondmate_id=${6:-} reconciliation_state=${7:-} local_source=${8:-}
+  local secondmate_id=${6:-} reconciliation_state=${7:-} local_source=${8:-$FF_IMPORT_FROM}
   FF_STATUS="skipped"
   FF_INSTR=""
 

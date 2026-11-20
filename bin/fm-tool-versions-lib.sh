@@ -27,7 +27,7 @@ FM_NO_MISTAKES_RELEASE_REPO=kunchenguid/no-mistakes
 FM_TREEHOUSE_CI_VERSION=2.0.1
 FM_TREEHOUSE_CI_REPO=kunchenguid/treehouse
 FM_HERDR_CI_VERSION=0.7.4
-FM_HERDR_CI_REPO=ogulcancelik/herdr
+FM_HERDR_CI_REPO=herdrdev/herdr
 
 # Treehouse compatibility is feature-based rather than semantic: a supported
 # build declares the --lease flag on `treehouse get`. Callers own how they run
