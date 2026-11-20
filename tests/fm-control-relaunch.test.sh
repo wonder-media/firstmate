@@ -1256,6 +1256,12 @@ test_codex_relaunch_checks_model_freshness() {
     add_ship_task "$dir" "$id" codex
     printf codex > "$dir/fake/command"
     printf codex > "$dir/fake/becomes"
+    cat > "$dir/fakebin/codex" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'debug models --bundled' ] || exit 2
+printf '%s\n' '{"models":[]}'
+SH
+    chmod +x "$dir/fakebin/codex"
     printf '%s\n' 'model=gpt-6.1-sol' >> "$dir/home/state/$id.meta"
     mkdir -p "$dir/user-home/.codex"
     jq -n '{fetched_at: (now | todateiso8601), models: [{slug:"gpt-6.2-sol",visibility:"list"}]}' > "$dir/user-home/.codex/models_cache.json"

@@ -914,7 +914,7 @@ test_codex_model_freshness() {
   local fixture catalog scenario id model effective out launch notice status
   local -a override
   fixture="$TMP_ROOT/model-freshness"
-  mkdir -p "$fixture"/{listed,missing,corrupt,stale,undated}
+  mkdir -p "$fixture"/{listed,missing,corrupt,stale,undated,bundled,bundle-failure}
   cat > "$fixture/listed/models_cache.json" <<'JSON'
 {"models":[
   {"slug":"gpt-6.10-sol","visibility":"list","priority":100},
@@ -928,8 +928,10 @@ JSON
   printf '%s\n' '{"models":' > "$fixture/corrupt/models_cache.json"
   cp "$fixture/listed/models_cache.json" "$fixture/undated/models_cache.json"
   jq '. + {fetched_at: (now | todateiso8601)}' "$fixture/undated/models_cache.json" > "$fixture/listed/models_cache.json"
+  cp "$fixture/listed/models_cache.json" "$fixture/bundle-failure/models_cache.json"
   jq '. + {fetched_at: "2000-01-01T00:00:00Z"}' "$fixture/undated/models_cache.json" > "$fixture/stale/models_cache.json"
-  for scenario in upgrade newest override dispatch missing corrupt stale undated family; do
+  jq -n '{fetched_at:(now | todateiso8601), models:[{slug:"gpt-6.1-sol", visibility:"list"}]}' > "$fixture/bundled/models_cache.json"
+  for scenario in upgrade newest override dispatch missing corrupt stale undated family bundled bundle-failure bundle-malformed; do
     id="profile-freshness-$scenario"
     read_case_record "$(make_spawn_case "$id" codex "$id")"
     enable_dispatch_profile "$HOME_DIR"
@@ -953,16 +955,40 @@ JSON
         effective=gpt-6.10-sol
         notice="Codex model for $id: $model -> $effective for this launch."
         ;;
-      stale|undated|corrupt)
+      stale|undated)
         catalog=$scenario
         notice=age
         ;;
-      missing)
+      missing|corrupt)
         catalog=$scenario
-        notice="Model freshness for $model is unknown because the Codex catalog at $fixture/$catalog/models_cache.json could not be read or parsed."
+        notice="Model freshness for $model: The Codex cache at $fixture/$catalog/models_cache.json could not be read or parsed. Compared the bundled catalog only."
         ;;
       family) model=gpt-6.2-terra; effective=$model ;;
+      bundled)
+        catalog=$scenario
+        effective=gpt-6.2-sol
+        notice="Codex model for $id: $model -> $effective for this launch."
+        ;;
+      bundle-failure)
+        catalog=$scenario
+        notice="Model freshness for $model: The bundled Codex catalog could not be read. Keeping the configured model."
+        ;;
+      bundle-malformed)
+        notice="Model freshness for $model: The bundled Codex catalog could not be parsed. Keeping the configured model."
+        ;;
     esac
+    case "$scenario" in
+      bundled) printf '%s\n' '{"models":[{"slug":"gpt-6.2-sol","visibility":"list"}]}' > "$fixture/$catalog/bundled.json" ;;
+      bundle-failure) ;;
+      bundle-malformed) printf '%s\n' '{"models":false}' > "$fixture/$catalog/bundled.json" ;;
+      *) printf '%s\n' '{"models":[]}' > "$fixture/$catalog/bundled.json" ;;
+    esac
+    cat > "$FAKEBIN_DIR/codex" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'debug models --bundled' ] || exit 2
+cat "$CODEX_HOME/bundled.json"
+SH
+    chmod +x "$FAKEBIN_DIR/codex"
     record_dispatch "$HOME_DIR" "$id" clear codex "$model" high
     cp "$HOME_DIR/config/crew-dispatch.json" "$CASE_DIR/config.before"
     out=$(CODEX_HOME="$fixture/$catalog" run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
@@ -973,7 +999,8 @@ JSON
     launch=$(fm_test_launch_unframe "$(cat "$LAUNCH_LOG")")
     assert_contains "$launch" "codex --model '$effective'" "unexpected model in $scenario launch"
     if [ "$notice" = age ]; then
-      assert_contains "$out" "Model freshness for $model is unknown because the Codex catalog age is" "missing catalog age in $scenario"
+      assert_contains "$out" "Model freshness for $model: The Codex cache age is" "missing cache age in $scenario"
+      [ "$(printf '%s\n' "$out" | grep -c '^Model freshness for ')" -eq 1 ] || fail "expected one cache notice in $scenario: $out"
     else
       [ "$(printf '%s\n' "$out" | sed -n '/^Codex model for /p; /^Model freshness for /p')" = "$notice" ] \
         || fail "unexpected freshness notice in $scenario: $out"
