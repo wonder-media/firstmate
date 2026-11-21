@@ -1,0 +1,54 @@
+Real Firstmate / Codex local integration evidence
+Synthetic fresh-cache models; local Responses emulator; no production credentials or hosted model calls.
+
+live-spawn.txt
+Codex model for fresh3: gpt-6.1-sol -> gpt-6.2-sol for this launch.
+spawned fresh3 harness=codex kind=scout window=primary:fm-fresh3 worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/1/project
+SPAWN_EXIT=0
+
+live-relaunch.txt
+Codex model for fresh3: gpt-6.2-sol -> gpt-6.3-sol for this launch.
+relaunched fresh3 harness=codex from=codex model=gpt-6.3-sol effort=high backend=tmux endpoint=primary:fm-fresh3 worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/1/project
+RELAUNCH_EXIT=0
+
+live-pin-spawn.txt
+Codex model for pinned: gpt-6.1-sol -> gpt-6.3-sol available. Keeping the explicit model pin.
+spawned pinned harness=codex kind=scout window=primary:fm-pinned worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/2/project
+PIN_SPAWN_EXIT=0
+
+live-pin-relaunch.txt
+Codex model for pinned: gpt-6.1-sol -> gpt-6.3-sol available. Keeping the explicit model pin.
+relaunched pinned harness=codex from=codex model=gpt-6.1-sol effort=high backend=tmux endpoint=primary:fm-pinned worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/2/project
+RELAUNCH_EXIT=0
+
+Requests received from the real Codex client:
+{"path": "/v1/responses", "model": "gpt-6.2-sol"}
+{"path": "/v1/responses", "model": "gpt-6.2-sol"}
+{"path": "/v1/responses", "model": "gpt-6.3-sol"}
+{"path": "/v1/responses", "model": "gpt-6.3-sol"}
+{"path": "/v1/responses", "model": "gpt-6.1-sol"}
+{"path": "/v1/responses", "model": "gpt-6.1-sol"}
+{"path": "/v1/responses", "model": "gpt-6.1-sol"}
+{"path": "/v1/responses", "model": "gpt-6.1-sol"}
+
+Persisted state contracts:
+live-spawn.meta
+window=primary:fm-fresh3
+worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/1/project
+model=gpt-6.2-sol
+dispatch_override=effort routing override
+live-relaunch.meta
+window=primary:fm-fresh3
+worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/1/project
+model=gpt-6.3-sol
+dispatch_override=effort routing override
+live-pin-spawn.meta
+window=primary:fm-pinned
+worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/2/project
+model=gpt-6.1-sol
+keep_model=1
+live-pin-relaunch.meta
+window=primary:fm-pinned
+worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/2/project
+model=gpt-6.1-sol
+keep_model=1

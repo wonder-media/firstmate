@@ -1,0 +1,40 @@
+CLI: codex-cli 0.167.0
+Bundled listed models: ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]
+
+$ bash bin/fm-model-freshness.sh codex gpt-6-sol --launch bundled-sol upgrade
+stdout: gpt-6.1-sol
+stderr: Codex model for bundled-sol: gpt-6-sol -> gpt-6.1-sol for this launch.
+
+$ bash bin/fm-model-freshness.sh codex gpt-5-astra --launch bundled-astra upgrade
+stdout: gpt-6-astra
+stderr: Codex model for bundled-astra: gpt-5-astra -> gpt-6-astra for this launch.
+
+$ bash bin/fm-model-freshness.sh codex gpt-6.1-sol --launch fresh-higher-cache upgrade
+stdout: gpt-6.10-sol
+stderr: Codex model for fresh-higher-cache: gpt-6.1-sol -> gpt-6.10-sol for this launch.
+
+$ bash bin/fm-model-freshness.sh codex gpt-6.1-sol --launch explicit-pin advisory
+stdout: gpt-6.1-sol
+stderr: Codex model for explicit-pin: gpt-6.1-sol -> gpt-6.10-sol available. Keeping the explicit model pin.
+
+$ bash bin/fm-model-freshness.sh codex gpt-6-sol --launch stale upgrade
+stdout: gpt-6.1-sol
+stderr: Codex model for stale: gpt-6-sol -> gpt-6.1-sol for this launch. The Codex cache age is 848545851 seconds (maximum 604800). Compared the bundled catalog only.
+
+$ bash bin/fm-model-freshness.sh codex gpt-6-sol --launch undated upgrade
+stdout: gpt-6.1-sol
+stderr: Codex model for undated: gpt-6-sol -> gpt-6.1-sol for this launch. The Codex cache age is unknown seconds (maximum 604800). Compared the bundled catalog only.
+
+$ bash bin/fm-model-freshness.sh codex gpt-6-sol --launch missing upgrade
+stdout: gpt-6.1-sol
+stderr: Codex model for missing: gpt-6-sol -> gpt-6.1-sol for this launch. The Codex cache at {run-worktree}/.validation/codex/models_cache.json could not be read or parsed. Compared the bundled catalog only.
+
+$ bash bin/fm-model-freshness.sh codex gpt-6-sol --launch malformed upgrade
+stdout: gpt-6.1-sol
+stderr: Codex model for malformed: gpt-6-sol -> gpt-6.1-sol for this launch. The Codex cache at {run-worktree}/.validation/codex/models_cache.json could not be read or parsed. Compared the bundled catalog only.
+
+$ bash bin/fm-model-freshness.sh codex gpt-999-sol --launch no-downgrade upgrade
+stdout: gpt-999-sol
+stderr: 
+
+All real CLI comparisons met independently specified model and one-line notice expectations.

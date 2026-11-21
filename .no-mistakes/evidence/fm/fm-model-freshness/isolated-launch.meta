@@ -1,0 +1,12 @@
+window=primary:fm-fresh2
+endpoint_task_id=fresh2
+worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/1/project
+project={run-worktree}/.h/project
+harness=codex
+approval_mode=bypass
+kind=scout
+tasktmp=/tmp/fm-fresh2
+model=gpt-6.2-sol
+effort=high
+dispatch_override=effort routing override
+spawn_gen=s1795230704.77634.28769

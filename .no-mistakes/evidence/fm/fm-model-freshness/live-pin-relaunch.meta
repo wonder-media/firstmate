@@ -1,0 +1,13 @@
+window=primary:fm-pinned
+endpoint_task_id=pinned
+worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/2/project
+project={run-worktree}/.h/project
+harness=codex
+approval_mode=bypass
+kind=scout
+tasktmp=/tmp/fm-pinned
+model=gpt-6.1-sol
+effort=high
+keep_model=1
+spawn_gen=s1795230861.79529.23459
+control_relaunch_tx=74625.20261121T031420Z.19821

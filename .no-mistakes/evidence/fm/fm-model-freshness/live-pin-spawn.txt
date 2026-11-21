@@ -1,0 +1,6 @@
+scaffolded: {run-worktree}/.h/data/pinned/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.h
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+Codex model for pinned: gpt-6.1-sol -> gpt-6.3-sol available. Keeping the explicit model pin.
+spawned pinned harness=codex kind=scout window=primary:fm-pinned worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/2/project
+PIN_SPAWN_EXIT=0

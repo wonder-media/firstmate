@@ -1,0 +1,6 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.h
+Codex model for fresh3: gpt-6.2-sol -> gpt-6.3-sol for this launch.
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.h
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+relaunched fresh3 harness=codex from=codex model=gpt-6.3-sol effort=high backend=tmux endpoint=primary:fm-fresh3 worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/1/project
+RELAUNCH_EXIT=0

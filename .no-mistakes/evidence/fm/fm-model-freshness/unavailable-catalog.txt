@@ -1,0 +1,2 @@
+gpt-6.1-sol
+Model freshness for gpt-6.1-sol: The bundled Codex catalog could not be read. Keeping the configured model.

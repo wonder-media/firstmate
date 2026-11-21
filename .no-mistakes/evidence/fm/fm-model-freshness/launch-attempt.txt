@@ -1,0 +1,5 @@
+scaffolded: {run-worktree}/.h/data/freshness/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.h
+Codex model for freshness: gpt-6.1-sol -> gpt-6.2-sol for this launch.
+spawned freshness harness=codex kind=scout window=primary:fm-freshness worktree=~/.treehouse/project-3e9a14/1/project
+SPAWN_EXIT=0

@@ -1,0 +1,6 @@
+scaffolded: {run-worktree}/.h/data/fresh3/brief.md (scout; replace {TASK} and {FIRSTMATE_SPEC})
+fm-gate-refuse: gate agent lifecycle permitted only against lab home {run-worktree}/.h
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+Codex model for fresh3: gpt-6.1-sol -> gpt-6.2-sol for this launch.
+spawned fresh3 harness=codex kind=scout window=primary:fm-fresh3 worktree={run-worktree}/.h/pool/.treehouse/project-3e9a14/1/project
+SPAWN_EXIT=0
