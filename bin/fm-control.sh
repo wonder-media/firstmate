@@ -4,7 +4,7 @@
 #
 # Usage: fm-control.sh <task-id> interrupt
 #        fm-control.sh <task-id> exit
-#        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
+#        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>] [--keep-model]
 #                                         [--effort <level>] [--account <entry>]
 #                                         (--note <text> | --note-file <path>)
 #        fm-control.sh <task-id> dormant
@@ -298,6 +298,7 @@ NEW_EFFORT=
 NEW_ACCOUNT=
 HARNESS_SET=0
 MODEL_SET=0
+KEEP_MODEL=0
 EFFORT_SET=0
 ACCOUNT_SET=0
 NOTE=
@@ -326,6 +327,7 @@ for control_arg in "$@"; do
   case "$control_arg" in
     --harness) control_want_value=harness ;;
     --harness=*) NEW_HARNESS=${control_arg#--harness=}; HARNESS_SET=1 ;;
+    --keep-model) KEEP_MODEL=1 ;;
     --model) control_want_value=model ;;
     --model=*) NEW_MODEL=${control_arg#--model=}; MODEL_SET=1 ;;
     --effort) control_want_value=effort ;;
@@ -349,8 +351,8 @@ if [ -n "$control_want_value" ]; then
 fi
 
 if [ "$VERB" != relaunch ]; then
-  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$ACCOUNT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
-    || die "--harness, --model, --effort, --account, and --note apply to 'relaunch' only"
+  [ "$KEEP_MODEL" = 0 ] && [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$ACCOUNT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
+    || die "--harness, --model, --keep-model, --effort, --account, and --note apply to 'relaunch' only"
 fi
 [ "$ACCOUNT_SET" = 0 ] || [ -n "$NEW_ACCOUNT" ] || die "--account requires a non-empty value"
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
@@ -983,6 +985,7 @@ PRIOR_MODEL=
 PRIOR_EFFORT=
 TARGET_HARNESS=$HARNESS
 TARGET_MODEL=
+TARGET_DISPATCH_OVERRIDE=
 TARGET_EFFORT=
 TARGET_ACCOUNT=
 
@@ -1149,6 +1152,13 @@ resolve_relaunch_profile() {
     TARGET_MODEL=$PRIOR_MODEL
   else
     TARGET_MODEL=default
+  fi
+  if [ "$KIND" != secondmate ] && [ "$TARGET_HARNESS" = codex ]; then
+    local freshness_mode=upgrade
+    TARGET_DISPATCH_OVERRIDE=$(fm_meta_get "$META" dispatch_override)
+    [ "$(fm_meta_get "$META" keep_model)" != 1 ] || KEEP_MODEL=1
+    [ "$KEEP_MODEL" = 0 ] || freshness_mode=advisory
+    TARGET_MODEL=$("$SCRIPT_DIR/fm-model-freshness.sh" "$TARGET_HARNESS" "$TARGET_MODEL" --launch "$ID" "$freshness_mode")
   fi
   if [ "$EFFORT_SET" = 1 ]; then
     TARGET_EFFORT=$NEW_EFFORT
@@ -1369,6 +1379,8 @@ do_relaunch() {
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
   [ -z "$TARGET_ACCOUNT" ] || spawn_args+=(--account "$TARGET_ACCOUNT")
+  [ "$KEEP_MODEL" = 0 ] || spawn_args+=(--keep-model)
+  [ -z "$TARGET_DISPATCH_OVERRIDE" ] || spawn_args+=(--dispatch-override "$TARGET_DISPATCH_OVERRIDE")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1

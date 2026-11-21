@@ -786,6 +786,22 @@ ok - secondmate busy contract live guard checked every installed harness
 Pi's real parked pane classified `unknown launch-prompt`.
 That is the launch-prompt backstop: the same spawn's record classified `busy fm-spawn` for a non-prompt mid-turn tail, which is what the active-turn gate reads while a turn is in progress.
 
+## Codex model catalog
+
+Verified 2026-11-20 with codex-cli 0.167.0.
+The live guard checks that the reader finds installed Codex models with an empty current cache, and ignores higher-version cache entries with stale or absent timestamps.
+
+```text
+$ bash bin/fm-test-run.sh tests/fm-model-freshness-live-e2e.test.sh
+ok - codex-cli 0.167.0 bundled catalog resolved 4 model families with fresh, stale, and undated caches
+$ bash bin/fm-model-freshness.sh codex gpt-6.1-sol
+gpt-6.2-sol
+$ bash bin/fm-model-freshness.sh codex gpt-6-astra
+gpt-6.2-astra
+```
+
+The last two commands compare the operator's existing cache with the catalog bundled in the CLI.
+
 ## Codex hook trust
 
 Verified 2026-09-16 on codex-cli 0.151.0, macOS arm64, in a fresh linked worktree of this repository.

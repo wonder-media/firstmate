@@ -75,7 +75,7 @@ A relaunch does take one session reference when the endpoint's own runtime recor
 `relaunch` is the only verb that changes durable records, so it runs as a transaction with a journal at `state/<id>.control-relaunch`, the prior record preserved beside it, and a ship or scout's prior instructions preserved when a progress note is appended.
 
 1. **Resolve the profile.**
-   An explicit `--harness`, `--model`, or `--effort` wins.
+   An explicit `--harness`, `--model`, or `--effort` selects the initial replacement profile, subject to the [model freshness policy](configuration.md#crew-dispatch-profiles-configcrew-dispatchjson).
    Without an explicit harness, a `kind=secondmate` task re-resolves its [configured runtime pin for that mate](configuration.md#choose-the-secondmate-harness) before the checkpoint.
    A ship or scout keeps the harness already recorded for it, because that harness comes from firstmate's dispatch-profile judgment at intake and must not be silently re-read from configuration.
    A recorded raw-command basename that differs from its resolved adapter cannot reproduce the command actually running, so relaunch refuses before the checkpoint unless the caller passes an explicit `--harness` to choose the replacement runtime deliberately.
