@@ -1247,6 +1247,49 @@ test_same_harness_relaunch_keeps_the_profile_axes() {
   pass "fm-control relaunch: a same-harness relaunch keeps the profile axes it was running with"
 }
 
+test_codex_relaunch_checks_model_freshness() {
+  local dir out rc scenario expected id
+  local -a override
+  for scenario in upgrade override dispatch; do
+    id="rl-freshness-$scenario"
+    dir=$(new_case "codex-freshness-$scenario" "$id")
+    add_ship_task "$dir" "$id" codex
+    printf codex > "$dir/fake/command"
+    printf codex > "$dir/fake/becomes"
+    cat > "$dir/fakebin/codex" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'debug models --bundled' ] || exit 2
+printf '%s\n' '{"models":[]}'
+SH
+    chmod +x "$dir/fakebin/codex"
+    printf '%s\n' 'model=gpt-6.1-sol' >> "$dir/home/state/$id.meta"
+    mkdir -p "$dir/user-home/.codex"
+    jq -n '{fetched_at: (now | todateiso8601), models: [{slug:"gpt-6.2-sol",visibility:"list"}]}' > "$dir/user-home/.codex/models_cache.json"
+    if [ "$scenario" = dispatch ]; then
+      printf '%s\n' 'dispatch_override=effort routing override' >> "$dir/home/state/$id.meta"
+    fi
+    expected=gpt-6.2-sol
+    override=()
+    if [ "$scenario" = override ]; then
+      expected=gpt-6.1-sol
+      override=(--model "$expected" --keep-model)
+    fi
+
+    out=$(CODEX_HOME="$dir/user-home/.codex" run_control "$dir" "$id" relaunch --note 'Continue the task.' ${override[@]+"${override[@]}"}); rc=$?
+    expect_code 0 "$rc" "Codex relaunch should succeed: $out"
+    [ "$(meta_field "$dir" "$id" model)" = "$expected" ] || fail "relaunch recorded the wrong model in $scenario"
+    assert_contains "$out" "Codex model for $id: gpt-6.1-sol -> gpt-6.2-sol" "relaunch omitted the freshness notice"
+    assert_contains "$out" "model=$expected" "relaunch summary omitted the effective model"
+    if [ "$scenario" = override ]; then
+      out=$(CODEX_HOME="$dir/user-home/.codex" run_control "$dir" "$id" relaunch --note 'Continue again.'); rc=$?
+      expect_code 0 "$rc" "Codex relaunch with a recorded override should succeed: $out"
+      [ "$(meta_field "$dir" "$id" model)" = "$expected" ] || fail "relaunch replaced a recorded model override"
+      assert_contains "$out" "Keeping the explicit model pin." "relaunch omitted the override advisory"
+    fi
+  done
+  pass "fm-control relaunch: Codex refreshes the model while preserving explicit overrides across replacements"
+}
+
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop() {
   local dir out rc id=rl-ultra
   dir=$(new_case native-ultra "$id")
@@ -3516,6 +3559,7 @@ test_harness_switch_does_not_carry_the_old_profile_axes
 test_harness_switch_resolves_a_prefixed_recorded_harness
 test_prefixed_recorded_harness_requires_explicit_replacement
 test_same_harness_relaunch_keeps_the_profile_axes
+test_codex_relaunch_checks_model_freshness
 test_native_ultra_relaunch_preserves_profile_and_rejects_before_stop
 test_signed_out_worker_account_pin_refuses_before_stop
 test_worker_account_pin_follows_the_relaunch
