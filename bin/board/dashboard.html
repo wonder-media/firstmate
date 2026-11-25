@@ -10,10 +10,27 @@
 *{box-sizing:border-box}body{margin:0}main{max-width:1280px;margin:auto;padding:32px 24px 64px}h1{font-size:24px;margin:0 0 8px}h2{font-size:24px;margin:0}h3{font-size:19px;margin:8px 0;line-height:1.4}p{margin:8px 0}button,input,textarea{font:inherit;color:inherit}button,a,input,textarea{touch-action:manipulation}button{cursor:pointer;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:8px 16px;min-height:44px}button:hover:not(:disabled){border-color:var(--dim)}button:disabled{opacity:.55;cursor:default}button.discard{color:#ffb4b1;border-color:#6e3634}a{color:var(--tx);text-underline-offset:4px}a:hover{color:var(--dim)}:focus-visible{outline:2px solid var(--tx);outline-offset:4px}header{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;flex-wrap:wrap}.meta{font-size:13px;color:var(--dim)}.status{display:inline-flex;align-items:center;gap:8px}.dot{width:8px;height:8px;border-radius:50%;background:var(--amb);flex-shrink:0}.green{background:var(--grn)}.red{background:var(--red)}.connection{text-align:right}.connection p{margin:0}.notice{padding:8px 0;color:var(--dim)}.error{color:var(--red)}nav{margin:24px 0;display:flex;gap:8px;overflow-x:auto;padding:4px;scrollbar-width:thin}nav button{white-space:nowrap;flex:0 0 auto;border-radius:24px}nav button[aria-selected=true]{background:var(--tx);color:var(--bg);border-color:var(--tx)}.band-links{display:flex;gap:24px;flex-wrap:wrap;font-size:13px;margin-bottom:24px}.band{margin:32px 0;scroll-margin-top:16px}.band-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.count{font-size:13px;color:var(--dim);white-space:nowrap}.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}.card{min-width:0;padding:24px;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow-wrap:anywhere}.card.waiting{border-top:3px solid var(--red)}.card.running{border-left:3px solid var(--dim)}.card.built{border-left:3px solid var(--amb)}.card.failed{border-top:3px solid var(--red)}.badge{display:inline-block;font-size:13px;padding:0 8px;border:1px solid var(--line);border-radius:4px}.card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}.consequence{color:var(--dim);font-size:14px;font-weight:400}.options-needed{color:var(--amb);font-size:13px}.options{border:0;padding:0;margin:16px 0}.options legend{font-size:13px;color:var(--dim);margin-bottom:8px}.option{display:flex;gap:8px;align-items:flex-start;padding:8px;min-height:44px;border:1px solid var(--line);border-radius:8px;margin:8px 0;cursor:pointer}.option input{width:18px;height:18px;margin:4px 0;flex:0 0 auto;accent-color:var(--tx)}.option:has(input:checked){border-color:var(--tx)}.option span{min-width:0}.recommend{display:block;font-size:13px;color:var(--dim);margin-top:4px}.recommend strong{color:var(--tx)}.note-label{display:block;font-size:13px;color:var(--dim);margin-top:8px}textarea{display:block;width:100%;min-height:44px;height:44px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);resize:vertical;line-height:26px;transition:height .12s}textarea:focus{height:104px}.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:16px}.lifecycle-status{width:100%;font-size:13px;color:var(--dim);margin:0}.lifecycle-status.error{color:var(--red)}.confirm{width:100%;text-align:left}.draft-warning,.answer-status{font-size:13px;margin-top:8px}.draft-warning{color:var(--amb)}.empty{padding:24px;border:1px dashed var(--line);border-radius:12px;color:var(--dim)}.batch{margin:24px 0}.batch button{font-weight:600}.drawer{margin-top:24px}.drawer summary{cursor:pointer;min-height:44px;padding:8px 0}.hidden,[hidden]{display:none!important}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.time{white-space:nowrap}footer{font-size:13px;color:var(--dim);margin-top:32px}.hotkeys{line-height:2}kbd{padding:2px 4px;border:1px solid var(--line);border-radius:4px;font:inherit}
 @media(max-width:640px){main{padding:24px 16px 48px}.cards{grid-template-columns:minmax(0,1fr)}.card{padding:16px}header{gap:16px}.connection{text-align:left}.band-head{align-items:flex-start}nav{margin:16px 0}.band-links{gap:16px}.actions button{width:100%}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;scroll-behavior:auto!important}}
+.hubnav{position:sticky;top:0;z-index:5;display:flex;gap:8px;margin:-16px 0 16px;padding:12px 4px;background:var(--bg);border-bottom:1px solid var(--line);overflow-x:auto}
+.hubnav a{white-space:nowrap;flex:0 0 auto;padding:4px 16px;border:1px solid var(--line);border-radius:24px;color:var(--tx);text-decoration:none;background:var(--panel)}
+.hubnav a[aria-current=page]{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.hubnav .tab-count{margin-left:8px;font-size:13px;opacity:.8}
+.stats{display:flex;gap:16px;flex-wrap:wrap;margin:16px 0}.stat{padding:12px 16px;background:var(--panel);border:1px solid var(--line);border-radius:12px}.stat b{display:block;font-size:24px}.stat span{font-size:13px;color:var(--dim)}
+.hub h2{margin:32px 0 8px}.hub h2:first-child{margin-top:0}.hub .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}
+.hub table{width:100%;border-collapse:collapse;font-size:14px}.hub th,.hub td{padding:8px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}.hub th{color:var(--dim);font-weight:600;white-space:nowrap}.hub tr:last-child td{border-bottom:0}
+.hub .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}.hub .dim{color:var(--dim)}
+.pill{display:inline-block;font-size:13px;padding:0 8px;border-radius:12px;border:1px solid var(--line)}.pill.up,.pill.live,.pill.ok{border-color:var(--grn);color:var(--grn)}.pill.down,.pill.critical{border-color:var(--red);color:var(--red)}.pill.warn,.pill.warning,.pill.dormant,.pill.checking{border-color:var(--amb);color:var(--amb)}
+.attention{margin:8px 0;padding:0;list-style:none}.attention li{padding:8px 12px;margin:4px 0;border-left:4px solid var(--amb);background:var(--panel);border-radius:4px}.attention li.critical{border-color:var(--red)}
+.quota-grid td:first-child,.quota-grid td:nth-child(2){white-space:nowrap}.quota-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px}.bar{position:relative;height:20px;background:#0b0e13;border:1px solid var(--line);border-radius:4px;overflow:hidden}.bar .fill{display:block;height:100%;background:var(--grn)}.bar .fill.warn{background:var(--amb)}.bar .fill.crit{background:var(--red)}.bar b{position:absolute;inset:0;padding:0 8px;font-size:12px;line-height:18px}
+.wline{display:grid;grid-template-columns:110px 1fr;gap:8px;align-items:center;margin:8px 0;font-size:14px}.wline small{grid-column:2;color:var(--dim)}
+.links-group{margin:0 0 32px}.linkcard{display:block;color:var(--tx);text-decoration:none}.linkcard:hover,.linkcard:focus-visible{border-color:var(--tx)}.linkcard h3{margin:0 0 4px}
+.hub details{margin:16px 0}.hub summary{cursor:pointer;color:var(--dim)}
+@media(max-width:640px){.quota-grid{grid-template-columns:minmax(0,1fr)}}
 </style>
 </head>
 <body>
 <main>
+<nav class="hubnav" id="hubnav" aria-label="Bridge sections"><a href="#decisions" data-tab="decisions">Decisions<span class="tab-count" id="tab-count"></span></a><a href="#fleet" data-tab="fleet">Fleet &amp; models</a><a href="#dashboards" data-tab="dashboards">Dashboards</a></nav>
+<div id="tab-decisions">
 <header><div><h1>Bridge</h1><p class="meta">Waiting on you <span aria-hidden="true">/</span> <span id="waiting-summary">Connecting to the fleet</span></p></div><div class="connection"><p class="status"><span class="dot" id="connection-dot" aria-hidden="true"></span><span id="connection-text">Connecting</span></p><p class="meta" id="freshness">Fleet not checked yet</p><p class="meta error" id="answer-health" hidden></p><p class="meta">GitHub: Not connected yet</p></div></header>
 <p class="notice" id="notice" role="status">Loading fleet state…</p><p class="meta" id="home-freshness"></p>
 <nav id="projects" role="tablist" aria-label="Filter project"></nav>
@@ -23,6 +40,9 @@
 <section class="band" id="archive" aria-labelledby="archive-title"><div class="band-head"><h2 id="archive-title">Archive</h2><span class="count" id="archive-count"></span></div><div class="cards" id="archive-cards"></div><p class="empty" id="archive-empty" hidden>No held work in the Archive.</p></section>
 <section class="band" id="published" aria-labelledby="published-title"><div class="band-head"><h2 id="published-title">Published</h2><span class="count" id="published-count"></span></div><div class="empty"><strong>Not connected yet</strong><p id="published-empty">No verified live change today.</p></div></section>
 <footer><details><summary>Keyboard shortcuts</summary><p class="hotkeys"><kbd>j</kbd> / <kbd>k</kbd> next / previous card · <kbd>1</kbd>–<kbd>9</kbd> select option · <kbd>n</kbd> note · <kbd>Enter</kbd> confirm · <kbd>u</kbd> undo. Arrow keys switch project chips.</p></details></footer>
+</div>
+<section class="hub" id="tab-fleet" aria-labelledby="fleet-title" hidden><h2 id="fleet-title">Fleet &amp; models</h2><p class="meta" id="fleet-meta">Loading the fleet…</p><div id="fleet-body"></div></section>
+<section class="hub" id="tab-dashboards" aria-labelledby="dashboards-title" hidden><h2 id="dashboards-title">Dashboards</h2><p class="meta" id="dashboards-meta">Loading dashboards…</p><div id="dashboards-body"></div></section>
 <div class="sr-only" role="status" aria-live="polite" id="announcer"></div>
 </main>
 <script>
@@ -81,10 +101,114 @@ async function action(d,kind,note=''){if(kind==='correction'&&!note.trim()){anno
 $('submit-drafted').addEventListener('click',()=>submit(activeDecisions()));
 async function connect(){if(stream)stream.abort();const controller=new AbortController();stream=controller;try{const response=await fetch('/events',{headers:headers(),signal:controller.signal});if(!response.ok)throw new Error('connection refused');fallback=false;const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';while(!controller.signal.aborted){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});let split;while((split=buffer.indexOf('\n\n'))>=0){const event=buffer.slice(0,split);buffer=buffer.slice(split+2);if(event.includes('event: changed')||event.includes('event: heartbeat')){lastHeartbeat=Date.now();fallback=false;const line=event.split('\n').find(l=>l.startsWith('data: '));if(line&&state){try{const pulse=JSON.parse(line.slice(6));if(pulse.homes)state.homes=pulse.homes;if('answers_armed' in pulse)state.answers_armed=pulse.answers_armed;if('answers_error' in pulse)state.answers_error=pulse.answers_error}catch{}}connection();if(event.includes('event: changed'))await refresh();else if(state)connection()}}}if(!controller.signal.aborted)throw new Error('connection closed')}catch(e){if(controller.signal.aborted)return;fallback=true;$('notice').textContent=state?'Disconnected, showing last known state.':'Connecting to fleet state…';connection();clearTimeout(retryTimer);retryTimer=setTimeout(connect,5000)}}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastHeartbeat>25000){refresh(true);connect();flush()}});
-document.addEventListener('keydown',e=>{const editing=/INPUT|TEXTAREA/.test(e.target.tagName);if(editing)return;const nodes=[...$('decision-cards').children].filter(n=>!n.hidden);let node=e.target.closest('.card'),index=nodes.indexOf(node);if(['j','k'].includes(e.key)&&nodes.length){e.preventDefault();nodes[(index+(e.key==='j'?1:-1)+nodes.length)%nodes.length].focus();return}if(!node?.data?.decision_key)return;if(/^[1-9]$/.test(e.key)){const radio=node.querySelectorAll('input[type=radio]')[Number(e.key)-1];if(radio&&!radio.disabled&&!radio.closest('fieldset').disabled){e.preventDefault();radio.click()}}if(e.key==='n'){e.preventDefault();node.querySelector('textarea').focus()}if(e.key==='Enter'&&e.target===node){e.preventDefault();node.querySelector('.confirm:not([hidden])')?.click()}if(e.key==='u'){e.preventDefault();node.querySelector('.undo:not([hidden])')?.click()}});
+document.addEventListener('keydown',e=>{const editing=/INPUT|TEXTAREA/.test(e.target.tagName);if(editing||hubTab!=='decisions')return;const nodes=[...$('decision-cards').children].filter(n=>!n.hidden);let node=e.target.closest('.card'),index=nodes.indexOf(node);if(['j','k'].includes(e.key)&&nodes.length){e.preventDefault();nodes[(index+(e.key==='j'?1:-1)+nodes.length)%nodes.length].focus();return}if(!node?.data?.decision_key)return;if(/^[1-9]$/.test(e.key)){const radio=node.querySelectorAll('input[type=radio]')[Number(e.key)-1];if(radio&&!radio.disabled&&!radio.closest('fieldset').disabled){e.preventDefault();radio.click()}}if(e.key==='n'){e.preventDefault();node.querySelector('textarea').focus()}if(e.key==='Enter'&&e.target===node){e.preventDefault();node.querySelector('.confirm:not([hidden])')?.click()}if(e.key==='u'){e.preventDefault();node.querySelector('.undo:not([hidden])')?.click()}});
 setInterval(()=>{connection();for(const node of cards.values()){const d=node.data;if(d.answer&&d.state==='queued'){const remaining=Math.ceil(d.answer.ready_at-Date.now()/1000);const undo=node.querySelector('.undo');undo.textContent='Undo ('+Math.max(0,remaining)+' s)';undo.disabled=remaining<=0}}for(const group of [cards,taskCards,archiveCards])for(const node of group.values()){const l=node.data.lifecycle;if(l?.pending_action&&l.request_state==='queued'){const remaining=Math.ceil(l.ready_at-Date.now()/1000),undo=node.querySelector('.lifecycle-undo');undo.textContent='Undo ('+Math.max(0,remaining)+' s)';undo.disabled=remaining<=0}}},1000);
 setInterval(()=>{if(fallback)refresh();if(pending.length)flush()},10000);
 refresh(true);connect();flush();
+</script>
+<script>
+'use strict';
+const hubTabs=['decisions','fleet','dashboards'];
+let hubTab='decisions',fleetLoading=false,dashboardsLoading=false;
+function tabFromHash(){const h=location.hash.replace(/^#\/?/,'');return h==='fleet'||h==='dashboards'?h:'decisions'}
+function showTab(){
+ const next=tabFromHash(),changed=next!==hubTab;hubTab=next;
+ for(const t of hubTabs)$('tab-'+t).hidden=t!==next;
+ for(const a of $('hubnav').children){if(a.dataset.tab===next)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')}
+ document.title=next==='fleet'?'Fleet & models - Bridge':next==='dashboards'?'Dashboards - Bridge':'Bridge';
+ if(next==='fleet')loadFleet();
+ if(next==='dashboards')loadDashboards();
+ if(next==='decisions'){const band=location.hash.slice(1),node=band&&document.getElementById(band);if(node)node.scrollIntoView();else if(changed)window.scrollTo(0,0)}
+ else if(changed)window.scrollTo(0,0);
+}
+function ageText(s){if(s===null||s===undefined)return '-';return s<60?s+' s':s<3600?Math.floor(s/60)+' m':s<86400?Math.floor(s/3600)+' h':Math.floor(s/86400)+' d'}
+function timeText(iso){if(!iso)return '-';const d=new Date(iso);return isNaN(d)?iso:d.toLocaleString([],{weekday:'short',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})}
+function runtimeText(r){return [r.harness,r.model,r.effort].filter(Boolean).join(' · ')||'-'}
+function pill(text,cls){return el('span','pill '+(cls||''),text)}
+function cell(content,cls){const td=el('td',cls||'');if(content instanceof Node)td.append(content);else td.textContent=content===null||content===undefined||content===''?'-':String(content);return td}
+function table(heads,rows,empty){
+ if(!rows.length)return el('p','empty',empty);
+ const wrap=el('div','tablewrap'),t=el('table'),thead=el('thead'),hr=el('tr');
+ for(const h of heads)hr.append(el('th','',h));
+ thead.append(hr);t.append(thead);const body=el('tbody');
+ for(const r of rows){const tr=el('tr');for(const c of r)tr.append(c instanceof HTMLTableCellElement?c:cell(c));body.append(tr)}
+ t.append(body);wrap.append(t);return wrap;
+}
+function candidateList(list){const box=el('div');if(!list.length)box.textContent='-';for(const c of list)box.append(el('div','mono',runtimeText(c)));return box}
+function tone(pct){return pct===null||pct===undefined?'':pct<=15?'crit':pct<=40?'warn':''}
+function quotaBar(pct){const bar=el('div','bar'),fill=el('span','fill '+tone(pct)),label=el('b','',pct===null||pct===undefined?'unknown':Math.round(pct)+'%');fill.style.width=Math.max(0,Math.min(100,pct||0))+'%';bar.append(fill,label);return bar}
+function stat(value,label){const s=el('div','stat');s.append(el('b','',String(value)),el('span','',label));return s}
+function providerCard(p){
+ const card=el('article','card'),head=el('div','card-head');
+ head.append(el('span','badge',p.provider));if(p.plan)head.append(el('span','meta',p.plan));if(p.stale)head.append(pill('stale','warn'));
+ card.append(head);
+ for(const w of p.windows){const line=el('div','wline');line.append(el('span','',w.label),quotaBar(w.percent_remaining));line.append(el('small','','resets '+timeText(w.resets_at)+(w.pace?' · pace '+w.pace:'')));card.append(line)}
+ if(p.scopes.length)card.append(table(['Scope','Left','Spend priority','Runway','Limited by'],p.scopes.map(s=>[s.scope,s.percent_remaining===null?'unknown':Math.round(s.percent_remaining)+'%',s.spend_priority===null?'-':s.spend_priority.toFixed(2),s.runway==='projected_exhaustion'?'runs out '+timeText(s.projected_exhausted_at):(s.runway||'-').replaceAll('_',' '),s.limiting.join(', ')]),''));
+ if(p.credits)card.append(el('p','meta','Credits: '+(p.credits.unlimited?'unlimited':(p.credits.remaining??'unknown')+' '+p.credits.unit)));
+ return card;
+}
+function renderFleet(data){
+ const body=$('fleet-body'),r=data.records,q=data.quota;body.replaceChildren();
+ const live=r.second_mates.filter(m=>m.state==='live').length,fresh=q.providers.filter(p=>p.status==='fresh'),stats=el('div','stats');
+ stats.append(stat(live+' of '+r.second_mates.length,'second mates live'),stat(r.workers.filter(w=>w.state==='live').length+' of '+r.workers.length,'workers confirmed live'),stat(fresh.length+' of '+q.providers.length,'providers reporting quota'),stat(q.attention.length,'quota attention items'));
+ body.append(stats);
+ if(q.attention.length){const ul=el('ul','attention');for(const a of q.attention)ul.append(el('li',a.level,a.message));body.append(ul)}
+ body.append(el('h2','','Second mates'));
+ body.append(table(['Name','Scope','State','Runtime','Projects'],r.second_mates.map(m=>[cell(m.id,'mono'),m.scope,cell(pill(m.state,m.state)),cell(runtimeText(m),'mono'),(m.projects||[]).join(', ')]),'No second mates are registered.'));
+ body.append(el('h2','','Workers'));
+ body.append(table(['Task','Project','State','Kind','Runtime','Age','Last update'],r.workers.map(w=>[cell(w.id,'mono'),w.project,cell(pill(w.state,w.state)),[w.kind,w.mode].filter(Boolean).join(' · '),cell(runtimeText(w),'mono'),ageText(w.age_s),w.last_report?w.last_report+' ('+ageText(w.last_report_age_s)+' ago)':'-']),'No workers are recorded.'));
+ body.append(el('h2','','Quota and availability'));
+ if(q.error)body.append(el('p','meta error','Quota refresh failed ('+q.error+'). '+(q.fetched_at?'Showing the last good reading.':'No reading is available yet.')));
+ const grid=el('div','quota-grid');for(const p of fresh)grid.append(providerCard(p));
+ if(fresh.length)body.append(grid);else if(!q.error)body.append(el('p','empty',q.refreshing?'Reading quota…':'No provider is reporting quota.'));
+ const down=q.providers.filter(p=>p.status!=='fresh');
+ if(down.length){const d=el('details');d.append(el('summary','','Not reporting ('+down.length+')'));d.append(table(['Provider','Status','Detail'],down.map(p=>[p.provider,cell(pill(p.status.replaceAll('_',' '),p.status==='auth_required'?'':'warn')),p.error||'']),''));body.append(d)}
+ body.append(el('h2','','Routing rules'));
+ body.append(table(['Work class','Candidate profiles, in order'],r.routing.rules.map(x=>{const c=el('td');c.append(candidateList(x.use));if(x.why)c.append(el('p','meta',x.why));return [x.when,c]}).concat(r.routing.default.length?[[cell('Default (no rule matches)','dim'),(()=>{const c=el('td');c.append(candidateList(r.routing.default));return c})()]]:[]),'No routing rules are configured.'));
+ body.append(el('h2','','Council'));
+ body.append(table(['Seat','Standing','Candidate profiles'],r.council.seats.map(s=>[s.seat,s.standing?'yes':'on request',(()=>{const c=el('td');c.append(candidateList(s.use));return c})()]),'No council is configured.'));
+ const extra=[];if(r.council.advisory_model)extra.push('Advisory voice: '+r.council.advisory_model);for(const [k,v] of Object.entries(r.council.caps))extra.push(k.replaceAll('_',' ')+': '+v);
+ if(extra.length)body.append(el('p','meta',extra.join(' · ')));
+ $('fleet-meta').textContent='Updated '+timeText(data.generated_at)+(q.fetched_at?' · quota read '+ageText(q.age_s)+' ago, refreshed about every 5 minutes':'');
+}
+async function loadFleet(){
+ if(fleetLoading)return;fleetLoading=true;
+ try{
+  const response=await fetch('/api/fleet',{headers:headers()});
+  if(!response.ok)throw new Error(response.status===403?'Open your private dashboard bookmark to connect.':'Fleet data could not be loaded.');
+  renderFleet(await response.json());
+ }catch(e){$('fleet-meta').textContent=e.message}
+ finally{fleetLoading=false}
+}
+function linkCard(l){
+ const card=el('a','card linkcard'),head=el('div','card-head');
+ card.href=l.url;card.target='_blank';card.rel='noopener noreferrer';
+ head.append(pill(l.status==='up'?'Up':l.status==='down'?'Down':l.status==='checking'?'Checking':'Not checked',l.status));
+ card.append(head,el('h3','',l.title));if(l.description)card.append(el('p','consequence',l.description));
+ card.append(el('p','meta mono',l.url));return card;
+}
+function renderDashboards(data){
+ const body=$('dashboards-body');body.replaceChildren();
+ if(!data.links.length){body.append(el('p','empty','No dashboards are configured. Add a links list to this home\'s config/board.json.'));$('dashboards-meta').textContent='';return}
+ const groups=new Map();
+ for(const l of data.links){const g=l.group||'Other';if(!groups.has(g))groups.set(g,[]);groups.get(g).push(l)}
+ for(const [name,list] of groups){const section=el('div','links-group');if(groups.size>1||name!=='Other')section.append(el('h3','',name));const grid=el('div','cards');for(const l of list)grid.append(linkCard(l));section.append(grid);body.append(section)}
+ $('dashboards-meta').textContent=data.checked_at?'Status checked '+timeText(data.checked_at)+'. Links open in a new tab.':'Checking each local dashboard…';
+}
+async function loadDashboards(){
+ if(dashboardsLoading)return;dashboardsLoading=true;
+ try{
+  const response=await fetch('/api/dashboards',{headers:headers()});
+  if(!response.ok)throw new Error(response.status===403?'Open your private dashboard bookmark to connect.':'Dashboards could not be loaded.');
+  const data=await response.json();renderDashboards(data);if(data.links.some(l=>l.status==='checking'))setTimeout(loadDashboards,1500);
+ }catch(e){$('dashboards-meta').textContent=e.message}
+ finally{dashboardsLoading=false}
+}
+new MutationObserver(()=>{const text=$('waiting-count').textContent,n=parseInt(text,10);$('tab-count').textContent=n>0?String(n):''}).observe($('waiting-count'),{childList:true,characterData:true,subtree:true});
+window.addEventListener('hashchange',showTab);
+setInterval(()=>{if(document.visibilityState!=='visible')return;if(hubTab==='fleet')loadFleet();if(hubTab==='dashboards')loadDashboards()},30000);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(hubTab==='fleet')loadFleet();if(hubTab==='dashboards')loadDashboards()}});
+showTab();
 </script>
 </body>
 </html>

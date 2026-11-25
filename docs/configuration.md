@@ -3889,4 +3889,23 @@ The optional `stale_after_s` value sets how old a home's last successful ingest 
 The [`launchd example`](../bin/board/com.wondermedia.firstmate-board.plist.example) requires absolute paths to Python 3.14 and the home, with `state/logs/` created before loading it.
 The bookmark carries `?k=<secret>` once; the page stores it locally and immediately removes it from the URL.
 Plain HTTP is supported only on the trusted private LAN.
+
+Bridge is a tabbed hub with a persistent top-level navigation whose tabs are deep-linkable hash routes: `#decisions` (the default decision board, unchanged), `#fleet`, and `#dashboards`.
+The Fleet & models tab shows second mates with scope and observed state, workers with observed state, harness, model, effort, and age, the routing rules from `config/crew-dispatch.json`, council seats from `config/council.json`, and quota windows, spend priority, runway, and attention items from `quota-axi`.
+It replaces the static Fleet Roster view with cached fleet and quota data; stopped and unknown workers remain visible alongside confirmed live workers.
+The [`hub.py`](../bin/board/hub.py) header owns data sources, observed-state classification, refresh triggers and intervals, quota failure handling, and fleet-data redaction.
+The Dashboards tab is a links directory read from the optional `links` list in `config/board.json`.
+Each entry takes `title` and `url` (required), `description`, and `group`; `url` must be absolute `http` or `https` without credentials, at most 100 links are accepted, and any other key is refused at startup.
+Opening Dashboards requests background health checks for local links and shows their cached status; the [`hub.py`](../bin/board/hub.py) header owns probe eligibility and timing.
+Link fields, including URLs, are visible to authenticated dashboard viewers as configured; they do not receive fleet-data redaction.
+Keep private URLs in the home's untracked `config/board.json`, never in tracked files.
+
+```json
+"links": [
+  {"title": "Review sessions", "url": "http://192.168.0.10:4387/", "description": "Lavish review pages", "group": "Local tools"},
+  {"title": "Project board", "url": "https://github.com/orgs/EXAMPLE/projects/1", "group": "Hosted"}
+]
+```
+
+The tabs use the authenticated hub routes documented in the [`bin/fm-board.py`](../bin/fm-board.py) header.
 Answers the daemon cannot route itself wake firstmate through a self-announcing `board-answers` process-event source; the [`process-event-sources`](../.agents/skills/process-event-sources/SKILL.md) skill owns handling that wake.
