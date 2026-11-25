@@ -1,0 +1,174 @@
+{
+  "generated_at": "2026-11-25T19:08:46+00:00",
+  "records": {
+    "second_mates": [
+      {
+        "id": "design",
+        "scope": "Owns design reviews",
+        "state": "unknown",
+        "projects": [],
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "tmux"
+      },
+      {
+        "id": "dormant",
+        "scope": "Sleeping scope",
+        "state": "dormant",
+        "projects": [],
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "tmux"
+      }
+    ],
+    "workers": [
+      {
+        "id": "parked-worker",
+        "home": "Lab",
+        "state": "stopped",
+        "project": "example",
+        "kind": "ship",
+        "mode": "",
+        "yolo": "",
+        "age_s": 6,
+        "last_report": null,
+        "last_report_age_s": null,
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "tmux"
+      },
+      {
+        "id": "unknown-worker",
+        "home": "Lab",
+        "state": "stopped",
+        "project": "example",
+        "kind": "ship",
+        "mode": "",
+        "yolo": "",
+        "age_s": 6,
+        "last_report": null,
+        "last_report_age_s": null,
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "unsupported"
+      }
+    ],
+    "routing": {
+      "rules": [
+        {
+          "when": "design review",
+          "why": "Review designs; contact [email] in [path]",
+          "use": [
+            {
+              "harness": "codex",
+              "model": "design-model",
+              "effort": "high"
+            }
+          ]
+        },
+        {
+          "when": "council architect seat",
+          "why": "",
+          "use": [
+            {
+              "harness": "claude",
+              "model": "wrong-model"
+            }
+          ]
+        }
+      ],
+      "default": [
+        {
+          "harness": "codex",
+          "model": "default-model"
+        }
+      ]
+    },
+    "council": {
+      "seats": [
+        {
+          "seat": "architect",
+          "standing": true,
+          "use": [
+            {
+              "harness": "codex",
+              "model": "design-model",
+              "effort": "high"
+            }
+          ]
+        },
+        {
+          "seat": "critic",
+          "standing": false,
+          "use": []
+        }
+      ],
+      "advisory_model": null,
+      "caps": {}
+    }
+  },
+  "records_age_s": 0,
+  "quota": {
+    "providers": [
+      {
+        "provider": "zai",
+        "plan": "lab-plan",
+        "status": "fresh",
+        "stale": false,
+        "error": null,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "five_hour",
+            "label": "session",
+            "kind": "session",
+            "percent_remaining": 75,
+            "resets_at": "2026-11-25T20:08:40.377Z",
+            "pace": "behind"
+          },
+          {
+            "id": "weekly",
+            "label": "week",
+            "kind": "weekly",
+            "percent_remaining": 12,
+            "resets_at": "2026-11-26T19:08:40.377Z",
+            "pace": "ahead"
+          }
+        ],
+        "scopes": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "percent_remaining": 12,
+            "spend_priority": -0.082,
+            "runway": "projected_exhaustion",
+            "projected_exhausted_at": "2026-11-26T14:46:51.290Z",
+            "limiting": [
+              "weekly"
+            ]
+          }
+        ]
+      }
+    ],
+    "attention": [
+      {
+        "provider": "zai",
+        "level": "critical",
+        "message": "zai all_models projected to run out at 2026-11-26T14:46:51.290Z"
+      },
+      {
+        "provider": "zai",
+        "level": "critical",
+        "message": "zai week has 12% left"
+      }
+    ],
+    "fetched_at": "2026-11-25T19:08:40+00:00",
+    "age_s": 5,
+    "error": null,
+    "refreshing": false
+  }
+}

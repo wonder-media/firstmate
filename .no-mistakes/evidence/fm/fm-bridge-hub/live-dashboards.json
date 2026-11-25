@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-11-25T19:08:49+00:00",
+  "checked_at": "2026-11-25T19:08:46+00:00",
+  "links": [
+    {
+      "title": "Local Bridge",
+      "url": "http://127.0.0.1:59534/",
+      "description": "",
+      "group": "Local",
+      "status": "up"
+    },
+    {
+      "title": "Stopped dashboard",
+      "url": "http://127.0.0.1:59535/",
+      "description": "",
+      "group": "Local",
+      "status": "down"
+    },
+    {
+      "title": "External directory",
+      "url": "https://example.invalid/dashboard",
+      "description": "",
+      "group": "External",
+      "status": "unchecked"
+    }
+  ]
+}

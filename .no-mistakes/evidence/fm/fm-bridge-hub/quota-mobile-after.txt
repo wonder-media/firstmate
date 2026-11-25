@@ -1,0 +1,3 @@
+result: "{\"viewport\":390,\"documentWidth\":390,\"cardWidth\":358,\"cardRight\":374}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state

@@ -1,0 +1,3 @@
+API guards, stopped/unknown/dormant fleet, council mapping, redaction, links and cache passed
+Waiting for real five-minute quota refresh failure
+Real 300-second refresh retained last good quota and disclosed failure; repeated requests did not retry

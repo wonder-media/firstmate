@@ -1,0 +1,8 @@
+{
+  "daemon_exit": 0,
+  "api_driver_exit": 0,
+  "regression_retry_exit": 0,
+  "browser": "stopped",
+  "remaining_fixture_processes": [],
+  "git_status": ""
+}

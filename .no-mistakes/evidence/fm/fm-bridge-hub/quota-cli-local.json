@@ -1,0 +1,79 @@
+{
+  "generatedAt": "2026-11-25T19:08:25.627Z",
+  "schemaVersion": 5,
+  "providers": [
+    {
+      "provider": "zai",
+      "plan": "lab-plan",
+      "windows": [
+        {
+          "id": "five_hour",
+          "label": "session",
+          "kind": "session",
+          "percentRemaining": 75,
+          "resetsAt": "2026-11-25T20:08:25.624Z",
+          "pace": {
+            "status": "behind",
+            "reservePercentPoints": 55,
+            "burnMultiple": 0.3125
+          }
+        },
+        {
+          "id": "weekly",
+          "label": "week",
+          "kind": "weekly",
+          "percentRemaining": 12,
+          "resetsAt": "2026-11-26T19:08:25.624Z",
+          "pace": {
+            "status": "ahead",
+            "reservePercentPoints": -2.2857,
+            "burnMultiple": 1.0267
+          }
+        }
+      ],
+      "state": {
+        "status": "fresh",
+        "stale": false
+      },
+      "quotaSemantics": {
+        "status": "known",
+        "effectiveAvailability": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "effectivePercentRemaining": 12,
+            "boundedBy": [
+              "five_hour",
+              "weekly"
+            ],
+            "limitingWindowIds": [
+              "weekly"
+            ],
+            "pace": {
+              "status": "mixed",
+              "aheadWindowIds": [
+                "weekly"
+              ],
+              "worstReservePercentPoints": -2.2857,
+              "worstReserveWindowId": "weekly"
+            },
+            "runway": {
+              "status": "projected_exhaustion",
+              "usableRunwaySeconds": 70691,
+              "projectedExhaustedAt": "2026-11-26T14:46:36.536Z",
+              "limitingWindowId": "weekly",
+              "projectionConfidence": "established"
+            },
+            "selection": {
+              "status": "known",
+              "spendPriority": -0.082
+            }
+          }
+        ]
+      },
+      "accountKeys": [
+        "default"
+      ]
+    }
+  ]
+}

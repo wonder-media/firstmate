@@ -1,0 +1,13 @@
+/api/fleet: missing token -> 403
+/api/fleet: wrong token -> 403
+/api/fleet: wrong origin -> 403
+/api/fleet: wrong host -> 403
+/api/dashboards: missing token -> 403
+/api/dashboards: wrong token -> 403
+/api/dashboards: wrong origin -> 403
+/api/dashboards: wrong host -> 403
+Council architect resolves design review, ignoring decoy seat-name rule.
+Dormant mate stays dormant; absent/unknown endpoints are not counted live.
+Private account, e-mail and path are absent from fleet response.
+Real quota CLI through localhost TLS emulator: 75% session, 12% weekly remaining and critical warning.
+Local links report up/down; external URL stays unchecked.

@@ -1,0 +1,162 @@
+{
+  "generated_at": "2026-11-25T19:21:50+00:00",
+  "records": {
+    "second_mates": [
+      {
+        "id": "dormant",
+        "scope": "Owns synthetic dormant scope",
+        "state": "dormant",
+        "projects": [],
+        "harness": "codex",
+        "model": "example-model",
+        "effort": "high",
+        "backend": "tmux"
+      },
+      {
+        "id": "research",
+        "scope": "Owns synthetic research scope",
+        "state": "unknown",
+        "projects": []
+      }
+    ],
+    "workers": [
+      {
+        "id": "parked-worker",
+        "home": "Lab",
+        "state": "unknown",
+        "project": "hub",
+        "kind": "ship",
+        "mode": "",
+        "yolo": "",
+        "age_s": 0,
+        "last_report": "waiting on something outside",
+        "last_report_age_s": 0,
+        "harness": "claude",
+        "model": "example-worker",
+        "effort": "high",
+        "backend": "tmux"
+      }
+    ],
+    "routing": {
+      "rules": [
+        {
+          "when": "design review",
+          "why": "Synthetic review; [email] [path]",
+          "use": [
+            {
+              "harness": "codex",
+              "model": "review-model",
+              "effort": "high"
+            },
+            {
+              "harness": "claude",
+              "model": "alternate-model"
+            }
+          ]
+        }
+      ],
+      "default": [
+        {
+          "harness": "codex",
+          "model": "default-model"
+        }
+      ]
+    },
+    "council": {
+      "seats": [
+        {
+          "seat": "architect",
+          "standing": true,
+          "use": [
+            {
+              "harness": "codex",
+              "model": "review-model",
+              "effort": "high"
+            },
+            {
+              "harness": "claude",
+              "model": "alternate-model"
+            }
+          ]
+        },
+        {
+          "seat": "ux",
+          "standing": false,
+          "use": []
+        }
+      ],
+      "advisory_model": null,
+      "caps": {
+        "max_rounds": 3
+      }
+    }
+  },
+  "records_age_s": 0,
+  "quota": {
+    "providers": [
+      {
+        "provider": "Synthetic A",
+        "plan": "local fixture",
+        "status": "fresh",
+        "stale": false,
+        "error": null,
+        "not_set_up": false,
+        "windows": [
+          {
+            "id": "session",
+            "label": "session",
+            "kind": "",
+            "percent_remaining": 88,
+            "resets_at": "2099-01-01T00:00:00Z",
+            "pace": null
+          },
+          {
+            "id": "week",
+            "label": "week",
+            "kind": "",
+            "percent_remaining": 12,
+            "resets_at": "2099-01-02T00:00:00Z",
+            "pace": null
+          }
+        ],
+        "scopes": [
+          {
+            "scope": "all_models",
+            "status": "known",
+            "percent_remaining": 12,
+            "spend_priority": 3.5,
+            "runway": "projected_exhaustion",
+            "projected_exhausted_at": null,
+            "limiting": []
+          }
+        ]
+      },
+      {
+        "provider": "Synthetic B",
+        "plan": null,
+        "status": "auth_required",
+        "stale": false,
+        "error": "credential_unavailable",
+        "not_set_up": false,
+        "windows": [],
+        "scopes": []
+      }
+    ],
+    "attention": [
+      {
+        "provider": "Synthetic A",
+        "level": "critical",
+        "message": "Synthetic A all_models projected to run out"
+      },
+      {
+        "provider": "Synthetic A",
+        "level": "critical",
+        "message": "Synthetic A week has 12% left"
+      }
+    ],
+    "fetched_at": "2026-11-25T19:21:50+00:00",
+    "age_s": 0,
+    "error": null,
+    "refreshing": false
+  }
+}

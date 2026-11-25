@@ -1,0 +1,74 @@
+ok - every subcommand validates arguments and supports --help
+ok - qualified aliases, ambiguity, hold inheritance, canonical registration, and in-place project reconciliation
+ok - closed registered hold reopens with its content; registration never targets a closed hold
+ok - v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision
+ok - fixture homes, actionable holds, keyed decisions; no timestamp churn or hot snapshots
+ok - vanished meta tombstones once
+ok - decision CLI creates 2-3 options, description, and recommendation idempotently
+ok - single-flight and bounded subprocess failure keep last-good rows; a vanished origin meta is tolerated
+ok - health, Bearer authentication, Host/Origin boundary, explicit routes, ETag, stale revision
+ok - hub: fleet records and redaction, quota cache, dashboard liveness, link validation
+ok - changed SSE carries rev, status arrives within ten seconds, registration pushes immediately
+ok - a lifecycle POST commits while a periodic ingest is still blocked in its snapshot read
+ok - Hold/archive/resume and Discard persist across restart, preserve answers until discard, and dedupe stale multi-card actions
+ok - secondmate lifecycle routes to the owning home and exposes control failure until an idempotent retry succeeds
+ok - removed workers repair historical presence, keep only Discard, and close their card on Discard
+ok - Hold and Resume preserve pre-existing holds, a changed worker record blocks Resume, and a failed Discard stop stays visible until a retry succeeds
+ok - an already-stopped worker is never relaunched by Resume, and a failed Hold keeps its error after the task finishes elsewhere
+ok - ingest reconciles held and discarded work with tasks-axi, and a failed relaunch stays held until a retry succeeds
+ok - authoritative queued payload, undo, dedupe, crash replay, routing, and consumption
+ok - keyed legacy note routes directly; concrete-options request is one exact fixed steer
+ok - batch exceptions produce one JSONL burst/source fire; publication crash replay is idempotent
+ok - backlog hold routes through fm-decision-hold answers
+ok - registration conflicts with an answered hold; ingest keeps running and never supersedes it
+ok - empty notes add no suffix and hold answers stay one field-safe line
+ok - answer exceptions distinguish firstmate review from a true worker delivery failure
+ok - daemon and runner subprocess environments reject inherited path overrides
+ok - re-arming backs off, a live external owner is armed, fresh boot reconciles, stale_after_s is validated and honored
+ok - verified live registration and VACUUM backup restore
+daemon.log: ----------------------------------------
+Exception occurred during processing of request from ('127.0.0.1', 58489)
+Traceback (most recent call last):
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/socketserver.py", line 694, in process_request_thread
+    self.finish_request(request, client_address)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/socketserver.py", line 359, in finish_request
+    self.RequestHandlerClass(request, client_address, self)
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/socketserver.py", line 763, in __init__
+    self.handle()
+    ~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/http/server.py", line 476, in handle
+    self.handle_one_request()
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/http/server.py", line 442, in handle_one_request
+    self.raw_requestline = self.rfile.readline(65537)
+                           ~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/socket.py", line 738, in readinto
+    return self._sock.recv_into(b)
+           ~~~~~~~~~~~~~~~~~~~~^^^
+ConnectionResetError: [Errno 54] Connection reset by peer
+----------------------------------------
+
+board.log: 2026-11-25T19:08:10.806100+00:00 answers source: legacy cursor is outside the answer log
+
+board-answers.log: 49457d9.3.result
+not-autohandled: board-answers-0bdc70be949457d9 (left for the handler; still unacknowledged)
+captured: {run-worktree}/.test-bridge-tmp/fm-board.BcevJk/main/state/procevent-inbox/board-answers-0bdc70be949457d9.4.result
+not-autohandled: board-answers-0bdc70be949457d9 (left for the handler; still unacknowledged)
+captured: {run-worktree}/.test-bridge-tmp/fm-board.BcevJk/main/state/procevent-inbox/board-answers-0bdc70be949457d9.5.result
+not-autohandled: board-answers-0bdc70be949457d9 (left for the handler; still unacknowledged)
+captured: {run-worktree}/.test-bridge-tmp/fm-board.BcevJk/main/state/procevent-inbox/board-answers-0bdc70be949457d9.6.result
+already owned: board-answers-0bdc70be949457d9
+not-autohandled: board-answers-0bdc70be949457d9 (left for the handler; still unacknowledged)
+captured: {run-worktree}/.test-bridge-tmp/fm-board.BcevJk/main/state/procevent-inbox/board-answers-0bdc70be949457d9.7.result
+not-autohandled: board-answers-0bdc70be949457d9 (left for the handler; still unacknowledged)
+captured: {run-worktree}/.test-bridge-tmp/fm-board.BcevJk/main/state/procevent-inbox/board-answers-0bdc70be949457d9.8.result
+not-autohandled: board-answers-0bdc70be949457d9 (left for the handler; still unacknowledged)
+captured: {run-worktree}/.test-bridge-tmp/fm-board.BcevJk/main/state/procevent-inbox/board-answers-0bdc70be949457d9.9.result
+no-result: board-answers-0bdc70be949457d9 (exit 1)
+
+ok - all cleanup uses only fixture FM_HOME; all three path overrides stripped; sentinel unchanged
+Traceback (most recent call last):
+  File "<stdin>", line 1313, in <module>
+AssertionError: {'viewport': [1440, 851], 'horizontalOverflow': False, 'preselected': False, 'liveProject': 'CES', 'draftAfterMove': {'choice': 'A', 'note': 'Unsaved local draft'}, 'draftLeftBehind': None, 'visibleAfterMove': True, 'migration': {'records': ['A', 'B'], 'rebuilt': [['A', 'A'], ['B', 'B']], 'cards': 2, 'radioNames': ['Main|instant-decision-choose|choose|1', 'Main|instant|choose|1'], 'selected': ['A', 'B'], 'confirm': ['Confirm: Ship it', 'Confirm: Wait'], 'checkedOpen': 2, 'batch': 'Submit drafted (2 of 11)'}, 'distinctDuplicateCards': 2, 'distinctRadioGroups': 2, 'selected': 'B', 'note': 'Other device chose wait', 'state': 'Queued - undo available for 15 s', 'savedDraft': None, 'health': 'Answers: legacy cursor is outside the answer log', 'healthHidden': False, 'dot': 'dot red', 'failedBorderWidth': '3px', 'failedBorderColor': 'rgb(218, 54, 51)', 'description': 'This decides whether the change ships now or waits for another check.', 'descriptionSize': '14px', 'descriptionWeight': '400', 'registeredOptions': ['Ship itRecommended · Small reversible change', 'Wait'], 'legacyOptions': ['Write my own answer', 'Ask firstmate for 2-3 concrete options'], 'legacyNotice': 'Concrete options and a recommendation are still being prepared.', 'factualPreselected': False, 'factualGuidance': 'Recommended next step · Verify the current schedule before choosing.', 'reviewState': 'Sent to firstmate to review', 'deliveryState': 'Could not deliver - firstmate notified', 'removedLifecycle': ['Discard'], 'holdKeptLifecycleHidden': True, 'decisionLifecycle': ['Discard'], 'taskLifecycle': ['Hold', 'Discard'], 'archiveLifecycle': ['Discard', 'Resume'], 'archiveTitle': 'Archive'}

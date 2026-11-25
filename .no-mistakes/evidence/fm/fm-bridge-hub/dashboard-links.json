@@ -1,0 +1,27 @@
+{
+  "generated_at": "2026-11-25T19:23:14+00:00",
+  "checked_at": "2026-11-25T19:22:51+00:00",
+  "links": [
+    {
+      "title": "Bridge lab",
+      "url": "http://localhost:63742/",
+      "description": "Local running Bridge",
+      "group": "Local",
+      "status": "up"
+    },
+    {
+      "title": "Stopped dashboard",
+      "url": "http://localhost:63743/",
+      "description": "",
+      "group": "Local",
+      "status": "down"
+    },
+    {
+      "title": "External example",
+      "url": "https://example.invalid/dashboard",
+      "description": "",
+      "group": "Hosted",
+      "status": "unchecked"
+    }
+  ]
+}

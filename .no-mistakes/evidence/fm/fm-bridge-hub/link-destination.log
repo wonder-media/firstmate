@@ -1,0 +1,66 @@
+page:
+  title: Bridge
+  refs: 54
+snapshot:
+uid=g8:5_0 RootWebArea "Bridge" url="http://localhost:63742/"
+  uid=g8:5_1 main
+    uid=g8:5_2 navigation "Bridge sections"
+      uid=g8:5_3 link "Decisions" url="http://localhost:63742/#decisions"
+      uid=g8:5_5 link "Fleet & models" url="http://localhost:63742/#fleet"
+      uid=g8:5_7 link "Dashboards" url="http://localhost:63742/#dashboards"
+    uid=g8:5_9 heading "Bridge" level="1"
+    uid=g8:5_10 "Waiting on you "
+    uid=g8:5_11 " "
+    uid=g8:5_12 "0 waiting across the fleet"
+    uid=g8:5_13 "Connected"
+    uid=g8:5_14 "Fleet checked 15 s ago"
+    uid=g8:5_15 "GitHub: Not connected yet"
+    uid=g8:5_16 status atomic live="polite" relevant="additions text"
+    uid=g8:5_17 "Lab: checked 15 s ago"
+    uid=g8:5_18 tab "All 0" selectable selected
+    uid=g8:5_19 tab "WOK 0" selectable
+    uid=g8:5_20 tab "CES 0" selectable
+    uid=g8:5_21 tab "MF 0" selectable
+    uid=g8:5_22 tab "CSLS-OG 0" selectable
+    uid=g8:5_23 tab "JVP 0" selectable
+    uid=g8:5_24 tab "WM 0" selectable
+    uid=g8:5_25 tab "FM 0" selectable
+    uid=g8:5_26 tab "Charlier 0" selectable
+    uid=g8:5_27 link "Waiting on you (0)" url="http://localhost:63742/#waiting"
+    uid=g8:5_30 link "Happening" url="http://localhost:63742/#happening"
+    uid=g8:5_32 link "Archive" url="http://localhost:63742/#archive"
+    uid=g8:5_34 link "Published" url="http://localhost:63742/#published"
+    uid=g8:5_36 region "Waiting on you"
+      uid=g8:5_37 heading "Waiting on you" level="2"
+      uid=g8:5_38 "0 waiting"
+      uid=g8:5_39 "Nothing is waiting on you across the fleet."
+      uid=g8:5_40 button "Submit drafted (0 of 0)" disableable disabled
+      uid=g8:5_41 DisclosureTriangle "Answered in the last 24 hours (0)" expandable
+    uid=g8:5_42 region "Happening"
+      uid=g8:5_43 heading "Happening" level="2"
+      uid=g8:5_44 "1 active"
+      uid=g8:5_45 article
+        uid=g8:5_46 "FM"
+        uid=g8:5_47 heading "parked-worker" level="3"
+        uid=g8:5_48 "unknown"
+        uid=g8:5_49 "paused: secret user@example.com /private/hidden"
+        uid=g8:5_50 button "Hold"
+        uid=g8:5_51 button "Discard"
+    uid=g8:5_52 region "Archive"
+      uid=g8:5_53 heading "Archive" level="2"
+      uid=g8:5_54 "0 held"
+      uid=g8:5_55 "No held work in the Archive."
+    uid=g8:5_56 region "Published"
+      uid=g8:5_57 heading "Published" level="2"
+      uid=g8:5_58 "Not connected yet"
+      uid=g8:5_59 "No verified live change today."
+    uid=g8:5_60 DisclosureTriangle "Keyboard shortcuts" expandable
+    uid=g8:5_61 status atomic live="polite" relevant="additions text"
+help[4]:
+  Run `chrome-devtools-axi click @g8:5_40` to click the "Submit drafted (0 of 0)" button
+  Run `chrome-devtools-axi click @g8:5_3` to click the "Decisions" link
+  Run `chrome-devtools-axi scroll down` to scroll down
+  Use `chrome-devtools-axi eval <expr>` for JS expressions. For multi-statement code, pass a function: `eval "() => { ...; return result }"`
+result: "{\"url\":\"http://localhost:63742/\",\"title\":\"Bridge\",\"opener\":null,\"defaultPanel\":true}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state

@@ -1,0 +1,123 @@
+{
+  "generated_at": "2026-11-25T19:06:12+00:00",
+  "records": {
+    "second_mates": [
+      {
+        "id": "design",
+        "scope": "Owns design reviews",
+        "state": "unknown",
+        "projects": [],
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "tmux"
+      },
+      {
+        "id": "dormant",
+        "scope": "Sleeping scope",
+        "state": "dormant",
+        "projects": [],
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "tmux"
+      }
+    ],
+    "workers": [
+      {
+        "id": "parked-worker",
+        "home": "Lab",
+        "state": "stopped",
+        "project": "example",
+        "kind": "ship",
+        "mode": "",
+        "yolo": "",
+        "age_s": 7,
+        "last_report": null,
+        "last_report_age_s": null,
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "tmux"
+      },
+      {
+        "id": "unknown-worker",
+        "home": "Lab",
+        "state": "stopped",
+        "project": "example",
+        "kind": "ship",
+        "mode": "",
+        "yolo": "",
+        "age_s": 7,
+        "last_report": null,
+        "last_report_age_s": null,
+        "harness": "codex",
+        "model": "design-model",
+        "effort": "high",
+        "backend": "unsupported"
+      }
+    ],
+    "routing": {
+      "rules": [
+        {
+          "when": "design review",
+          "why": "Review designs; contact [email] in [path]",
+          "use": [
+            {
+              "harness": "codex",
+              "model": "design-model",
+              "effort": "high"
+            }
+          ]
+        },
+        {
+          "when": "council architect seat",
+          "why": "",
+          "use": [
+            {
+              "harness": "claude",
+              "model": "wrong-model"
+            }
+          ]
+        }
+      ],
+      "default": [
+        {
+          "harness": "codex",
+          "model": "default-model"
+        }
+      ]
+    },
+    "council": {
+      "seats": [
+        {
+          "seat": "architect",
+          "standing": true,
+          "use": [
+            {
+              "harness": "codex",
+              "model": "design-model",
+              "effort": "high"
+            }
+          ]
+        },
+        {
+          "seat": "critic",
+          "standing": false,
+          "use": []
+        }
+      ],
+      "advisory_model": null,
+      "caps": {}
+    }
+  },
+  "records_age_s": 0,
+  "quota": {
+    "providers": [],
+    "attention": [],
+    "fetched_at": null,
+    "age_s": null,
+    "error": "quota_axi_missing",
+    "refreshing": false
+  }
+}

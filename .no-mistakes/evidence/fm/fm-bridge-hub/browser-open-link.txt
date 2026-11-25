@@ -1,0 +1,3 @@
+result: "{\"url\":\"http://127.0.0.1:59534/\",\"title\":\"Bridge\",\"opener\":true}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state

@@ -1,0 +1,42 @@
+[
+  {
+    "route": "/api/fleet",
+    "boundary": "no auth",
+    "status": 403
+  },
+  {
+    "route": "/api/fleet",
+    "boundary": "bad auth",
+    "status": 403
+  },
+  {
+    "route": "/api/fleet",
+    "boundary": "host",
+    "status": 403
+  },
+  {
+    "route": "/api/fleet",
+    "boundary": "origin",
+    "status": 403
+  },
+  {
+    "route": "/api/dashboards",
+    "boundary": "no auth",
+    "status": 403
+  },
+  {
+    "route": "/api/dashboards",
+    "boundary": "bad auth",
+    "status": 403
+  },
+  {
+    "route": "/api/dashboards",
+    "boundary": "host",
+    "status": 403
+  },
+  {
+    "route": "/api/dashboards",
+    "boundary": "origin",
+    "status": 403
+  }
+]

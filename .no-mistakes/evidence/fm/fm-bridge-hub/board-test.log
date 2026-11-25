@@ -1,0 +1,39 @@
+ok - every subcommand validates arguments and supports --help
+ok - qualified aliases, ambiguity, hold inheritance, canonical registration, and in-place project reconciliation
+ok - closed registered hold reopens with its content; registration never targets a closed hold
+ok - v1 database migrates in place: old column order, same revisions, ELI5 text for every open decision
+ok - fixture homes, actionable holds, keyed decisions; no timestamp churn or hot snapshots
+ok - vanished meta tombstones once
+ok - decision CLI creates 2-3 options, description, and recommendation idempotently
+ok - single-flight and bounded subprocess failure keep last-good rows; a vanished origin meta is tolerated
+ok - health, Bearer authentication, Host/Origin boundary, explicit routes, ETag, stale revision
+ok - hub: fleet records and redaction, quota cache, dashboard liveness, link validation
+ok - changed SSE carries rev, status arrives within ten seconds, registration pushes immediately
+ok - a lifecycle POST commits while a periodic ingest is still blocked in its snapshot read
+ok - Hold/archive/resume and Discard persist across restart, preserve answers until discard, and dedupe stale multi-card actions
+ok - secondmate lifecycle routes to the owning home and exposes control failure until an idempotent retry succeeds
+ok - removed workers repair historical presence, keep only Discard, and close their card on Discard
+ok - Hold and Resume preserve pre-existing holds, a changed worker record blocks Resume, and a failed Discard stop stays visible until a retry succeeds
+ok - an already-stopped worker is never relaunched by Resume, and a failed Hold keeps its error after the task finishes elsewhere
+Traceback (most recent call last):
+  File "<stdin>", line 1021, in <module>
+  File "<stdin>", line 752, in lifecycle_done
+  File "<stdin>", line 244, in wait
+AssertionError: condition did not become true
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<stdin>", line 1347, in <module>
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/pathlib/__init__.py", line 986, in read_text
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/pathlib/__init__.py", line 970, in open
+OSError: [Errno 24] Too many open files: '{run-worktree}/.test-bridge-tmp/fm-board.re4yuR/daemon.log'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<stdin>", line 1359, in <module>
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/subprocess.py", line 669, in run
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/subprocess.py", line 1179, in __init__
+  File "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/lib/python3.15/subprocess.py", line 1915, in _get_handles
+OSError: [Errno 24] Too many open files

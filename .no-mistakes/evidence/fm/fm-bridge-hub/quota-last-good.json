@@ -1,0 +1,67 @@
+{
+  "providers": [
+    {
+      "provider": "Synthetic A",
+      "plan": "local fixture",
+      "status": "fresh",
+      "stale": false,
+      "error": null,
+      "not_set_up": false,
+      "windows": [
+        {
+          "id": "session",
+          "label": "session",
+          "kind": "",
+          "percent_remaining": 88,
+          "resets_at": "2099-01-01T00:00:00Z",
+          "pace": null
+        },
+        {
+          "id": "week",
+          "label": "week",
+          "kind": "",
+          "percent_remaining": 12,
+          "resets_at": "2099-01-02T00:00:00Z",
+          "pace": null
+        }
+      ],
+      "scopes": [
+        {
+          "scope": "all_models",
+          "status": "known",
+          "percent_remaining": 12,
+          "spend_priority": 3.5,
+          "runway": "projected_exhaustion",
+          "projected_exhausted_at": null,
+          "limiting": []
+        }
+      ]
+    },
+    {
+      "provider": "Synthetic B",
+      "plan": null,
+      "status": "auth_required",
+      "stale": false,
+      "error": "credential_unavailable",
+      "not_set_up": false,
+      "windows": [],
+      "scopes": []
+    }
+  ],
+  "attention": [
+    {
+      "provider": "Synthetic A",
+      "level": "critical",
+      "message": "Synthetic A all_models projected to run out"
+    },
+    {
+      "provider": "Synthetic A",
+      "level": "critical",
+      "message": "Synthetic A week has 12% left"
+    }
+  ],
+  "fetched_at": "2026-11-25T19:21:50+00:00",
+  "age_s": 301,
+  "error": "quota_axi_unreadable",
+  "refreshing": false
+}

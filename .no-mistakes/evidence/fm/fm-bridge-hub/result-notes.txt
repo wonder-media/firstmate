@@ -1,0 +1,5 @@
+Real Bridge daemon, real tasks-axi, and real quota-axi exercised using disposable local data and a localhost TLS provider emulator; no vendor account validation.
+Tabs, hash reload, new-tab dashboard links, auth boundaries, redaction, council mapping, file refresh, stopped/unknown/dormant states, missing quota, and 75%/12% quota rendering passed.
+Mobile quota grid overflow reproduced (396px document in 390px viewport), fixed by moving the mobile rule after the desktop rule, and rechecked (390px document, 358px card). Desktop recheck passed.
+Regression script: initial attempt hit 256-file limit; retry with ulimit -n 4096 failed browser lifecycle assertion: expected Hold+Discard, observed Discard. Baseline attempt failed earlier with an empty Chrome DOM; antecedence remains unproven.
+All command sessions completed. Live daemon and emulator exited 0; test attempts exited 1. Disposable browser tabs closed and leftover lab answer-source groups terminated.

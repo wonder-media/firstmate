@@ -1,0 +1,27 @@
+result: "{\"hash\":\"#fleet\",\"panels\":[[\"tab-decisions\",false],[\"tab-fleet\",true],[\"tab-dashboards\",false]],\"overflow\":false,\"title\":\"Fleet & models - Bridge\"}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "{\"hash\":\"#dashboards\",\"links\":[{\"text\":\"Up\\nBridge lab\\n\\nLocal running Bridge\\n\\nhttp://localhost:63742/\",\"url\":\"http://localhost:63742/\",\"target\":\"_blank\",\"rel\":\"noopener noreferrer\"},{\"text\":\"Down\\nStopped dashboard\\n\\nhttp://localhost:63743/\",\"url\":\"http://localhost:63743/\",\"target\":\"_blank\",\"rel\":\"noopener noreferrer\"},{\"text\":\"Not checked\\nExternal example\\n\\nhttps://example.invalid/dashboard\",\"url\":\"https://example.invalid/dashboard\",\"target\":\"_blank\",\"rel\":\"noopener noreferrer\"}]}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "{\"hash\":\"#decisions\",\"title\":\"Bridge\"}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "{\"backHash\":\"#dashboards\"}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "{\"reloadHash\":\"#dashboards\"}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "{\"viewport\":[390,844],\"pageWidth\":390,\"quotaColumns\":\"358px\",\"hash\":\"#fleet\"}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "{\"tabBounds\":[248.4375,369.734375],\"width\":390}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "\"Not reporting (1)\\nProvider\\tStatus\\tDetail\\nSynthetic B\\tauth required\\tcredential_unavailable\""
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
+result: "{\"fallback\":[\"Quota refresh failed (quota_axi_unreadable). Showing the last good reading.\"],\"retained\":[\"88%\",\"12%\"],\"records\":true}"
+help[1]:
+  Run `chrome-devtools-axi snapshot` to see current page state
