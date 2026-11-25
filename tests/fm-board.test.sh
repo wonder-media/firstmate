@@ -324,6 +324,7 @@ try:
     marker=f'\\n... (truncated, {len(long_title)} chars total - use show long-decision --full to see complete text)'
     long_body='This is the complete plain-English body for the long decision. '+('More context. '*20)
     rows=[['alpha','in_flight','ship','wonder-media/wonderok','Release alpha','-','-','no','none'],
+          ['instant','in_flight','ship','wonder-media/wonderok','Browser lifecycle fixture','-','-','no','none'],
           ['lifecycle','in_flight','ship','wonder-media/wonderok','Lifecycle fixture','-','-','no','none'],
           ['origin-decision-budget','queued','captain','example/ces','Budget approval','captain','Set the budget','no','none'],
           ['long-decision','queued','captain','wonderok',long_title[:78]+marker,'captain','Choose where the database will live.','no','none'],
