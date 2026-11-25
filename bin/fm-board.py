@@ -31,12 +31,10 @@
 # run failed (board-inbox/answers.error); such failures never wake firstmate.
 # GET /api/fleet -> generated_at, records {second_mates, workers, routing,
 # council}, quota {providers, attention, fetched_at, age_s, error, refreshing}:
-# read-only fleet and model data served from caches (records refreshed by the ingest
-# loop, quota-axi at most every 5 minutes in one background thread); GET
-# /api/dashboards -> links with a server-side up/down/unchecked status. Both need
-# Bearer auth, the same Host/Origin checks, and never expose paths, account keys,
-# or e-mail addresses. bin/board/hub.py owns collection and redaction. The page's
-# top-level tabs are client-side hash routes: #decisions (default), #fleet, #dashboards.
+# GET /api/dashboards -> links with checking/up/down/unchecked status and
+# checked_at. Both routes need Bearer auth and the same Host/Origin checks.
+# bin/board/hub.py owns collection, refresh triggers, and redaction;
+# docs/configuration.md owns the tab navigation.
 # GET /events -> SSE event: changed, id: rev, data: {rev,generated_at}; also
 # event: heartbeat every 15 s also carries homes (last_ok/error/age/stale) and
 # answers_armed/error; source-health transitions push an immediate heartbeat, so

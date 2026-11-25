@@ -1,25 +1,34 @@
 # Bridge hub collectors, Python 3.14, standard library only. Imported by bin/fm-board.py.
 #
 # Read-only data behind Bridge's "Fleet & models" and "Dashboards" tabs.
-# Nothing here mutates a record, takes a lock, or starts a process per page view:
-# GET /api/fleet and GET /api/dashboards only serialize the caches below.
+# Collection does not mutate fleet records. Requests serialize cached data, but
+# /api/fleet can initialize records and start a due quota refresh, and
+# /api/dashboards can start due link probes in background threads.
 #
-# Fleet records (second mates, live workers, routing rules, council seats) are
-# plain file reads of each configured home (state/<id>.meta, state/<id>.dormant,
-# state/<id>.status, data/secondmates.md, config/crew-dispatch.json,
-# config/council.json), refreshed by the daemon's ingest loop and at most every
-# RECORDS_TTL seconds. Only whitelisted fields are copied; worktree and
-# endpoint paths, pane identifiers, account keys, and error text from other
-# tools never leave this module, and free text has e-mail addresses and
-# absolute paths redacted.
+# Fleet metadata comes from each configured home's state/<id>.meta and
+# state/<id>.status; secondmate scopes, routing rules, and council configuration
+# come from the owning home's data/secondmates.md and config files.
+# Records refresh through the ingest loop at most every RECORDS_TTL seconds
+# unless observations invalidate them. Liveness comes from ingest's fleet
+# snapshots: dead or absent endpoints are stopped, an alive agent or an existing
+# pane reporting working/idle/parked is live, and other evidence is unknown.
+# A secondmate's .dormant marker overrides that observation. Retained metadata
+# alone never establishes liveness. Council seat profiles resolve through each
+# config/council.json seats value to the matching crew-dispatch rule's when.
+#
+# Fleet and quota output copies only whitelisted fields, omits worktree/endpoint
+# paths, pane identifiers and account keys, and redacts e-mail addresses and
+# absolute paths from free text. Tool errors are limited to safe codes.
+# Configured dashboard link fields are returned as supplied, without redaction;
+# include only values intended for authenticated dashboard viewers.
 #
 # Quota comes from `quota-axi --json`, run by one background thread at most every
-# QUOTA_TTL seconds; a failed run keeps the last good result and reports the
-# error code. Dashboard liveness checks each configured link whose host is
-# local (loopback, private or link-local IP, localhost, a single-label name, or
-# *.local, *.lan, *.internal, *.home.arpa) with a no-redirect GET and a 2 s
-# timeout, at most every LINK_TTL seconds; any HTTP response counts as up.
-# Other hosts are listed as unchecked and never contacted.
+# QUOTA_TTL seconds; a timeout, missing command, or unreadable result keeps the
+# last good result and reports an error code. Dashboard requests trigger local
+# link checks at most every LINK_TTL seconds, using a no-redirect GET with a 2 s
+# timeout. Local means loopback, private or link-local IP, localhost, a
+# single-label name, or *.local, *.lan, *.internal, *.home.arpa.
+# Any HTTP response counts as up; other hosts remain unchecked and uncontacted.
 
 import datetime
 import ipaddress

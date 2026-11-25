@@ -3892,11 +3892,12 @@ Plain HTTP is supported only on the trusted private LAN.
 
 Bridge is a tabbed hub with a persistent top-level navigation whose tabs are deep-linkable hash routes: `#decisions` (the default decision board, unchanged), `#fleet`, and `#dashboards`.
 The Fleet & models tab shows second mates with scope and observed state, workers with observed state, harness, model, effort, and age, the routing rules from `config/crew-dispatch.json`, council seats from `config/council.json`, and quota windows, spend priority, runway, and attention items from `quota-axi`.
-It replaces the static Fleet Roster page with live data served from caches: records are read from each configured home by the ingest loop, `quota-axi` runs in one background thread at most every five minutes and a failed run keeps the last good reading, and no page view starts a process or changes a record.
-The [`hub.py`](../bin/board/hub.py) header owns collection and redaction: only whitelisted fields leave the daemon, and paths, pane identifiers, account keys, error text from other tools, and e-mail addresses are never served.
+It replaces the static Fleet Roster view with cached fleet and quota data; stopped and unknown workers remain visible alongside confirmed live workers.
+The [`hub.py`](../bin/board/hub.py) header owns data sources, observed-state classification, refresh triggers and intervals, quota failure handling, and fleet-data redaction.
 The Dashboards tab is a links directory read from the optional `links` list in `config/board.json`.
 Each entry takes `title` and `url` (required), `description`, and `group`; `url` must be absolute `http` or `https` without credentials, at most 100 links are accepted, and any other key is refused at startup.
-Bridge checks each link whose host is local (loopback, private or link-local address, `localhost`, a single-label name, or `.local`, `.lan`, `.internal`, `.home.arpa`) server-side every 30 seconds and shows an up or down badge; any HTTP response counts as up, and other hosts are listed as not checked and never contacted.
+Opening Dashboards requests background health checks for local links and shows their cached status; the [`hub.py`](../bin/board/hub.py) header owns probe eligibility and timing.
+Link fields, including URLs, are visible to authenticated dashboard viewers as configured; they do not receive fleet-data redaction.
 Keep private URLs in the home's untracked `config/board.json`, never in tracked files.
 
 ```json
@@ -3906,5 +3907,5 @@ Keep private URLs in the home's untracked `config/board.json`, never in tracked 
 ]
 ```
 
-Both tabs read `GET /api/fleet` and `GET /api/dashboards`, which need the same Bearer secret and Host and Origin checks as the rest of the API.
+The tabs use the authenticated hub routes documented in the [`bin/fm-board.py`](../bin/fm-board.py) header.
 Answers the daemon cannot route itself wake firstmate through a self-announcing `board-answers` process-event source; the [`process-event-sources`](../.agents/skills/process-event-sources/SKILL.md) skill owns handling that wake.
