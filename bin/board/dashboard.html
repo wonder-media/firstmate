@@ -149,13 +149,13 @@ function providerCard(p){
 function renderFleet(data){
  const body=$('fleet-body'),r=data.records,q=data.quota;body.replaceChildren();
  const live=r.second_mates.filter(m=>m.state==='live').length,fresh=q.providers.filter(p=>p.status==='fresh'),stats=el('div','stats');
- stats.append(stat(live+' of '+r.second_mates.length,'second mates live'),stat(r.workers.length,'live workers'),stat(fresh.length+' of '+q.providers.length,'providers reporting quota'),stat(q.attention.length,'quota attention items'));
+ stats.append(stat(live+' of '+r.second_mates.length,'second mates live'),stat(r.workers.filter(w=>w.state==='live').length+' of '+r.workers.length,'workers confirmed live'),stat(fresh.length+' of '+q.providers.length,'providers reporting quota'),stat(q.attention.length,'quota attention items'));
  body.append(stats);
  if(q.attention.length){const ul=el('ul','attention');for(const a of q.attention)ul.append(el('li',a.level,a.message));body.append(ul)}
  body.append(el('h2','','Second mates'));
  body.append(table(['Name','Scope','State','Runtime','Projects'],r.second_mates.map(m=>[cell(m.id,'mono'),m.scope,cell(pill(m.state,m.state)),cell(runtimeText(m),'mono'),(m.projects||[]).join(', ')]),'No second mates are registered.'));
- body.append(el('h2','','Live workers'));
- body.append(table(['Task','Project','Kind','Runtime','Age','Last update'],r.workers.map(w=>[cell(w.id,'mono'),w.project,[w.kind,w.mode].filter(Boolean).join(' · '),cell(runtimeText(w),'mono'),ageText(w.age_s),w.last_report?w.last_report+' ('+ageText(w.last_report_age_s)+' ago)':'-']),'No workers are running.'));
+ body.append(el('h2','','Workers'));
+ body.append(table(['Task','Project','State','Kind','Runtime','Age','Last update'],r.workers.map(w=>[cell(w.id,'mono'),w.project,cell(pill(w.state,w.state)),[w.kind,w.mode].filter(Boolean).join(' · '),cell(runtimeText(w),'mono'),ageText(w.age_s),w.last_report?w.last_report+' ('+ageText(w.last_report_age_s)+' ago)':'-']),'No workers are recorded.'));
  body.append(el('h2','','Quota and availability'));
  if(q.error)body.append(el('p','meta error','Quota refresh failed ('+q.error+'). '+(q.fetched_at?'Showing the last good reading.':'No reading is available yet.')));
  const grid=el('div','quota-grid');for(const p of fresh)grid.append(providerCard(p));

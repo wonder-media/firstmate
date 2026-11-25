@@ -3891,7 +3891,7 @@ The bookmark carries `?k=<secret>` once; the page stores it locally and immediat
 Plain HTTP is supported only on the trusted private LAN.
 
 Bridge is a tabbed hub with a persistent top-level navigation whose tabs are deep-linkable hash routes: `#decisions` (the default decision board, unchanged), `#fleet`, and `#dashboards`.
-The Fleet & models tab shows second mates with scope and live or dormant state, live workers with harness, model, effort, and age, the routing rules from `config/crew-dispatch.json`, council seats from `config/council.json`, and quota windows, spend priority, runway, and attention items from `quota-axi`.
+The Fleet & models tab shows second mates with scope and observed state, workers with observed state, harness, model, effort, and age, the routing rules from `config/crew-dispatch.json`, council seats from `config/council.json`, and quota windows, spend priority, runway, and attention items from `quota-axi`.
 It replaces the static Fleet Roster page with live data served from caches: records are read from each configured home by the ingest loop, `quota-axi` runs in one background thread at most every five minutes and a failed run keeps the last good reading, and no page view starts a process or changes a record.
 The [`hub.py`](../bin/board/hub.py) header owns collection and redaction: only whitelisted fields leave the daemon, and paths, pane identifiers, account keys, error text from other tools, and e-mail addresses are never served.
 The Dashboards tab is a links directory read from the optional `links` list in `config/board.json`.

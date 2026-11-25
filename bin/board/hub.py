@@ -132,9 +132,22 @@ def spawned_at(meta, path):
         return None
 
 
-def collect_records(home, homes, now=None):
+def observed_state(observation):
+    endpoint = observation.get('endpoint', {})
+    current = observation.get('current_state', {})
+    if endpoint.get('exists') is False or endpoint.get('agent_alive') == 'dead':
+        return 'stopped'
+    if endpoint.get('agent_alive') == 'alive':
+        return 'live'
+    if endpoint.get('exists') is True and current.get('source') == 'pane' and current.get('state') in ('working', 'idle', 'parked'):
+        return 'live'
+    return 'unknown'
+
+
+def collect_records(home, homes, now=None, observations=None):
     now = time.time() if now is None else now
     home = Path(home)
+    observations = observations or {}
     scopes = {}
     for line in read_text(home / 'data/secondmates.md').splitlines():
         match = re.match(r'^-\s+(\S+)\s+-\s+(.*)$', line.strip())
@@ -153,36 +166,35 @@ def collect_records(home, homes, now=None):
             if not SAFE_ID.fullmatch(tid):
                 continue
             meta = parse_meta(state / name)
+            observed = observed_state(observations.get(hid, {}).get(tid, {}))
             runtime = {key: clean(meta.get(key), 60) for key in ('harness', 'model', 'effort', 'backend') if meta.get(key)}
             if meta.get('kind') == 'secondmate':
                 if Path(path) != home or tid in seen_mates:
                     continue
                 seen_mates.add(tid)
                 projects = [clean(os.path.basename(p.strip().rstrip('/')), 60) for p in meta.get('projects', '').split(',') if p.strip()]
-                mates.append(dict(id=tid, scope=scopes.get(tid, ''), state='dormant' if (state / f'{tid}.dormant').exists() else 'live',
+                mates.append(dict(id=tid, scope=scopes.get(tid, ''), state='dormant' if (state / f'{tid}.dormant').exists() else observed,
                                   projects=projects[:20], **runtime))
                 continue
             label, ago = last_report(state, tid, now)
             started = spawned_at(meta, state / name)
-            workers.append(dict(id=tid, home=hid, project=clean(os.path.basename(meta.get('project', '').rstrip('/')), 80),
+            workers.append(dict(id=tid, home=hid, state=observed, project=clean(os.path.basename(meta.get('project', '').rstrip('/')), 80),
                                 kind=clean(meta.get('kind'), 20), mode=clean(meta.get('mode'), 40), yolo=clean(meta.get('yolo'), 10),
                                 age_s=None if started is None else max(0, int(now - started)),
                                 last_report=label, last_report_age_s=ago, **runtime))
     for sid, scope in scopes.items():
         if sid not in seen_mates and (home / 'state').is_dir():
-            mates.append(dict(id=sid, scope=scope, state='dormant', projects=[]))
+            mates.append(dict(id=sid, scope=scope, state='dormant' if (home / f'state/{sid}.dormant').exists() else 'unknown', projects=[]))
     workers.sort(key=lambda w: (w['age_s'] is None, w['age_s'] or 0))
     dispatch = read_json(home / 'config/crew-dispatch.json')
     rules = []
+    seat_use = {}
     for rule in dispatch.get('rules', []) if isinstance(dispatch.get('rules'), list) else []:
         if isinstance(rule, dict):
+            if isinstance(rule.get('when'), str):
+                seat_use[rule['when']] = candidates(rule.get('use'))
             rules.append(dict(when=clean(rule.get('when'), 400), why=clean(rule.get('why'), 400), use=candidates(rule.get('use'))))
     council = read_json(home / 'config/council.json')
-    seat_use = {}
-    for rule in rules:
-        match = re.match(r'^council (\w+) seat$', rule['when'].lower())
-        if match:
-            seat_use[match.group(1)] = rule['use']
     roster = [clean(x, 40) for x in council.get('default_roster', []) if isinstance(x, str)] if isinstance(council.get('default_roster'), list) else []
     advisory = council.get('advisory') if isinstance(council.get('advisory'), dict) else {}
     model = re.search(r'--model\s+([\w.:-]{1,80})', str(advisory.get('command_template', '')))
@@ -191,7 +203,7 @@ def collect_records(home, homes, now=None):
     return dict(
         second_mates=mates, workers=workers[:200],
         routing=dict(rules=rules, default=candidates(dispatch.get('default'))),
-        council=dict(seats=[dict(seat=clean(seat, 40), standing=seat in roster, use=seat_use.get(seat, [])) for seat in seats],
+        council=dict(seats=[dict(seat=clean(seat, 40), standing=seat in roster, use=seat_use.get(rule_name, []) if isinstance(rule_name, str) else []) for seat, rule_name in seats.items()],
                      advisory_model=model.group(1) if model else None,
                      caps={clean(k, 40): v for k, v in caps.items() if type(v) is int}))
 
@@ -304,6 +316,7 @@ class Hub:
         self.log = log or (lambda message: None)
         self.now = now
         self.lock = threading.Lock()
+        self.observations = {}
         self.records = None
         self.records_at = 0.0
         self.quota = None
@@ -315,10 +328,19 @@ class Hub:
         self.link_at = 0.0
         self.link_running = False
 
+    def update_observations(self, hid, snapshots, changed):
+        with self.lock:
+            if snapshots is not None:
+                self.observations[hid] = snapshots
+            else:
+                for tid in changed:
+                    self.observations.get(hid, {}).pop(tid, None)
+            self.records_at = 0.0
+
     def refresh_records(self, force=False):
         if not force and self.records is not None and self.now() - self.records_at < RECORDS_TTL:
             return
-        records = collect_records(self.home, self.homes, self.now())
+        records = collect_records(self.home, self.homes, self.now(), self.observations)
         with self.lock:
             self.records, self.records_at = records, self.now()
 

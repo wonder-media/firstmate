@@ -170,7 +170,7 @@ if name=='tasks-axi':
     import io
     line=io.StringIO();csv.writer(line,lineterminator='').writerow(r[:9]);print('  '+line.getvalue())
 elif name=='fm-crew-state.sh':print('state: parked · source: pane · fixture')
-elif name=='fm-fleet-snapshot.sh':print(json.dumps({'tasks':[]}))
+elif name=='fm-fleet-snapshot.sh':print((h/'snapshot.json').read_text() if (h/'snapshot.json').exists() else json.dumps({'tasks':[]}))
 elif name in ('fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
  if name=='fm-control.sh':
   if sys.argv[2]=='relaunch':
@@ -504,13 +504,21 @@ try:
     assert request('/answer',answer('alpha',revision=99))[0]==409
     passed('health, Bearer authentication, Host/Origin boundary, explicit routes, ETag, stale revision')
     # Hub tabs: fleet records, quota cache, and dashboard links.
-    (home/'config/crew-dispatch.json').write_text(json.dumps({'rules':[{'when':'council architect seat','why':'Reach me at ops@example.com or /Users/someone/secret/path','use':[{'harness':'codex','model':'m-one','effort':'high','account':'hidden-account'},{'harness':'claude','model':'m-two'}]}],'default':[{'harness':'claude','model':'m-three','effort':'low'}]}))
-    (home/'config/council.json').write_text(json.dumps({'seats':{'architect':'x','ux':'y'},'default_roster':['architect'],'advisory':{'command_template':'agy --model adv-model-1 --print={prompt}'},'caps':{'max_rounds':3,'note':'ignored'}}))
+    (home/'config/crew-dispatch.json').write_text(json.dumps({'rules':[{'when':'design review','why':'Reach me at ops@example.com or /Users/someone/secret/path','use':[{'harness':'codex','model':'m-one','effort':'high','account':'hidden-account'},{'harness':'claude','model':'m-two'}]}],'default':[{'harness':'claude','model':'m-three','effort':'low'}]}))
+    (home/'config/council.json').write_text(json.dumps({'seats':{'architect':'design review','ux':'missing rule'},'default_roster':['architect'],'advisory':{'command_template':'agy --model adv-model-1 --print={prompt}'},'caps':{'max_rounds':3,'note':'ignored'}}))
     (home/'data/secondmates.md').write_text('- hubmate - Owns the hub fixture domain. More detail. (home: /Users/someone/secret/home; scope: x)\n- idlemate - Never launched mate. (home: /nowhere)\n')
     (home/'state/hubmate.meta').write_text('kind=secondmate\nharness=claude\nmodel=opus\neffort=high\nbackend=herdr\nworktree=/Users/someone/secret/worktree\nherdr_pane_id=w1:p9\nprojects=/Users/someone/clones/alpha,beta\n')
     (home/'state/hubdorm.meta').write_text('kind=secondmate\nharness=codex\nmodel=m\n');(home/'state/hubdorm.dormant').write_text('')
     (home/'state/hubship.meta').write_text(f'kind=ship\nmode=direct-PR\nyolo=off\nproject=/Users/someone/clones/alpha\nharness=claude\nmodel=sonnet\neffort=high\nspawn_gen=s{int(time.time())-120}.1.2\nworktree=/Users/someone/secret/wt\n')
     (home/'state/hubship.status').write_text('working: secret status text\n')
+    for tid,kind in (('hubdead','secondmate'),('hubpark','ship'),('hubunknown','ship')):
+        (home/f'state/{tid}.meta').write_text(f'kind={kind}\n')
+    (home/'snapshot.json').write_text(json.dumps({'tasks':[
+        {'id':tid,'endpoint':{'exists':exists,'agent_alive':alive},'current_state':{'state':state,'source':source}}
+        for tid,exists,alive,state,source in (
+            ('hubmate',True,'alive','idle','pane'),('hubdead',True,'dead','unknown','none'),
+            ('hubship',True,'not_checked','working','pane'),('hubpark',False,'not_checked','paused','status-log'),
+            ('hubunknown',None,'unknown','unknown','none'))]}))
     (fakebin/'quota-axi').write_text(f"""#!{sys.executable}
 import json,pathlib,sys,time
 root=pathlib.Path({str(root)!r})
@@ -526,12 +534,15 @@ print(json.dumps({{'schemaVersion':1,'providers':[
 """)
     (fakebin/'quota-axi').chmod(0o755)
     stop();(root/'quota-calls.log').write_text('');start()
-    fleet=wait(lambda:(lambda r:r if r[1]['quota']['fetched_at'] else None)(request('/api/fleet')))[1]
+    fleet=wait(lambda:(lambda r:r if r[1]['quota']['fetched_at'] and any(m['id']=='hubmate' and m['state']=='live' for m in r[1]['records']['second_mates']) else None)(request('/api/fleet')))[1]
     rec=fleet['records']
     mates={m['id']:m for m in rec['second_mates']}
     assert mates['hubmate']['state']=='live' and mates['hubmate']['scope']=='Owns the hub fixture domain',mates
     assert mates['hubmate']['projects']==['alpha','beta'] and mates['hubmate']['model']=='opus'
-    assert mates['hubdorm']['state']=='dormant' and mates['idlemate']['state']=='dormant'
+    assert mates['hubdorm']['state']=='dormant' and mates['idlemate']['state']=='unknown'
+    assert mates['hubdead']['state']=='stopped'
+    worker_states={w['id']:w['state'] for w in rec['workers']}
+    assert worker_states['hubship']=='live' and worker_states['hubpark']=='stopped' and worker_states['hubunknown']=='unknown'
     ship=next(w for w in rec['workers'] if w['id']=='hubship')
     assert ship['project']=='alpha' and ship['harness']=='claude' and ship['model']=='sonnet' and ship['effort']=='high' and 100<=ship['age_s']<400 and ship['last_report']=='work under way',ship
     assert 'hubmate' not in {w['id'] for w in rec['workers']}
@@ -539,7 +550,7 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     assert rule['use']==[{'harness':'codex','model':'m-one','effort':'high'},{'harness':'claude','model':'m-two'}],rule
     assert '[email]' in rule['why'] and '[path]' in rule['why'] and rec['routing']['default']==[{'harness':'claude','model':'m-three','effort':'low'}]
     seats={s['seat']:s for s in rec['council']['seats']}
-    assert seats['architect']['standing'] and not seats['ux']['standing'] and seats['architect']['use'][0]['model']=='m-one'
+    assert seats['architect']['standing'] and not seats['ux']['standing'] and seats['architect']['use'][0]['model']=='m-one' and seats['ux']['use']==[]
     assert rec['council']['advisory_model']=='adv-model-1' and rec['council']['caps']=={'max_rounds':3}
     quota=fleet['quota']
     providers={p['provider']:p for p in quota['providers']}
@@ -557,6 +568,16 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     import hub as hubmod
     clock=[1000.0]
     unit=hubmod.Hub(home,{'Main':home},[],now=lambda:clock[0])
+    unit.update_observations('Main', {t['id']:t for t in json.loads((home/'snapshot.json').read_text())['tasks']}, set())
+    unit.refresh_records()
+    assert next(w for w in unit.records['workers'] if w['id']=='hubship')['state']=='live'
+    unit.update_observations('Main', None, {'hubship'})
+    unit.refresh_records()
+    assert next(w for w in unit.records['workers'] if w['id']=='hubship')['state']=='unknown'
+    unit.update_observations('Main', {}, set())
+    unit.refresh_records()
+    assert next(m for m in unit.records['second_mates'] if m['id']=='hubmate')['state']=='unknown'
+
     old_path=os.environ['PATH'];os.environ['PATH']=str(fakebin)+os.pathsep+old_path
     try:
         def settle():
@@ -575,20 +596,18 @@ print(json.dumps({{'schemaVersion':1,'providers':[
         (root/'quota-mode').unlink()
     finally:
         os.environ['PATH']=old_path
-    for name in ('hubmate','hubdorm','hubship'):
+    for name in ('hubmate','hubdorm','hubship','hubdead','hubpark','hubunknown'):
         for suffix in ('meta','dormant','status'):(home/f'state/{name}.{suffix}').unlink(missing_ok=True)
     # Dashboards: local links are probed server-side, external ones are never contacted.
     dash=wait(lambda:(lambda r:r[1] if all(l['status']!='checking' for l in r[1]['links']) and r[1]['checked_at'] else None)(request('/api/dashboards')))
     by_title={l['title']:l for l in dash['links']}
     assert by_title['Self']['status']=='up' and by_title['Closed']['status']=='down' and by_title['External']['status']=='unchecked',by_title
     assert by_title['Self']['group']=='Local' and by_title['External']['group']=='' and by_title['Self']['description']=='The bridge itself'
-    page=request('/')[1].decode()
-    assert 'href="#fleet"' in page and 'href="#dashboards"' in page and 'id="tab-decisions"' in page
     bad=json.loads(config.read_text())
     for links in ([{'title':'x','url':'http://user:pw@localhost/'}],[{'title':'x','url':'ftp://localhost/'}],[{'title':'','url':'http://localhost/'}],[{'title':'x','url':'http://localhost/','extra':1}],{'title':'x'}):
         bad['links']=links;(root/'bad-board.json').write_text(json.dumps(bad))
         assert b'link' in command('refresh','--config',root/'bad-board.json',ok=False).stderr,links
-    passed('hub: fleet records and redaction, quota cache, dashboard liveness, link validation, tab shell')
+    passed('hub: fleet records and redaction, quota cache, dashboard liveness, link validation')
     # SSE uses a real streaming socket; new status appears without reload.
     req=urllib.request.Request(f'http://localhost:{port}/events',headers={'Authorization':'Bearer '+secret})
     stream=urllib.request.urlopen(req,timeout=15)

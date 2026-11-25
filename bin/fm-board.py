@@ -942,6 +942,7 @@ class Board:
                 snapshot_ms = int((time.monotonic() - before) * 1000)
             except (Invalid, ValueError, KeyError) as e:
                 error = str(e)
+        self.hub.update_observations(hid, snapshots if reconcile else None, ids)
         backlog_changed = 'data/backlog.md' in moved or not old or reconcile
         if backlog_changed:
             try:
