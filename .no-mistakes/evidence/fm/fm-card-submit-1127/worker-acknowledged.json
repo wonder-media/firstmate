@@ -1,0 +1,62 @@
+{
+  "home_id": "Lab",
+  "task_id": "option",
+  "decision_key": "choose",
+  "revision": 1,
+  "question": "Choose a release approach",
+  "description": "Choose which local test release to prepare.",
+  "options": [
+    {
+      "value": "A",
+      "label": "Prepare the small release"
+    },
+    {
+      "value": "B",
+      "label": "Prepare the full release"
+    }
+  ],
+  "recommendation": "A",
+  "why": "The small release is easier to verify.",
+  "source": "worker",
+  "state": "consumed",
+  "asked_at": "2026-11-28T08:16:48.706038+00:00",
+  "closed_at": "2026-11-28T08:19:52.138889+00:00",
+  "project": "FM",
+  "origin_id": "",
+  "registered": 1,
+  "answer": {
+    "answer_id": "ffe99967-509c-4a17-9946-429dec603416",
+    "home_id": "Lab",
+    "task_id": "option",
+    "decision_key": "choose",
+    "revision": 1,
+    "choice": "A",
+    "note": "Local test only: wait 30 seconds, then acknowledge this inbox message; do not implement a release or modify source.",
+    "note_hash": "020f9bc97fa61c5c67b2bbc3b4f0f63966e6f1236d0b2482dfb1251c893cced9",
+    "device": "browser",
+    "received_at": "2026-11-28T08:19:33.571909+00:00",
+    "ready_at": 1795853988.571917,
+    "exported_at": null,
+    "consumed_at": "2026-11-28T08:19:52.138729+00:00",
+    "error": null,
+    "cancelled_at": null,
+    "routing_at": "2026-11-28T08:19:49.237523+00:00",
+    "action": "answer",
+    "inbox_receipt": "{\"name\": \"001.msg\", \"sha256\": \"7c25847a6b5c3e7453967ddbf965fdf00962c4fb75b9963ea97fc8a48bd85ce1\"}",
+    "delivery_class": null,
+    "acknowledgement": "handled"
+  },
+  "lifecycle_task_id": "option",
+  "lifecycle": {
+    "state": "active",
+    "revision": 0,
+    "pending_request_id": null,
+    "pending_action": null,
+    "request_state": null,
+    "ready_at": null,
+    "error": null,
+    "updated_at": null
+  },
+  "lifecycle_available": true,
+  "lifecycle_hidden": false
+}

@@ -1,0 +1,264 @@
+{
+  "rev": 12,
+  "generated_at": "2026-11-28T08:19:49.237850+00:00",
+  "homes": [
+    {
+      "id": "Lab",
+      "last_ok": "2026-11-28T08:19:46.673607+00:00",
+      "age_s": 3,
+      "stale": false,
+      "ingest_error": null
+    }
+  ],
+  "tasks": [
+    {
+      "home_id": "Lab",
+      "task_id": "option",
+      "title": "option",
+      "kind": "ship",
+      "current_state": "unknown",
+      "worker": "claude",
+      "pr_url": "",
+      "project": "FM",
+      "last_status": "needs-decision [key=choose]: Choose a release approach",
+      "updated_at": "2026-11-28T08:17:52.034304+00:00",
+      "deleted_at": null,
+      "meta_present": 1,
+      "lifecycle_task_id": "option",
+      "lifecycle": {
+        "state": "active",
+        "revision": 0,
+        "pending_request_id": null,
+        "pending_action": null,
+        "request_state": null,
+        "ready_at": null,
+        "error": null,
+        "updated_at": null
+      },
+      "lifecycle_available": true,
+      "lifecycle_hidden": false
+    }
+  ],
+  "decisions": [
+    {
+      "home_id": "Lab",
+      "task_id": "option",
+      "decision_key": "choose",
+      "revision": 1,
+      "question": "Choose a release approach",
+      "description": "Choose which local test release to prepare.",
+      "options": [
+        {
+          "value": "A",
+          "label": "Prepare the small release"
+        },
+        {
+          "value": "B",
+          "label": "Prepare the full release"
+        }
+      ],
+      "recommendation": "A",
+      "why": "The small release is easier to verify.",
+      "source": "worker",
+      "state": "sent",
+      "asked_at": "2026-11-28T08:16:48.706038+00:00",
+      "closed_at": null,
+      "project": "FM",
+      "origin_id": "",
+      "registered": 1,
+      "answer": {
+        "answer_id": "ffe99967-509c-4a17-9946-429dec603416",
+        "home_id": "Lab",
+        "task_id": "option",
+        "decision_key": "choose",
+        "revision": 1,
+        "choice": "A",
+        "note": "Local test only: wait 30 seconds, then acknowledge this inbox message; do not implement a release or modify source.",
+        "note_hash": "020f9bc97fa61c5c67b2bbc3b4f0f63966e6f1236d0b2482dfb1251c893cced9",
+        "device": "browser",
+        "received_at": "2026-11-28T08:19:33.571909+00:00",
+        "ready_at": 1795853988.571917,
+        "exported_at": null,
+        "consumed_at": null,
+        "error": null,
+        "cancelled_at": null,
+        "routing_at": "2026-11-28T08:19:49.237523+00:00",
+        "action": "answer",
+        "inbox_receipt": null,
+        "delivery_class": null,
+        "acknowledgement": null
+      },
+      "lifecycle_task_id": "option",
+      "lifecycle": {
+        "state": "active",
+        "revision": 0,
+        "pending_request_id": null,
+        "pending_action": null,
+        "request_state": null,
+        "ready_at": null,
+        "error": null,
+        "updated_at": null
+      },
+      "lifecycle_available": true,
+      "lifecycle_hidden": false
+    },
+    {
+      "home_id": "Lab",
+      "task_id": "discard",
+      "decision_key": "choose",
+      "revision": 1,
+      "question": "Close an obsolete decision",
+      "description": "Your choice decides what happens next for this task.",
+      "options": [
+        {
+          "value": "A",
+          "label": "Keep it"
+        },
+        {
+          "value": "B",
+          "label": "Revisit it"
+        }
+      ],
+      "recommendation": "",
+      "why": "This synthetic decision can be discarded.",
+      "source": "firstmate",
+      "state": "consumed",
+      "asked_at": "2026-11-28T08:16:48.806555+00:00",
+      "closed_at": "2026-11-28T08:18:06.788164+00:00",
+      "project": "FM",
+      "origin_id": "",
+      "registered": 1,
+      "answer": {
+        "answer_id": "59beb6da-f421-43a3-9bf8-f010e35172bd",
+        "home_id": "Lab",
+        "task_id": "discard",
+        "decision_key": "choose",
+        "revision": 1,
+        "choice": "discard",
+        "note": "captain discarded",
+        "note_hash": "2e87a165200b5455587e5218268f6811cc198eea95ad3be1b3f0a215fe509dd7",
+        "device": "browser",
+        "received_at": "2026-11-28T08:17:51.220931+00:00",
+        "ready_at": 1795853886.220941,
+        "exported_at": null,
+        "consumed_at": "2026-11-28T08:18:06.788122+00:00",
+        "error": null,
+        "cancelled_at": null,
+        "routing_at": "2026-11-28T08:18:06.786665+00:00",
+        "action": "discard",
+        "inbox_receipt": null,
+        "delivery_class": null,
+        "acknowledgement": null
+      },
+      "lifecycle_task_id": "discard",
+      "lifecycle": {
+        "state": "active",
+        "revision": 0,
+        "pending_request_id": null,
+        "pending_action": null,
+        "request_state": null,
+        "ready_at": null,
+        "error": null,
+        "updated_at": null
+      },
+      "lifecycle_available": false,
+      "lifecycle_hidden": false
+    },
+    {
+      "home_id": "Lab",
+      "task_id": "hold",
+      "decision_key": "choose",
+      "revision": 1,
+      "question": "Defer a future decision",
+      "description": "Your choice decides what happens next for this task.",
+      "options": [
+        {
+          "value": "A",
+          "label": "Start now"
+        },
+        {
+          "value": "B",
+          "label": "Plan later"
+        }
+      ],
+      "recommendation": "",
+      "why": "This synthetic decision is not urgent.",
+      "source": "firstmate",
+      "state": "snoozed",
+      "asked_at": "2026-11-28T08:16:48.921165+00:00",
+      "closed_at": "2026-11-28T08:18:06.791213+00:00",
+      "project": "FM",
+      "origin_id": "",
+      "registered": 1,
+      "answer": {
+        "answer_id": "17fd12ed-f63c-4227-9e0f-86555a3121ca",
+        "home_id": "Lab",
+        "task_id": "hold",
+        "decision_key": "choose",
+        "revision": 1,
+        "choice": "snooze",
+        "note": "",
+        "note_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "device": "browser",
+        "received_at": "2026-11-28T08:17:51.530927+00:00",
+        "ready_at": 1795853886.530935,
+        "exported_at": null,
+        "consumed_at": "2026-11-28T08:18:06.791196+00:00",
+        "error": null,
+        "cancelled_at": null,
+        "routing_at": "2026-11-28T08:18:06.789888+00:00",
+        "action": "snooze",
+        "inbox_receipt": null,
+        "delivery_class": null,
+        "acknowledgement": null
+      },
+      "snoozed_until": "2026-12-28T08:18:06.791213+00:00",
+      "lifecycle_task_id": "hold",
+      "lifecycle": {
+        "state": "active",
+        "revision": 0,
+        "pending_request_id": null,
+        "pending_action": null,
+        "request_state": null,
+        "ready_at": null,
+        "error": null,
+        "updated_at": null
+      },
+      "lifecycle_available": false,
+      "lifecycle_hidden": false
+    }
+  ],
+  "archive": [],
+  "events": [
+    {
+      "event_id": "c92e28856ad77861c3fc5e29c2af1ecd95fdaafe792b73774b640edda70e37e7",
+      "home_id": "Lab",
+      "task_id": "option",
+      "kind": "status",
+      "project": "FM",
+      "message": "needs-decision [key=choose]: Choose a release approach",
+      "url": "",
+      "environment": "",
+      "verified_at": "",
+      "evidence": "",
+      "created_at": "2026-11-28T08:17:52.034423+00:00"
+    }
+  ],
+  "counts": {
+    "WOK": 0,
+    "CES": 0,
+    "MF": 0,
+    "CSLS-OG": 0,
+    "JVP": 0,
+    "WM": 0,
+    "FM": 1,
+    "Charlier": 0,
+    "All": 1
+  },
+  "answers_armed": true,
+  "answers_error": null,
+  "connection": {
+    "transport": "sse",
+    "github": "Not connected yet"
+  }
+}

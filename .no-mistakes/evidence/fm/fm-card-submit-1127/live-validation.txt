@@ -1,0 +1,9 @@
+Real bin/fm-board.sh serve on localhost:57583, with a marked disposable home and three synthetic decisions registered through bin/fm-board.sh decision.
+Chrome drove each radio tile and its own Submit button on the unchanged dashboard.
+Option A plus note: queued -> sent -> consumed with acknowledgement pending -> handled. Real fm-send delivered 001.msg and real Claude Code 2.1.332 moved the exact message to handled after its requested 30-second wait. The browser automatically changed Sent to Done.
+Adversarial receipt check: unrelated handled file and incorrect bytes at handled/001.msg both left acknowledgement pending.
+Discard: consumed, persisted captain discarded, displayed Closed.
+Hold: snoozed, persisted expiry exactly 30 days after closed_at, displayed Held until 12/28/2026.
+Replay returned the same answer ID. Conflicting choice and stale revision returned HTTP 409.
+All product services and test workers are stopped during cleanup. No production fleet was used.
+Cleanup verified by process inventory and closed TCP port; board-owned answer source explicitly retired. Temporary files and dependencies removed.

@@ -1,0 +1,7 @@
+schema=fm-task-inbox.v1
+at=2026-11-28T08:19:50Z
+body-terminator=1
+--
+Prepare the small release (note: Local test only: wait 30 seconds, then acknowledge this inbox message; do not implement a release or modify source.)
+
+Bridge answer: ffe99967-509c-4a17-9946-429dec603416

@@ -1,0 +1,45 @@
+ ▝▝   ▝▝   ~/.no-mistakes/worktrees/72da313f481c/01M8GJV0DHD497CAH633BYWYJC
+
+
+❯ This is a disposable local Bridge product test. Do not run session startup, supervision, or pipeline operations. Only process $FM_TASK_INBOX when the
+  doorbell arrives: read its message, wait 30 seconds as requested, then acknowledge by moving that exact .msg into handled/. Do not implement a release or
+  change source, configuration, or anything outside this local test inbox. Say Ready and wait.
+
+⏺ Ready, captain.
+
+  I will wait for the doorbell. When it comes, I will read the message in $FM_TASK_INBOX. Then I will wait 30 seconds and move that exact .msg file into
+  handled/. I will not touch anything else.
+
+✻ Worked for 3s · done 12:19 AM
+
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'option.inbox' steering inbox, read and act on each in numeric order, then mv each into
+  its handled/.
+
+  Ran 3 shell commands · 1 failed
+
+⏺ Captain, I read the one message (001.msg). It says: local test only. Wait 30 seconds, then acknowledge. Do not make a release.
+
+  The 30-second wait is running now. After the wait, the message moves into handled/. I will tell you when it is done.
+
+✻ Baked for 12s · done 12:20 AM
+
+⏺ Background command "Wait 30 seconds, then move message to handled" completed (exit code 0)
+
+  Read 1 file
+
+⏺ Captain, it worked. I acknowledged the message.
+
+  - The inbox had one message, 001.msg. It said this is a local test only and told me to wait 30 seconds.
+  - I waited 30 seconds. Then I moved it to .card-validation/home/state/option.inbox/handled/001.msg.
+  - The inbox has no more messages now.
+  - I did not make a release. I did not change any source or settings.
+
+  You do not need to do anything. I am waiting for the next doorbell.
+
+✻ Worked for 6s · done 12:20 AM
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 · 01M8GJV0DHD497CAH633BYWYJC · ⎇ firstmate  ┃  ctx 10% · think:on · effort:medium  ┃  7d 35%↻Nov 29
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 1 agent
