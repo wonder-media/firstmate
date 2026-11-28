@@ -48,7 +48,8 @@
 # SHA256(note). Answers are queued for 15 s, then routed and sent, NEVER
 # consumed by POST. /answer also accepts {action:"undo",answer_id}; only while
 # queued and before its deadline. {action:"correction",answer_id,note} queues
-# a correction request for a consumed answer without reopening its decision.
+# a correction request for a consumed answer without reopening its decision;
+# discard and snooze submissions cannot receive corrections.
 # The reserved choices discard and snooze apply to this decision only. Discard
 # records "captain discarded"; snooze defers the card in Bridge for 30 days.
 # After that an outstanding snoozed decision reopens under a fresh revision.
@@ -58,7 +59,7 @@
 # decisions use), so requests, filtering, and Archive apply once per origin. A
 # card's lifecycle_available is false when neither backlog nor worker meta
 # remains; lifecycle_hidden is true when only an open captain decision hold
-# keeps that removed task alive, so the card offers only its answer. Requests
+# keeps that removed task alive, hiding task-level controls. Requests
 # for known removed tasks succeed with 'Task already removed.'; Discard also
 # closes their open decisions with 'Task already removed; card closed.'. A
 # hold on a task the stored backlog no longer lists as active is refused with
@@ -140,8 +141,9 @@
 # choice, so the board-answers handler can never read it as an approval; it is
 # acknowledged only once the task's lifecycle row no longer carries an error.
 # POST /internal/reload (Bearer auth, 127.0.0.1 only, same port) immediately
-# notifies SSE after decision/live CLI writes. /api/state uses rev as its ETag,
-# qualified by project so a filtered representation never reuses an unfiltered one.
+# notifies SSE after decision/live CLI writes. /api/state's ETag combines rev,
+# project, and answer acknowledgements, so inbox handling invalidates cached
+# state even without a SQLite write or SSE change event.
 # Outbox: flock serializes exception export and routing across instances.
 # One O_APPEND write under export.lock publishes each complete jsonl burst, so a
 # coexisting legacy appender is never overwritten by a replace; answer_id scans
