@@ -90,7 +90,12 @@ function filter(){for(const group of [cards,taskCards,archiveCards])for(const no
 for(const tag of tags){const b=el('button','',tag);b.setAttribute('role','tab');b.dataset.tag=tag;b.tabIndex=tag==='All'?0:-1;b.setAttribute('aria-selected',tag==='All');b.addEventListener('click',()=>{project=tag;if(state)filter()});b.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;e.preventDefault();let i=tags.indexOf(tag);i=e.key==='Home'?0:e.key==='End'?tags.length-1:(i+(e.key==='ArrowRight'?1:-1)+tags.length)%tags.length;const next=$('projects').children[i];next.click();next.focus()});$('projects').append(b)}
 function legacyOptions(){return [{value:'custom',label:'Write my own answer'},{value:'request-options',label:'Ask firstmate for 2-3 concrete options'}]}
 function stateLabel(d){
- return {open:'Waiting on you',queued:'Queued',sent:'Sent',consumed:'Done',snoozed:'Done',failed:'Failed'}[d.state]||d.state;
+ if(d.state==='snoozed')return 'Held until '+new Date(d.snoozed_until).toLocaleDateString();
+ if(d.state==='consumed'){
+  if(d.answer?.action==='discard')return 'Closed';
+  return d.answer?.acknowledgement==='handled'?'Done':d.answer?.acknowledgement==='pending'?'Sent':'Sent (delivered)';
+ }
+ return {open:'Waiting on you',queued:'Queued',sent:'Sent',failed:'Failed'}[d.state]||d.state;
 }
 function answerStatus(d){
  if(d.state==='open')return submitErrors.get(draftKey(d))||(awaitingPost(d)?'Submitting…':'Select a tile, then tap Submit.');
@@ -98,7 +103,7 @@ function answerStatus(d){
  if(d.state==='sent')return 'Bridge is delivering your submission.';
  if(d.state==='failed')return (d.answer?.error||'Delivery could not be confirmed.')+' '+(d.answer?.delivery_class==='review'?'Firstmate will review it.':'Firstmate has been notified.');
  if(d.state==='snoozed')return 'Held until '+new Date(d.snoozed_until).toLocaleDateString()+'.';
- if(d.state==='consumed')return d.answer?.action==='discard'?'Closed · captain discarded':'Delivered to the decision owner.';
+ if(d.state==='consumed')return d.answer?.action==='discard'?'Closed · captain discarded':d.answer?.acknowledgement==='handled'?'Worker acknowledged the answer.':d.answer?.acknowledgement==='pending'?'Delivered; waiting for the worker to acknowledge.':'Delivered; worker acknowledgement is unavailable.';
  return '';
 }
 function lifecycleTarget(d){return d.lifecycle_task_id||d.task_id}
@@ -214,7 +219,7 @@ async function connect(){if(stream)stream.abort();const controller=new AbortCont
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&Date.now()-lastHeartbeat>25000){refresh(true);connect();flush()}});
 document.addEventListener('keydown',e=>{const editing=/INPUT|TEXTAREA/.test(e.target.tagName);if(editing||hubTab!=='decisions')return;const nodes=[...$('decision-cards').children].filter(n=>!n.hidden);let node=e.target.closest('.card'),index=nodes.indexOf(node);if(['j','k'].includes(e.key)&&nodes.length){e.preventDefault();nodes[(index+(e.key==='j'?1:-1)+nodes.length)%nodes.length].focus();return}if(!node?.data?.decision_key)return;if(/^[1-9]$/.test(e.key)){const radio=node.querySelectorAll('input[type=radio]')[Number(e.key)-1];if(radio&&!radio.disabled&&!radio.closest('fieldset').disabled){e.preventDefault();radio.click()}}if(e.key==='n'){e.preventDefault();node.querySelector('textarea').focus()}if(e.key==='Enter'&&e.target===node){e.preventDefault();node.querySelector('.confirm:not([hidden])')?.click()}if(e.key==='u'){e.preventDefault();node.querySelector('.undo:not([hidden])')?.click()}});
 setInterval(()=>{connection();for(const node of cards.values()){const d=node.data;if(d.answer&&d.state==='queued'){const remaining=Math.ceil(d.answer.ready_at-Date.now()/1000);const undo=node.querySelector('.undo');undo.textContent='Undo ('+Math.max(0,remaining)+' s)';undo.disabled=remaining<=0}}for(const group of [cards,taskCards,archiveCards])for(const node of group.values()){const l=node.data.lifecycle;if(l?.pending_action&&l.request_state==='queued'){const remaining=Math.ceil(l.ready_at-Date.now()/1000),undo=node.querySelector('.lifecycle-undo');undo.textContent='Undo ('+Math.max(0,remaining)+' s)';undo.disabled=remaining<=0}}},1000);
-setInterval(()=>{if(fallback)refresh();if(pending.length)flush()},10000);
+setInterval(()=>{if(fallback||state?.decisions.some(d=>d.answer?.acknowledgement==='pending'))refresh();if(pending.length)flush()},10000);
 refresh(true);connect();flush();
 </script>
 <script>

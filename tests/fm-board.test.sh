@@ -77,7 +77,10 @@ if(window.__bridgeTest){
    const duplicateCards=[...cards.values()].filter(n=>draftIdentity(n.data)===draftIdentity(base)),distinctDuplicateCards=duplicateCards.length;
    const distinctRadioGroups=new Set(duplicateCards.map(n=>n.querySelector('input[type=radio]').name)).size;
    const style=getComputedStyle(failed),descriptionStyle=getComputedStyle(node.querySelector('.consequence')),saved=localStorage.getItem(key);
-   finish({viewport:[innerWidth,innerHeight],horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
+   const answerLabels=['pending','handled','unavailable'].map(acknowledgement=>buildDecision({...node.data,state:'consumed',answer:{...node.data.answer,action:'answer',acknowledgement}}).querySelector('.decision-state').textContent);
+   const closedLabel=buildDecision({...node.data,state:'consumed',answer:{...node.data.answer,action:'discard'}}).querySelector('.decision-state').textContent;
+   const heldLabel=buildDecision({...node.data,state:'snoozed',snoozed_until:'2026-12-28T12:00:00Z'}).querySelector('.decision-state').textContent;
+   finish({answerLabels,closedLabel,heldLabel,viewport:[innerWidth,innerHeight],horizontalOverflow:document.documentElement.scrollWidth>document.documentElement.clientWidth,
     preselected,liveProject,draftAfterMove,draftLeftBehind,visibleAfterMove,migration,distinctDuplicateCards,distinctRadioGroups,selected:[...radios].find(r=>r.checked)?.value,note:note.value,state:node.querySelector('.decision-state').textContent,
     savedDraft:saved,health:document.querySelector('#answer-health').textContent,
     healthHidden:document.querySelector('#answer-health').hidden,dot:document.querySelector('#connection-dot').className,
@@ -188,6 +191,9 @@ elif name in ('fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
   with (h/'deliveries.jsonl').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\\n')
  else:
   with (h/'deliveries.jsonl').open('a') as f:f.write(json.dumps(sys.argv[1:])+'\\n')
+  if sys.argv[1]=='alpha':
+   inbox=h/'state/alpha.inbox';(inbox/'handled').mkdir(parents=True,exist_ok=True)
+   (inbox/'001.msg').write_text('schema=fm-task-inbox.v1\\nat=2026-11-28T00:00:00Z\\nbody-terminator=1\\n--\\n'+sys.argv[-1]+'\\n')
 '''.replace('PYTHON',sys.executable)
 for name in ('tasks-axi','fm-crew-state.sh','fm-fleet-snapshot.sh','fm-send.sh','fm-decision-hold.sh','fm-control.sh'):
     dest=(fakebin if name=='tasks-axi' else fixture/'bin')/name
@@ -695,7 +701,7 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     assert len(resumed_cards)==2 and next(d for d in resumed_cards if d['decision_key']=='one')['answer']['answer_id']==preserved_answer
     assert not any(t['task_id']=='lifecycle' for t in resumed_state['archive'])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(preserved_answer,))[0]['consumed_at'])
-    assert delivered('lifecycle')==[['lifecycle','--resolve-key','one','Preserve this answer']],delivered('lifecycle')
+    assert delivered('lifecycle')==[['lifecycle','--resolve-key','one',f'Preserve this answer\n\nBridge answer: {preserved_answer}']],delivered('lifecycle')
     second_answer=request('/answer',answer('lifecycle',key='two',choice='custom',note='Still queued',revision=next(d for d in resumed_cards if d['decision_key']=='two')['revision']))[1]['answers'][0]['answer_id']
     mutate('update answers set ready_at=? where answer_id=?',(time.time()+3600,second_answer))
     relaunches=[c[1] for c in calls(home,'fm-control.sh') if c[1][:2]==['lifecycle','relaunch']]
@@ -1072,6 +1078,22 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(aid,))[0]['consumed_at'])
     delivered=[d for d in map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()) if d[0]=='alpha']
     assert len(delivered)==1 and delivered[0][:3]==['alpha','--resolve-key','choose'] and '(note: a note)' in delivered[0][-1]
+    def alpha_ack():
+        return next(d for d in request()[1]['decisions'] if d['task_id']=='alpha')['answer']['acknowledgement']
+    assert alpha_ack()=='pending'
+    inbox=home/'state/alpha.inbox'
+    (inbox/'handled/unrelated.msg').write_text('unrelated acknowledgement')
+    assert alpha_ack()=='pending'
+    (inbox/'handled/001.msg').write_text('different record at the same path')
+    assert alpha_ack()=='pending'
+    (inbox/'handled/001.msg').unlink()
+    _,_,before_ack=request()
+    (inbox/'001.msg').rename(inbox/'handled/001.msg')
+    assert request(extra={'If-None-Match':before_ack['ETag']})[0]==200
+    assert alpha_ack()=='handled'
+    stop(kill=True);start()
+    assert alpha_ack()=='handled'
+    passed('delivery stays pending until the exact inbox record is handled, including after restart')
     log=home/'state/board-inbox/answers.jsonl'
     assert not [r for r in map(json.loads,log.read_text().splitlines()) if 'answer_id' in r] if log.exists() else True
     command('answered',aid);passed('authoritative queued payload, undo, dedupe, crash replay, routing, and consumption')
@@ -1093,6 +1115,7 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     assert request('/answer',discard)[1]['answers'][0]['answer_id']==discard_id
     accelerate([discard_id])
     closed=wait(lambda:(lambda d:d if d and d['state']=='consumed' else None)(card(tid,'close')))
+    assert closed['answer']['acknowledgement'] is None
     assert closed['answer']['action']=='discard' and card(tid,'hold')['state']=='open',closed
     assert re.search(r'^resolved .*\[key=close\].*: captain discarded$',(second/f'state/{tid}.status').read_text(),re.M)
     assert calls(second,'fm-control.sh')==before_control
@@ -1105,6 +1128,7 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     hold_id=posted['answers'][0]['answer_id']
     accelerate([hold_id])
     snoozed=wait(lambda:(lambda d:d if d and d['state']=='snoozed' else None)(card(tid,'hold')))
+    assert snoozed['answer']['acknowledgement'] is None
     assert datetime.datetime.fromisoformat(snoozed['snoozed_until'])-datetime.datetime.fromisoformat(snoozed['closed_at'])==datetime.timedelta(days=30),snoozed
     assert request('/answer',dict(held,choice='custom',note='Before expiry'))[0]==409
     mutate('update decisions set closed_at=? where home_id=? and task_id=? and decision_key=?',
@@ -1126,8 +1150,10 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     oid=r[1]['answers'][0]['answer_id'];accelerate([oid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(oid,))[0]['consumed_at'])
     deliveries=list(map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()))
-    assert deliveries[-2]==['keyed-legacy','--resolve-key','reason','Keep the current copy'],deliveries[-2]
-    assert deliveries[-1]==['options-please',"Captain requested structured options for decision alternatives: register 2-3 distinct alternatives with `bin/fm-board.sh decision Main options-please alternatives --option '...' --rec VALUE --why '...'` and stop; for an unknown factual input, omit --rec and use --why for the recommended verification step."]
+    assert deliveries[-2]==['keyed-legacy','--resolve-key','reason','Keep the current copy'+f'\n\nBridge answer: {kid}'],deliveries[-2]
+    assert deliveries[-1]==['options-please',"Captain requested structured options for decision alternatives: register 2-3 distinct alternatives with `bin/fm-board.sh decision Main options-please alternatives --option '...' --rec VALUE --why '...'` and stop; for an unknown factual input, omit --rec and use --why for the recommended verification step."+f'\n\nBridge answer: {oid}']
+    assert card('keyed-legacy','reason')['answer']['acknowledgement']=='unavailable'
+    assert card('options-please','alternatives')['answer']['acknowledgement']=='unavailable'
     passed('keyed legacy note routes directly; concrete-options request is one exact fixed steer')
     # Three legacy answers are exceptions: one atomic JSONL burst, one source fire.
     for i in range(3):meta(home,f'legacy{i}',f'needs-decision: Explain choice {i}')
@@ -1174,6 +1200,7 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     ingested_after(last_ok)
     consumed_hold=sql("select * from decisions where task_id='origin-decision-budget' order by revision desc")[0]
     assert consumed_hold['state']=='consumed' and consumed_hold['revision']==held['revision'],consumed_hold
+    assert card('origin-decision-budget','budget')['answer']['acknowledgement']=='unavailable'
     passed('backlog hold routes through fm-decision-hold answers')
     passed('registration conflicts with an answered hold; ingest keeps running and never supersedes it')
     # An answer without a note delivers the option wording alone.
@@ -1184,7 +1211,7 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     nid=r[1]['answers'][0]['answer_id'];accelerate([nid])
     wait(lambda:sql('select consumed_at from answers where answer_id=?',(nid,))[0]['consumed_at'])
     sent=list(map(json.loads,(home/'deliveries.jsonl').read_text().splitlines()))[-1]
-    assert sent==['nonote','--resolve-key','choose','Ship it'],sent
+    assert sent==['nonote','--resolve-key','choose',f'Ship it\n\nBridge answer: {nid}'],sent
     # A registered option may hold newlines or tabs; the hold intake needs one line.
     command('decision','Main',held['task_id'],'budget','--project','CES','--title','Budget approval',
             '--option','A: Approve\nwith\tconditions','--option','B: Reject','--rec','A','--why','Conditions preserve the safety boundary.')
@@ -1342,6 +1369,8 @@ for bad in (0,86401,'120',12.5):
             assert observed.get('error') is None,observed
             assert observed['removedLifecycle']==['Discard'],observed
             assert observed['holdKeptLifecycleHidden'] is True,observed
+            assert observed['answerLabels']==['Sent','Done','Sent (delivered)'],observed
+            assert observed['closedLabel']=='Closed' and observed['heldLabel'].startswith('Held until ') and '2026' in observed['heldLabel'],observed
             assert observed['horizontalOverflow'] is False,observed
             assert observed['preselected'] is False,observed
             assert observed['liveProject']=='CES' and observed['visibleAfterMove'],observed

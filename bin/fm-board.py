@@ -498,6 +498,9 @@ class Board:
                     rewritten = True
                 if rewritten:
                     c.execute("UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='rev'")
+            answer_columns = {row['name'] for row in c.execute('PRAGMA table_info(answers)')}
+            if 'inbox_receipt' not in answer_columns:
+                c.execute('ALTER TABLE answers ADD COLUMN inbox_receipt TEXT')
             c.execute('UPDATE schema_version SET version=3')
             c.execute('PRAGMA user_version=3')
             c.commit()
@@ -1129,6 +1132,20 @@ class Board:
         finally:
             self.ingest_lock.release()
 
+    def answer_acknowledgement(self, answer):
+        if not answer['consumed_at'] or answer['action'] != 'answer':
+            return None
+        if not answer['inbox_receipt']:
+            return 'unavailable'
+        receipt = json.loads(answer['inbox_receipt'])
+        handled = self.homes[answer['home_id']] / f'state/{answer["task_id"]}.inbox/handled' / receipt['name']
+        try:
+            if hashlib.sha256(handled.read_bytes()).hexdigest() == receipt['sha256']:
+                return 'handled'
+        except OSError:
+            pass
+        return 'pending'
+
     def state_payload(self, project=None):
         if project and project not in TAGS and project != 'All':
             raise Invalid('unknown project')
@@ -1146,6 +1163,7 @@ class Board:
                 d['answer'] = dict(answer) if answer else None
                 if d['answer']:
                     d['answer']['delivery_class'] = delivery_class(d['answer'])
+                    d['answer']['acknowledgement'] = self.answer_acknowledgement(d['answer'])
                 if d['state'] == 'snoozed':
                     d['snoozed_until'] = (datetime.datetime.fromisoformat(d['closed_at']) + SNOOZE_DURATION).isoformat()
                 d['lifecycle_task_id'] = self.decision_lifecycle_task(c, d)
@@ -1639,7 +1657,10 @@ def handler(board, internal=False):
                 elif parsed.path == '/api/state':
                     project = urllib.parse.parse_qs(parsed.query).get('project',[None])[0]
                     state = board.state_payload(project)
-                    etag = f'"{state["rev"]}.{project}"' if project else f'"{state["rev"]}"'
+                    acknowledgements = [(d['answer']['answer_id'], d['answer']['acknowledgement'])
+                                        for d in state['decisions'] if d['answer']]
+                    acknowledgement_tag = hashlib.sha256(json.dumps(acknowledgements).encode()).hexdigest()[:16]
+                    etag = f'"{state["rev"]}.{project or ""}.{acknowledgement_tag}"'
                     if self.headers.get('If-None-Match') == etag:
                         self.send_response(304)
                         self.send_header('ETag',etag)

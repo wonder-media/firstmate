@@ -3874,7 +3874,8 @@ The shared staleness proof lives in `bin/fm-lock-lib.sh`, which both `fm-teardow
 
 Bridge, the local captain dashboard, is served by `bin/fm-board.sh serve`; the [`bin/fm-board.py`](../bin/fm-board.py) header owns configuration, HTTP routes, authentication, and runtime storage.
 Select an option, Close / discard, or Hold 30 days on a decision card, then tap Submit to queue the decision with a 15-second undo window.
-Successful submissions appear under Recent decisions, and failures show the delivery reason on the card.
+Delivered submissions appear under Recent decisions: Sent waits for the matching durable inbox record to move into handled, then becomes Done; routes without a local inbox acknowledgement show Sent (delivered).
+Discard shows Closed, Hold 30 days shows Held until the recorded date, and failures show the delivery reason on the card.
 Task cards and the Manage task section on decision cards expose task-level Hold and Discard with the same undo window.
 Task Hold preserves the task in Bridge's Archive until Resume, while task Discard closes its backlog task and open decisions without deleting its worktree, source, history, or evidence.
 When a card's task is gone from both the backlog and worker records, only task Discard is available under Manage task; that section is hidden when only an open captain decision hold keeps the task visible.

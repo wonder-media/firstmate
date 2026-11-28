@@ -277,6 +277,32 @@ def mark_routing(b, a):
         return True
 
 
+def inbox_records(inbox):
+    return {p.name for directory in (inbox, inbox / 'handled') for p in directory.glob('*.msg')}
+
+
+def capture_receipt(b, a, inbox, message):
+    matches = []
+    for name in inbox_records(inbox):
+        for path in (inbox / name, inbox / 'handled' / name):
+            try:
+                data = path.read_bytes()
+            except OSError:
+                continue
+            header, separator, body = data.partition(b'--\n')
+            if separator and header.startswith(b'schema=fm-task-inbox.v1\n'):
+                if b'body-terminator=1' in header.splitlines():
+                    body = body[:-1]
+                if body == message.encode():
+                    matches.append({'name': name, 'sha256': hashlib.sha256(data).hexdigest()})
+            break
+    if len(matches) == 1:
+        with b.write() as (c, changed):
+            c.execute('UPDATE answers SET inbox_receipt=? WHERE answer_id=?',
+                      (json.dumps(matches[0]), a['answer_id']))
+            changed[0] = True
+
+
 def route(config):
     b = m.Board(config)
     exceptions = []
@@ -338,11 +364,15 @@ def route(config):
                     argv = [m.ROOT/'bin/fm-send.sh',a['task_id']]
                     if a['choice'] != 'request-options':
                         argv += ['--resolve-key',a['decision_key']]
+                    answer_text += f'\n\nBridge answer: {aid}'
                     argv += [answer_text]
                     stdin = None
                 if not mark_routing(b, a):
                     continue
+                inbox = target_home / f'state/{a["task_id"]}.inbox'
                 m.run(argv,target_home,10,stdin)
+                if stdin is None:
+                    capture_receipt(b, a, inbox, answer_text)
                 m.run([m.ROOT/'bin/fm-board.sh','answered',aid,'--config',b.config_path],b.home)
                 routed += 1
             except (OSError,ValueError,KeyError) as e:
