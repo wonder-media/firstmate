@@ -49,6 +49,9 @@
 # consumed by POST. /answer also accepts {action:"undo",answer_id}; only while
 # queued and before its deadline. {action:"correction",answer_id,note} queues
 # a correction request for a consumed answer without reopening its decision.
+# The reserved choices discard and snooze apply to this decision only. Discard
+# records "captain discarded"; snooze defers the card in Bridge for 30 days.
+# After that an outstanding snoozed decision reopens under a fresh revision.
 # POST /lifecycle -> {home,task,revision,action,request_id,device?}, where action
 # is hold, discard, or resume. A <origin>-decision-<key> task whose origin is a
 # known task or lifecycle row shares the origin's lifecycle (the same rule
@@ -204,6 +207,9 @@ REVIEW_ERRORS = (
 )
 DELIVERY_FAILURE_ERRORS = ('fm-send.sh:', 'fm-decision-hold.sh:', 'fm-crew-state.sh:')
 DEFAULT_CONSEQUENCE = 'Your choice decides what happens next for this task.'
+DISCARD_REASON = 'captain discarded'
+SNOOZE_DURATION = datetime.timedelta(days=30)
+DECISION_ACTIONS = ('discard', 'snooze')
 LIFECYCLE_ACTIONS = ('hold', 'discard', 'resume')
 BRIDGE_HOLD_REASON = 'Held in Bridge Archive'
 LIFECYCLE_TARGET_SQL = '''CASE WHEN d.source='hold' AND d.origin_id!='' AND EXISTS (SELECT 1 FROM tasks t
@@ -668,6 +674,12 @@ class Board:
         if prior and prior['state'] != 'closed':
             if all(prior[k] == v for k, v in fields.items()):
                 return prior['revision']
+            if prior['state'] == 'snoozed':
+                c.execute(f'UPDATE decisions SET {",".join(k+"=?" for k in fields)} '
+                          'WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?',
+                          (*fields.values(), hid, task, key, prior['revision']))
+                changed[0] = True
+                return prior['revision']
             unchanged = all(prior[k] == v for k, v in fields.items() if k not in ('question', 'description'))
             if prior['description'] is None and prior['question'] == legacy and unchanged:
                 c.execute('UPDATE decisions SET question=?,description=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?',
@@ -715,7 +727,7 @@ class Board:
             answered = [h for h in holds if h['state'] in ('queued', 'sent', 'failed')]
             if answered:
                 raise Conflict('durable hold has a recorded or outstanding answer', self.decision_dict(answered[0]))
-            holds = [h for h in holds if h['state'] == 'open']
+            holds = [h for h in holds if h['state'] in ('open', 'snoozed')]
             if len(holds) > 1:
                 raise Conflict('multiple durable holds own this decision key')
             task = holds[0]['task_id'] if holds else original_task
@@ -985,7 +997,7 @@ class Board:
                         continue
                     self.upsert_decision(c, changed, hid, tid, key, row['title'], summary, [], '', '',
                                          'worker', row['project'], legacy=summary)
-                for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND task_id=? AND source='worker' AND state='open'", (hid, tid)).fetchall():
+                for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND task_id=? AND source='worker' AND state IN ('open','snoozed')", (hid, tid)).fetchall():
                     if prior['decision_key'] not in open_keys:
                         c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
                                   (stamp(), hid, tid, prior['decision_key'], prior['revision']))
@@ -1038,7 +1050,7 @@ class Board:
                                          'hold', hold_project, origin, bool(sep),
                                          legacy=b['title'] + ': ' + b['reason'])
             if not error:
-                for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND source='hold' AND state='open'", (hid,)).fetchall():
+                for prior in c.execute("SELECT * FROM decisions WHERE home_id=? AND source='hold' AND state IN ('open','snoozed')", (hid,)).fetchall():
                     if not backlog.get(prior['task_id'], {}).get('captain_actionable'):
                         c.execute("UPDATE decisions SET state='closed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
                                   (stamp(), hid, prior['task_id'], prior['decision_key'], prior['revision']))
@@ -1060,6 +1072,7 @@ class Board:
                       (hid, prior['last_ok'] if error and prior else (None if error else stamp()), error,
                        int((time.monotonic()-started)*1000), snapshot_ms if snapshot_ms is not None else (prior['last_snapshot_ms'] if prior else None)))
             if not error:
+                self.reopen_snoozed(c, changed, hid)
                 c.execute('DELETE FROM fingerprints WHERE home_id=?', (hid,))
                 c.executemany('INSERT INTO fingerprints VALUES(?,?,?)', [(hid, k, v) for k, v in fresh.items()])
                 c.execute('DELETE FROM backlog WHERE home_id=?', (hid,))
@@ -1067,6 +1080,18 @@ class Board:
                 for repo, tag in self.repo_tags.items():
                     c.execute('INSERT OR REPLACE INTO projects VALUES(?,?,?,?)', (tag, hid, repo, ''))
         return error
+
+    def reopen_snoozed(self, c, changed, hid):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        expired = c.execute("SELECT * FROM decisions WHERE home_id=? AND state='snoozed' AND closed_at<=?",
+                            (hid, (now - SNOOZE_DURATION).isoformat())).fetchall()
+        for d in expired:
+            key = (hid, d['task_id'], d['decision_key'], d['revision'])
+            c.execute("UPDATE decisions SET state='closed' WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?", key)
+            # Keep the completed snooze and its idempotency key in history.
+            self.upsert_decision(c, changed, *key[:3], d['question'], d['description'],
+                                 json.loads(d['options']), d['recommendation'], d['why'],
+                                 d['source'], d['project'], d['origin_id'], bool(d['registered']))
 
     def reconcile_lifecycle(self, c, changed, hid, backlog, pass_started):
         """tasks-axi owns the backlog: a Bridge hold or discard with no request in
@@ -1113,7 +1138,7 @@ class Board:
             tasks = [dict(r) for r in c.execute('SELECT * FROM tasks WHERE deleted_at IS NULL ORDER BY home_id,task_id')]
             decisions = [self.decision_dict(r) for r in c.execute('''SELECT d.* FROM decisions d
                 WHERE revision=(SELECT max(revision) FROM decisions x WHERE x.home_id=d.home_id AND x.task_id=d.task_id AND x.decision_key=d.decision_key)
-                AND (state NOT IN ('closed','consumed') OR (state='consumed' AND closed_at>?)) ORDER BY asked_at''',
+                AND (state NOT IN ('closed','consumed','snoozed') OR (state IN ('consumed','snoozed') AND closed_at>?)) ORDER BY asked_at''',
                 ((datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=1)).isoformat(),))]
             for d in decisions:
                 answer = c.execute('SELECT * FROM answers WHERE home_id=? AND task_id=? AND decision_key=? AND revision=? AND cancelled_at IS NULL ORDER BY received_at DESC LIMIT 1',
@@ -1121,6 +1146,8 @@ class Board:
                 d['answer'] = dict(answer) if answer else None
                 if d['answer']:
                     d['answer']['delivery_class'] = delivery_class(d['answer'])
+                if d['state'] == 'snoozed':
+                    d['snoozed_until'] = (datetime.datetime.fromisoformat(d['closed_at']) + SNOOZE_DURATION).isoformat()
                 d['lifecycle_task_id'] = self.decision_lifecycle_task(c, d)
             for task in tasks:
                 task['lifecycle_task_id'] = self.task_lifecycle_target(c, task['home_id'], task['task_id'])
@@ -1153,7 +1180,7 @@ class Board:
             age = self.age(r.get('last_ok'))
             homes.append(dict(id=hid, last_ok=r.get('last_ok'), age_s=age, stale=age is None or age > self.stale_after,
                               ingest_error=r.get('last_error')))
-        counts = {tag: sum(1 for d in decisions if d['project'] == tag and d['state'] != 'consumed') for tag in TAGS}
+        counts = {tag: sum(1 for d in decisions if d['project'] == tag and d['state'] not in ('consumed','snoozed')) for tag in TAGS}
         counts['All'] = sum(counts.values())
         if project and project != 'All':
             tasks = [r for r in tasks if r['project'] == project]
@@ -1188,9 +1215,14 @@ class Board:
                 choice = text(a.get('choice'), 'choice', 200)
                 note = text(a.get('note', ''), 'note', empty=True)
                 device = text(a.get('device', ''), 'device', 120, empty=True)
+                action = choice if choice in DECISION_ACTIONS else 'answer'
                 opts = json.loads(d['options'])
-                if choice not in ([o['value'] for o in opts] if opts else ['custom', 'request-options']):
+                if action == 'answer' and choice not in ([o['value'] for o in opts] if opts else ['custom', 'request-options']):
                     raise Invalid('unknown option')
+                if action in DECISION_ACTIONS and note:
+                    raise Invalid('decision discard and snooze do not accept a note')
+                if action == 'discard':
+                    note = DISCARD_REASON
                 if choice == 'custom' and not note.strip():
                     raise Invalid('custom answers require a note')
                 digest = hashlib.sha256(note.encode()).hexdigest()
@@ -1204,8 +1236,8 @@ class Board:
                     # Undo removed the intent; resubmitting the identical draft is allowed.
                     c.execute('DELETE FROM answers WHERE answer_id=?', (prior['answer_id'],))
                 aid = str(uuid.uuid4())
-                c.execute('''INSERT INTO answers(answer_id,home_id,task_id,decision_key,revision,choice,note,note_hash,device,received_at,ready_at)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?)''', (aid,hid,tid,key,d['revision'],choice,note,digest,device,stamp(),time.time()+15))
+                c.execute('''INSERT INTO answers(answer_id,home_id,task_id,decision_key,revision,choice,note,note_hash,device,received_at,ready_at,action)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)''', (aid,hid,tid,key,d['revision'],choice,note,digest,device,stamp(),time.time()+15,action))
                 c.execute("UPDATE decisions SET state='queued' WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?", (hid,tid,key,d['revision']))
                 changed[0] = True
                 result.append(dict(c.execute('SELECT * FROM answers WHERE answer_id=?', (aid,)).fetchone()))
@@ -1225,7 +1257,7 @@ class Board:
                     c.execute("UPDATE decisions SET state='open' WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?", (a['home_id'],a['task_id'],a['decision_key'],a['revision']))
                     changed[0] = True
                 return {'ok':True}
-            if record['action'] != 'correction' or not a['consumed_at']:
+            if record['action'] != 'correction' or a['action'] != 'answer' or not a['consumed_at']:
                 raise Invalid('corrections require a consumed answer')
             note = text(record.get('note'), 'correction note')
             digest = hashlib.sha256(note.encode()).hexdigest()
@@ -1286,8 +1318,10 @@ class Board:
                 raise Invalid('answer must have been routed or escalated before consumption')
             if not a['consumed_at']:
                 c.execute('UPDATE answers SET consumed_at=?,error=NULL WHERE answer_id=?', (stamp(),aid))
-                if a['action'] == 'answer':
-                    c.execute("UPDATE decisions SET state='consumed',closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?", (stamp(),a['home_id'],a['task_id'],a['decision_key'],a['revision']))
+                if a['action'] != 'correction':
+                    state = 'snoozed' if a['action'] == 'snooze' else 'consumed'
+                    c.execute('UPDATE decisions SET state=?,closed_at=? WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?',
+                              (state,stamp(),a['home_id'],a['task_id'],a['decision_key'],a['revision']))
                 changed[0] = True
         return {'ok':True}
 
@@ -1298,7 +1332,7 @@ class Board:
                 if not error.startswith(REVIEW_ERRORS + DELIVERY_FAILURE_ERRORS):
                     self.log(f'answer {aid}: unclassified error shown as {delivery_class(dict(dict(a), error=error))}: {error}')
                 c.execute('UPDATE answers SET error=? WHERE answer_id=?', (error,aid))
-                if a['action'] == 'answer':
+                if a['action'] != 'correction':
                     c.execute("UPDATE decisions SET state='failed' WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?", (a['home_id'],a['task_id'],a['decision_key'],a['revision']))
                 changed[0] = True
 

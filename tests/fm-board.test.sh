@@ -11,7 +11,7 @@ TMP_ROOT=$(fm_test_tmproot fm-board)
 export FM_BOARD_TEST_ROOT="$TMP_ROOT" FM_BOARD_TEST_CODE="$ROOT"
 PYTHON="${FM_BOARD_PYTHON:-python3}"
 "$PYTHON" - <<'PY'
-import contextlib,csv,io,json,os,pathlib,re,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error,uuid
+import contextlib,csv,datetime,io,json,os,pathlib,re,shutil,signal,socket,sqlite3,subprocess,sys,time,urllib.request,urllib.error,uuid
 root=pathlib.Path(os.environ['FM_BOARD_TEST_ROOT']).resolve()
 assert (root/'.fm-test-fixture').is_file(), 'fixture root is not newly created by fm_test_tmproot'
 code=pathlib.Path(os.environ['FM_BOARD_TEST_CODE']).resolve()
@@ -86,7 +86,8 @@ if(window.__bridgeTest){
     registeredOptions:[...node.querySelectorAll('.option')].map(o=>o.textContent),
     legacyOptions:[...review.querySelectorAll('.option')].map(o=>o.textContent),legacyNotice:review.querySelector('.options-needed')?.textContent,
     factualPreselected:[...factual.querySelectorAll('input[type=radio]')].some(r=>r.checked),factualGuidance:factual.querySelector('.recommend')?.textContent,
-    reviewState:review.querySelector('.decision-state').textContent,deliveryState:delivery.querySelector('.decision-state').textContent,
+    reviewState:review.querySelector('.decision-state').textContent,reviewReason:review.querySelector('.answer-status').textContent,
+    deliveryState:delivery.querySelector('.decision-state').textContent,deliveryReason:delivery.querySelector('.answer-status').textContent,
     removedLifecycle:[...buildDecision({...node.data,lifecycle_available:false}).querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
     holdKeptLifecycleHidden:buildDecision({...node.data,lifecycle_available:false,lifecycle_hidden:true}).querySelector('.lifecycle-actions').hidden,
     decisionLifecycle:[...node.querySelectorAll('.lifecycle-actions button:not([hidden])')].map(b=>b.textContent),
@@ -1074,6 +1075,45 @@ print(json.dumps({{'schemaVersion':1,'providers':[
     log=home/'state/board-inbox/answers.jsonl'
     assert not [r for r in map(json.loads,log.read_text().splitlines()) if 'answer_id' in r] if log.exists() else True
     command('answered',aid);passed('authoritative queued payload, undo, dedupe, crash replay, routing, and consumption')
+    # All card choices share the answer queue, and dispositions apply to one key.
+    def card(task,key):
+        return next((d for d in request()[1]['decisions'] if d['task_id']==task and d['decision_key']==key),None)
+    tid='card-actions'
+    meta(second,tid,'needs-decision [key=close]: Close this decision?\nneeds-decision [key=hold]: Pause this decision?')
+    waiting=wait(lambda:card(tid,'close'))
+    discard=dict(answer(tid,key='close',choice='discard',note='',revision=waiting['revision']),home='Second')
+    before_control=calls(second,'fm-control.sh')
+    code_,posted,_=request('/answer',discard)
+    assert code_==200 and posted['answers'][0]['note']=='captain discarded',posted
+    discard_id=posted['answers'][0]['answer_id']
+    assert request('/answer',dict(discard,choice='custom',note='A different answer'))[0]==409
+    assert request('/answer',{'action':'undo','answer_id':discard_id})[0]==200
+    assert card(tid,'close')['state']=='open'
+    discard_id=request('/answer',discard)[1]['answers'][0]['answer_id']
+    assert request('/answer',discard)[1]['answers'][0]['answer_id']==discard_id
+    accelerate([discard_id])
+    closed=wait(lambda:(lambda d:d if d and d['state']=='consumed' else None)(card(tid,'close')))
+    assert closed['answer']['action']=='discard' and card(tid,'hold')['state']=='open',closed
+    assert re.search(r'^resolved .*\[key=close\].*: captain discarded$',(second/f'state/{tid}.status').read_text(),re.M)
+    assert calls(second,'fm-control.sh')==before_control
+    assert not any(call[1][0]==tid for call in calls(second,'fm-send.sh'))
+
+    waiting=card(tid,'hold')
+    held=dict(answer(tid,key='hold',choice='snooze',note='',revision=waiting['revision']),home='Second')
+    code_,posted,_=request('/answer',held)
+    assert code_==200,posted
+    hold_id=posted['answers'][0]['answer_id']
+    accelerate([hold_id])
+    snoozed=wait(lambda:(lambda d:d if d and d['state']=='snoozed' else None)(card(tid,'hold')))
+    assert datetime.datetime.fromisoformat(snoozed['snoozed_until'])-datetime.datetime.fromisoformat(snoozed['closed_at'])==datetime.timedelta(days=30),snoozed
+    assert request('/answer',dict(held,choice='custom',note='Before expiry'))[0]==409
+    mutate('update decisions set closed_at=? where home_id=? and task_id=? and decision_key=?',
+           ('2000-01-01T00:00:00+00:00','Second',tid,'hold'))
+    reopened=wait(lambda:(lambda d:d if d and d['state']=='open' else None)(card(tid,'hold')))
+    assert reopened['revision']==waiting['revision']+1 and reopened['answer'] is None,reopened
+    assert request('/answer',held)[0]==409
+    assert card(tid,'close')['state']=='consumed'
+    passed('card discard resolves only its owning-home key; snooze resurfaces with a fresh revision after 30 days')
     # A known keyed legacy answer goes to its worker, including its note.
     meta(home,'keyed-legacy','needs-decision [key=reason]: Explain your choice')
     wait(lambda:any(d['task_id']=='keyed-legacy' for d in request()[1]['decisions']))
@@ -1308,7 +1348,7 @@ for bad in (0,86401,'120',12.5):
             assert observed['draftAfterMove']=={'choice':'A','note':'Unsaved local draft'} and observed['draftLeftBehind'] is None,observed
             migration=observed['migration']
             assert migration['cards']==2 and len(set(migration['radioNames']))==2,observed
-            assert migration['selected']==['A','B'] and migration['confirm']==['Confirm: Ship it','Confirm: Wait'],observed
+            assert migration['selected']==['A','B'] and migration['confirm']==['Submit: Ship it','Submit: Wait'],observed
             assert migration['checkedOpen']==2 and migration['batch'].startswith('Submit drafted (2 of '),observed
             assert migration['records']==['A','B'] and migration['rebuilt']==[['A','A'],['B','B']],observed
             assert observed['distinctDuplicateCards']==2 and observed['distinctRadioGroups']==2,observed
@@ -1318,12 +1358,14 @@ for bad in (0,86401,'120',12.5):
             assert observed['description']=='This decides whether the change ships now or waits for another check.',observed
             assert observed['descriptionSize']=='14px' and observed['descriptionWeight']=='400',observed
             assert observed['registeredOptions'][0].startswith('Ship itRecommended · Small reversible change'),observed
-            assert observed['legacyOptions']==['Write my own answer','Ask firstmate for 2-3 concrete options'],observed
+            assert observed['legacyOptions']==['Write my own answer','Ask firstmate for 2-3 concrete options',
+                'Close / discardClose this decision without choosing an option.',
+                'Hold 30 daysTake this decision off the waiting list for 30 days.'],observed
             assert observed['legacyNotice']=='Concrete options and a recommendation are still being prepared.',observed
             assert observed['factualPreselected'] is False,observed
             assert observed['factualGuidance']=='Recommended next step · Verify the current schedule before choosing.',observed
-            assert observed['reviewState']=='Sent to firstmate to review',observed
-            assert observed['deliveryState']=='Could not deliver - firstmate notified',observed
+            assert observed['reviewState']=='Failed' and 'Firstmate will review it.' in observed['reviewReason'],observed
+            assert observed['deliveryState']=='Failed' and 'fm-send.sh:' in observed['deliveryReason'],observed
             assert observed['decisionLifecycle']==['Hold','Discard'] and observed['taskLifecycle']==['Hold','Discard'],observed
             assert observed['archiveLifecycle']==['Discard','Resume'] and observed['archiveTitle']=='Archive',observed
             assert not observed['healthHidden'] and 'red' in observed['dot'].split(),observed

@@ -234,6 +234,49 @@ def route_lifecycle(b):
     return completed, exceptions
 
 
+def discard_card(b, home, d, answer_id):
+    if d['source'] == 'hold':
+        decision_file = b.state / 'board-inbox/lifecycle' / f'{answer_id}.decision'
+        m.atomic(decision_file, (m.DISCARD_REASON + '\n').encode())
+        origin, key = d['origin_id'], d['decision_key']
+        if d['task_id'] == f'{origin}-decision-{key}':
+            argv = [m.ROOT/'bin/fm-decision-hold.sh','decline',origin,key]
+        else:
+            argv = [m.ROOT/'bin/fm-captain-hold.sh','answer',d['task_id']]
+        m.run([*argv,'--decision-file',decision_file],home,60)
+    elif d['source'] == 'worker':
+        # Use the same owning-home status ledger as a delivered keyed answer.
+        # A discard records the outcome without giving a worker an instruction.
+        status = home / f'state/{d["task_id"]}.status'
+        m.run(['bash','-c','''
+            source "$1"
+            source "$2"
+            shift
+            is_open() { status_open_decisions "$2" | cut -f1 | grep -Fxq -- "$3"; }
+            [ ! -L "$2" ] || exit 1
+            [ -f "$2" ] || exit 0
+            [ -r "$2" ] || exit 1
+            is_open "$@" || exit 0
+            rc=0
+            fm_wake_status_append_self_announced "$4" "$2" "resolved [key=$3]: $5" || rc=$?
+            [ "$rc" -ne 2 ] && ! is_open "$@"
+        ''','board',m.ROOT/'bin/fm-wake-lib.sh',m.ROOT/'bin/fm-classify-lib.sh',
+               status,d['decision_key'],home/'state',m.DISCARD_REASON],home)
+
+
+def mark_routing(b, a):
+    with b.write() as (c, changed):
+        claim = c.execute('UPDATE answers SET routing_at=? WHERE answer_id=? AND routing_at IS NULL AND cancelled_at IS NULL',
+                          (m.stamp(),a['answer_id']))
+        if not claim.rowcount:
+            return False
+        if a['action'] != 'correction':
+            c.execute("UPDATE decisions SET state='sent' WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?",
+                      (a['home_id'],a['task_id'],a['decision_key'],a['revision']))
+        changed[0] = True
+        return True
+
+
 def route(config):
     b = m.Board(config)
     exceptions = []
@@ -259,24 +302,32 @@ def route(config):
                         raise m.Invalid('correction requested; firstmate must review')
                     if a['routing_at']:
                         raise m.Invalid('previous route outcome uncertain; inspect before retry')
-                    if a['decision_key'] == 'default':
-                        raise m.Invalid('unkeyed decision; firstmate must review')
                     lifecycle_task = b.decision_lifecycle_task(c,d)
                     lifecycle = b.lifecycle_for(c,a['home_id'],lifecycle_task)
                     if lifecycle and (lifecycle['state'] != 'active' or lifecycle['pending_request_id']):
                         continue
                     target_home = b.homes[a['home_id']]
-                    options = json.loads(d['options'])
-                    wording = ' '.join(next((o['label'] for o in options if o['value'] == a['choice']),a['choice']).split())
-                    note = ' '.join(a['note'].split())
-                    answer_text = f'{wording} (note: {note})' if note else wording
-                    if a['choice'] == 'custom':
-                        answer_text = note
-                    if a['choice'] == 'request-options':
-                        answer_text = (f'Captain requested structured options for decision {a["decision_key"]}: '
-                            f'register 2-3 distinct alternatives with `bin/fm-board.sh decision {a["home_id"]} '
-                            f'{a["task_id"]} {a["decision_key"]} --option \'...\' --rec VALUE --why \'...\'` and stop; '
-                            'for an unknown factual input, omit --rec and use --why for the recommended verification step.')
+                if a['action'] in m.DECISION_ACTIONS:
+                    if not mark_routing(b, a):
+                        continue
+                    if a['action'] == 'discard':
+                        discard_card(b, target_home, d, aid)
+                    b.answered(aid)
+                    routed += 1
+                    continue
+                if a['decision_key'] == 'default':
+                    raise m.Invalid('unkeyed decision; firstmate must review')
+                options = json.loads(d['options'])
+                wording = ' '.join(next((o['label'] for o in options if o['value'] == a['choice']),a['choice']).split())
+                note = ' '.join(a['note'].split())
+                answer_text = f'{wording} (note: {note})' if note else wording
+                if a['choice'] == 'custom':
+                    answer_text = note
+                if a['choice'] == 'request-options':
+                    answer_text = (f'Captain requested structured options for decision {a["decision_key"]}: '
+                        f'register 2-3 distinct alternatives with `bin/fm-board.sh decision {a["home_id"]} '
+                        f'{a["task_id"]} {a["decision_key"]} --option \'...\' --rec VALUE --why \'...\'` and stop; '
+                        'for an unknown factual input, omit --rec and use --why for the recommended verification step.')
                 if d['source'] == 'hold' and a['choice'] != 'request-options':
                     argv = [m.ROOT/'bin/fm-decision-hold.sh','answers',d['origin_id'],'--source',f'board:{aid}']
                     stdin = f'{a["decision_key"]}\t{answer_text}\tCaptain dashboard\n'
@@ -289,10 +340,8 @@ def route(config):
                         argv += ['--resolve-key',a['decision_key']]
                     argv += [answer_text]
                     stdin = None
-                with b.write() as (c, changed):
-                    c.execute('UPDATE answers SET routing_at=? WHERE answer_id=?', (m.stamp(),aid))
-                    c.execute("UPDATE decisions SET state='sent' WHERE home_id=? AND task_id=? AND decision_key=? AND revision=?", (a['home_id'],a['task_id'],a['decision_key'],a['revision']))
-                    changed[0] = True
+                if not mark_routing(b, a):
+                    continue
                 m.run(argv,target_home,10,stdin)
                 m.run([m.ROOT/'bin/fm-board.sh','answered',aid,'--config',b.config_path],b.home)
                 routed += 1
